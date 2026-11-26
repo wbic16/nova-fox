@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1088" viewBox="0 0 1680 1088">
+<rect width="1680" height="1088" fill="#0f1218"/>
+<text x="40" y="46" font-family="DejaVu Sans" font-size="30" font-weight="bold" fill="#e8ecf4">Nova Fox — delivery cadence, 2026-11-26</text>
+<text x="40" y="78" font-family="DejaVu Sans" font-size="17" fill="#9aa7bd">Inception &#8594; built &#8594; shipped, in Exocortical Epochs (1 EE = 7 min) &#183; median inception&#8594;built 5 EE &#183; snapshot EE 969</text>
+<line x1="480.0" y1="104" x2="480.0" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="480.0" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">890</text>
+<line x1="614.1" y1="104" x2="614.1" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="614.1" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">900</text>
+<line x1="748.2" y1="104" x2="748.2" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="748.2" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">910</text>
+<line x1="882.4" y1="104" x2="882.4" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="882.4" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">920</text>
+<line x1="1016.5" y1="104" x2="1016.5" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="1016.5" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">930</text>
+<line x1="1150.6" y1="104" x2="1150.6" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="1150.6" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">940</text>
+<line x1="1284.7" y1="104" x2="1284.7" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="1284.7" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">950</text>
+<line x1="1418.8" y1="104" x2="1418.8" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="1418.8" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">960</text>
+<line x1="1552.9" y1="104" x2="1552.9" y2="1018" stroke="#232a38" stroke-width="1"/>
+<text x="1552.9" y="1046" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">970</text>
+<text x="1050.0" y="1074" font-family="DejaVu Sans" font-size="14" fill="#7d8aa0" text-anchor="middle">Exocortical Epoch</text>
+<line x1="1539.5" y1="104" x2="1539.5" y2="1018" stroke="#e8ecf4" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1533.5" y="96" font-family="DejaVu Sans" font-size="14" fill="#e8ecf4" text-anchor="end">now &#183; EE 969</text>
+<text x="466" y="141.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Sellable core (demo4)</text>
+<rect x="587.3" y="118" width="643.8" height="34" fill="#4da3ff"/>
+<rect x="1231.1" y="118" width="26.8" height="34" fill="#35b26a"/>
+<text x="1549.5" y="141.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">48 EE to build &#183; shipped 948 &#183; live EE 948</text>
+<text x="466" y="187.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Ladder shop (demo5)</text>
+<rect x="1257.9" y="164" width="26.8" height="34" fill="#4da3ff"/>
+<rect x="1284.7" y="164" width="254.8" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="187.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">2 EE to build &#183; waiting 19 EE</text>
+<text x="466" y="233.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Form editor (demo6)</text>
+<rect x="1298.1" y="210" width="134.1" height="34" fill="#4da3ff"/>
+<rect x="1432.2" y="210" width="107.3" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="233.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">10 EE to build &#183; waiting 8 EE</text>
+<text x="466" y="279.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Portals: diagnosis + fix (demo7)</text>
+<rect x="1311.5" y="256" width="187.8" height="34" fill="#4da3ff"/>
+<rect x="1499.3" y="256" width="40.2" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="279.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">14 EE to build &#183; waiting 3 EE</text>
+<text x="466" y="325.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Loading word trail (demo9)</text>
+<rect x="1338.4" y="302" width="53.6" height="34" fill="#4da3ff"/>
+<rect x="1392.0" y="302" width="147.5" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="325.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">4 EE to build &#183; waiting 11 EE</text>
+<text x="466" y="371.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Gravity + wooze (demo10)</text>
+<rect x="1338.4" y="348" width="67.1" height="34" fill="#4da3ff"/>
+<rect x="1405.4" y="348" width="134.1" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="371.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">5 EE to build &#183; waiting 10 EE</text>
+<text x="466" y="417.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Fox Vision (demo11)</text>
+<rect x="1351.8" y="394" width="107.3" height="34" fill="#4da3ff"/>
+<rect x="1459.1" y="394" width="80.5" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="417.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">8 EE to build &#183; waiting 6 EE</text>
+<text x="466" y="463.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Strike hint (demo12)</text>
+<rect x="1351.8" y="440" width="93.9" height="34" fill="#4da3ff"/>
+<rect x="1445.6" y="440" width="93.9" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="463.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">7 EE to build &#183; waiting 7 EE</text>
+<text x="466" y="509.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Esc menu (demo13)</text>
+<rect x="1351.8" y="486" width="187.8" height="34" fill="#5f6b80"/>
+<text x="1549.5" y="509.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">age 14 EE &#183; in flight</text>
+<text x="466" y="555.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">In-game console (demo15)</text>
+<rect x="1365.2" y="532" width="53.6" height="34" fill="#4da3ff"/>
+<rect x="1418.8" y="532" width="120.7" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="555.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">4 EE to build &#183; waiting 9 EE</text>
+<text x="466" y="601.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Speedrun modes (demo16)</text>
+<rect x="1365.2" y="578" width="147.5" height="34" fill="#4da3ff"/>
+<rect x="1512.7" y="578" width="26.8" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="601.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">11 EE to build &#183; waiting 2 EE</text>
+<text x="466" y="647.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Test client (REST/MCP)</text>
+<rect x="1392.0" y="624" width="147.5" height="34" fill="#5f6b80"/>
+<text x="1549.5" y="647.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">age 11 EE &#183; in flight</text>
+<text x="466" y="693.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Script inscription</text>
+<rect x="1392.0" y="670" width="13.4" height="34" fill="#4da3ff"/>
+<rect x="1405.4" y="670" width="134.1" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="693.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">1 EE to build &#183; waiting 10 EE &#183; into integration</text>
+<text x="466" y="739.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Joy recording (35 takes)</text>
+<rect x="1405.4" y="716" width="13.4" height="34" fill="#4da3ff"/>
+<rect x="1418.8" y="716" width="120.7" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="739.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">1 EE to build &#183; waiting 9 EE &#183; not wired yet</text>
+<text x="466" y="785.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Banter wiring (demo17)</text>
+<rect x="1405.4" y="762" width="93.9" height="34" fill="#4da3ff"/>
+<rect x="1499.3" y="762" width="40.2" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="785.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">7 EE to build &#183; waiting 3 EE</text>
+<text x="466" y="831.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Warp text (demo18)</text>
+<rect x="1418.8" y="808" width="40.2" height="34" fill="#4da3ff"/>
+<rect x="1459.1" y="808" width="80.5" height="34" fill="#8a6d3b" fill-opacity="0.55"/>
+<text x="1549.5" y="831.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">3 EE to build &#183; waiting 6 EE</text>
+<text x="466" y="877.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Repo canonical home</text>
+<rect x="1459.1" y="854" width="40.2" height="34" fill="#4da3ff"/>
+<rect x="1499.3" y="854" width="3.0" height="34" fill="#35b26a"/>
+<text x="1549.5" y="877.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">3 EE to build &#183; shipped 966 &#183; shipped</text>
+<text x="466" y="923.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Scheme preference (demo19)</text>
+<rect x="1459.1" y="900" width="80.5" height="34" fill="#5f6b80"/>
+<text x="1549.5" y="923.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">age 6 EE &#183; in flight</text>
+<text x="466" y="969.0" font-family="DejaVu Sans" font-size="16" fill="#c9d3e4" text-anchor="end">Current ship (merge + stage)</text>
+<rect x="1512.7" y="946" width="26.8" height="34" fill="#5f6b80"/>
+<text x="1549.5" y="969.0" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">age 2 EE &#183; in flight</text>
+<rect x="480" y="1009" width="20" height="14" fill="#4da3ff"/>
+<text x="507" y="1022" font-family="DejaVu Sans" font-size="14" fill="#c9d3e4">inception &#8594; built</text>
+<rect x="748" y="1009" width="20" height="14" fill="#35b26a"/>
+<text x="775" y="1022" font-family="DejaVu Sans" font-size="14" fill="#c9d3e4">built &#8594; shipped</text>
+<rect x="1016" y="1009" width="20" height="14" fill="#8a6d3b"/>
+<text x="1043" y="1022" font-family="DejaVu Sans" font-size="14" fill="#c9d3e4">built, waiting to ship</text>
+<rect x="1284" y="1009" width="20" height="14" fill="#5f6b80"/>
+<text x="1311" y="1022" font-family="DejaVu Sans" font-size="14" fill="#c9d3e4">in flight</text>
+</svg>
