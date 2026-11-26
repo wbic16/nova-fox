@@ -21,7 +21,7 @@ ROWS = [
     ("Joy recording (35 takes)",     959, 960, None, "not wired yet"),
     ("Banter wiring (demo17)",       959, 966, None, ""),
     ("Warp text (demo18)",           960, 963, None, ""),
-    ("Repo canonical home",          963, 966, 966, "shipped"),
+    ("Repo canonical home",          963, 966, 966, ""),
     ("Scheme preference (demo19)",   963, None, None, "in flight"),
     ("Current ship (merge + stage)", 967, None, None, "in flight"),
 ]
