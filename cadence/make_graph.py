@@ -25,7 +25,7 @@ ROWS = [
     ("Scheme preference (demo19)",   963, None, None, "in flight"),
     ("Current ship (merge + stage)", 967, None, None, "in flight"),
 ]
-W, LM, RM = 1680, 480, 60
+W, LM, RM = 1920, 480, 330
 TOP, RH, GAP = 118, 34, 12
 PW = W - LM - RM
 H = TOP + len(ROWS) * (RH + GAP) + 96
@@ -55,13 +55,15 @@ for i, (label, inc, built, ship, note) in enumerate(ROWS):
         s.append(f'<text x="{X(NOW)+10:.1f}" y="{cy+6}" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">age {NOW-inc} EE &#183; in flight</text>')
     else:
         s.append(f'<rect x="{X(inc):.1f}" y="{y}" width="{X(built)-X(inc):.1f}" height="{RH}" fill="{C_BUILD}"/>')
-        if ship is not None:
+        if label == "Script inscription":
+            tail = f'{built-inc} EE to build &#183; delivered into integration'
+        elif ship is not None:
             s.append(f'<rect x="{X(built):.1f}" y="{y}" width="{max(X(ship)-X(built),3):.1f}" height="{RH}" fill="{C_SHIP}"/>')
             tail = f'{built-inc} EE to build &#183; shipped {ship}'
         else:
             s.append(f'<rect x="{X(built):.1f}" y="{y}" width="{X(NOW)-X(built):.1f}" height="{RH}" fill="{C_OPEN}" fill-opacity="0.55"/>')
             tail = f'{built-inc} EE to build &#183; waiting {NOW-built} EE'
-        if note: tail += f' &#183; {note}'
+        if note and label != "Script inscription": tail += f' &#183; {note}'
         s.append(f'<text x="{X(NOW)+10:.1f}" y="{cy+6}" font-family="DejaVu Sans" font-size="14" fill="#8b96ab">{tail}</text>')
 # legend
 ly = H - 66
