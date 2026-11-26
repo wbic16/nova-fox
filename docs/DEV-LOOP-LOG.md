@@ -6,6 +6,13 @@ harvest → choose → design → build → test → ship → close.
 Streams rotate player-idea → monster → engine; player ideas
 oldest unshipped first._
 
+> **Scroll claims:** coordinates named in this log are historical as
+> written. The planner of record is `docs/SCROLL-REGISTRY.md` — gravity
+> `1.1.1/1.1.5/1.1.1`, forms `1.1.1/1.1.6/1.1.1` (Will, ratified
+> 2026-11-26), ideas allocated `1.1.1/1.1.7/1.1.1` (planner —
+> `ideaCoord` still at 1.1.6 in code must move before the idea door
+> merges into a forms-carrying tree).
+
 ## EE 952 — 2026-11-26 14:56 CST — HARVEST + CHOOSE (loop start)
 
 - **Log created.** No prior DEV-LOOP-LOG existed; no item was
@@ -530,3 +537,17 @@ oldest unshipped first._
   SHIP. If that e2e run fails on its merits, that is the
   item's second TEST failure and triggers the
   report-to-Will condition.
+
+## EE 974 — 2026-11-26 — SCROLL PLANNER (registry entry, not a loop tick)
+
+- `docs/SCROLL-REGISTRY.md` created: the single planner of record for
+  `nova-phox-world` scroll claims (full-repo audit, EE 974).
+- Ratified by Will 2026-11-26 17:30 CST: gravity keeps
+  `1.1.1/1.1.5/1.1.1`; forms move to `1.1.1/1.1.6/1.1.1` (applied in
+  the merged ship tree).
+- **Consequence for Item #1 (idea door):** `ideaCoord` at
+  `1.1.1/1.1.6/1.1.1` now collides with the ratified forms allocation.
+  Planner allocation: **ideas -> `1.1.1/1.1.7/1.1.1`**. The idea
+  door's next BUILD step must move `BACKEND.ideaCoord` to 1.1.7 before
+  this item can merge into any forms-carrying tree. No game code was
+  changed by the planner in this pass.

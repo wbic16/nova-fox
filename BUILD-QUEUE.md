@@ -35,3 +35,13 @@ its ship step. The dev loop's staged builds supersede per its own rules.
 - demo10 dev-loop idea door · demo11 Fox Vision · demo12 strike hint
 - demo13 Esc menu (8 items) · demo14 dev-loop integration · demo15 console
 - demo16 speedrun modes
+
+## Scroll claims
+Every build that writes or reads the shared chart (`nova-phox-world`)
+works from `docs/SCROLL-REGISTRY.md` — the planner of record for scroll
+coordinates. Builder briefs must cite the registry: the coordinates the
+build touches, by table row. New coordinates are allocated only by the
+planner, from the registry's free ranges, and the registry entry lands
+in the same commit as (or before) the first code that writes the
+coordinate. An unregistered write is a defect and blocks the merge that
+carries it. One owner per coordinate; coordinates are never reused.
