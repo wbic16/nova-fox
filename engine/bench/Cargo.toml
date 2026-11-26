@@ -1,0 +1,10 @@
+[package]
+name = "novafox-bench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libphext = "0.6.6"
+
+[profile.release]
+opt-level = 3

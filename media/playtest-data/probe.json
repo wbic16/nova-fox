@@ -1,0 +1,13 @@
+{
+ "arrived": false,
+ "seconds": 151.003,
+ "jumps": 13,
+ "end": {
+  "x": 22.3,
+  "y": 16,
+  "z": 17,
+  "moved": 122.1,
+  "hp": 4,
+  "dead": false
+ }
+}

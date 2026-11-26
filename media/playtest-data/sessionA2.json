@@ -1,0 +1,313 @@
+{
+ "milestones": {
+  "boot_interactive": 4.15,
+  "move_beat_start": 8.61,
+  "first_movement": 10.13,
+  "first_jump": 12.61,
+  "move_beat_done": 15.13,
+  "first_monster_encounter": 16.71,
+  "first_fight_won": 19.31,
+  "first_mark": 21.74,
+  "first_note": 23.71,
+  "first_chord_travel": 31.7,
+  "crossed_home": 43.95,
+  "first_gravity_flip": 44.93,
+  "first_gesture_travel": 81.53
+ },
+ "assists": 2,
+ "events": [
+  {
+   "t": 1.05,
+   "kind": "NAV",
+   "msg": "navigating to index.html"
+  },
+  {
+   "t": 4.15,
+   "kind": "MILESTONE",
+   "msg": "boot_interactive @ 4.15s"
+  },
+  {
+   "t": 6.11,
+   "kind": "SPAWN",
+   "msg": "realm=nova pos=(8.5,18,8.5) hp=20"
+  },
+  {
+   "t": 6.11,
+   "kind": "GUIDE",
+   "msg": "wake text: \"Wake up, fox. The galaxy is conquered — every star charted, every shore named. I am Emise; I keep the chart-line, and I'll walk with you a while.One thing the conquest never solved: the dark. Most of everything is dark, \""
+  },
+  {
+   "t": 7.71,
+   "kind": "SHOT",
+   "msg": "A2-01-spawn.png"
+  },
+  {
+   "t": 8.1,
+   "kind": "GUIDE",
+   "msg": "after click 1: beat=rifts text=\"And then the rifts opened — places where the dark touches the chart. Things arrive that shouldn't exist. Pages appear that no one wrote.You are standing on one. Nova Prime. Click t\""
+  },
+  {
+   "t": 8.61,
+   "kind": "MILESTONE",
+   "msg": "move_beat_start @ 8.61s",
+   "guide": "move"
+  },
+  {
+   "t": 8.61,
+   "kind": "GUIDE",
+   "msg": "after click 2: beat=move hint=\"Walk a little. Jump once. (Nothing can hurt you yet — learn your feet.)\" (0.9s of clicking/reading before movement is taught)"
+  },
+  {
+   "t": 10.13,
+   "kind": "MILESTONE",
+   "msg": "first_movement @ 10.13s",
+   "guide": "move"
+  },
+  {
+   "t": 12.61,
+   "kind": "MILESTONE",
+   "msg": "first_jump @ 12.61s",
+   "guide": "move"
+  },
+  {
+   "t": 15.13,
+   "kind": "MILESTONE",
+   "msg": "move_beat_done @ 15.13s",
+   "guide": "fight"
+  },
+  {
+   "t": 15.13,
+   "kind": "GUIDE",
+   "msg": "move beat ended: guide=fight moved=7 jumped=1 hint=\"Find the pale wisp. Face it. Click or F, twice.\""
+  },
+  {
+   "t": 15.14,
+   "kind": "HUNT",
+   "msg": "wisp cell-world pos (19,13); player at (19,8.5) — guide text says only \"east of where you woke\""
+  },
+  {
+   "t": 16.71,
+   "kind": "ARRIVE",
+   "msg": "the wisp at (19,11.6) after 1.6s"
+  },
+  {
+   "t": 16.71,
+   "kind": "MILESTONE",
+   "msg": "first_monster_encounter @ 16.71s",
+   "guide": "fight"
+  },
+  {
+   "t": 18.21,
+   "kind": "SHOT",
+   "msg": "A2-02-wisp.png"
+  },
+  {
+   "t": 19.02,
+   "kind": "STRIKE",
+   "msg": "after strike 1: wispKills=0 dmg=\"-1 · it holds\""
+  },
+  {
+   "t": 19.31,
+   "kind": "MILESTONE",
+   "msg": "first_fight_won @ 19.31s",
+   "guide": "mark"
+  },
+  {
+   "t": 19.42,
+   "kind": "WAL",
+   "msg": "ops so far: [\"genesis\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"press-in\",\"strike\",\"scar\"]"
+  },
+  {
+   "t": 19.42,
+   "kind": "GUIDE",
+   "msg": "beat=mark hint=\"Aim at a block. Press C — three strokes.\""
+  },
+  {
+   "t": 21.74,
+   "kind": "MILESTONE",
+   "msg": "first_mark @ 21.74s",
+   "guide": "numbers"
+  },
+  {
+   "t": 23.32,
+   "kind": "ARRIVE",
+   "msg": "the Star Lance at (16,11.9) after 1.5s"
+  },
+  {
+   "t": 23.32,
+   "kind": "ITEM",
+   "msg": "weapon=lance"
+  },
+  {
+   "t": 23.32,
+   "kind": "GUIDE",
+   "msg": "beat=numbers hint=\"Press a number key. Any one.\""
+  },
+  {
+   "t": 23.71,
+   "kind": "MILESTONE",
+   "msg": "first_note @ 23.71s",
+   "guide": "bridge"
+  },
+  {
+   "t": 23.72,
+   "kind": "GUIDE",
+   "msg": "beat=bridge text=\"Here is the first tune worth knowing: 1 · 4 · 9. Play the three numbers, in any order, close together.It is the bridge tune. Playing it opens a rift to Ashfall \""
+  },
+  {
+   "t": 25.44,
+   "kind": "CHORD",
+   "msg": "rift open after the tune: true at 1.7s from first key"
+  },
+  {
+   "t": 31.7,
+   "kind": "MILESTONE",
+   "msg": "first_chord_travel @ 31.7s",
+   "guide": "ashfall"
+  },
+  {
+   "t": 31.71,
+   "kind": "CHORD",
+   "msg": "bridge beat -> Ashfall in 8.0s from first key of the tune (tune + walk through the rift)"
+  },
+  {
+   "t": 33.11,
+   "kind": "SHOT",
+   "msg": "A2-03-ashfall.png"
+  },
+  {
+   "t": 33.13,
+   "kind": "GUIDE",
+   "msg": "ashfall beat text=\"Ash and red rock. Every page of the chart has its own weather, its own ground, its own temper.Things move in the dark here, as they do at home. Some of them you\" objective=\"Objective: play 1 · 4 · 9 to cross home\""
+  },
+  {
+   "t": 43.95,
+   "kind": "MILESTONE",
+   "msg": "crossed_home @ 43.95s",
+   "guide": "gravity"
+  },
+  {
+   "t": 44.93,
+   "kind": "MILESTONE",
+   "msg": "first_gravity_flip @ 44.93s",
+   "guide": "gesture"
+  },
+  {
+   "t": 64.94,
+   "kind": "TIMEOUT",
+   "msg": "ceiling landing"
+  },
+  {
+   "t": 64.94,
+   "kind": "GRAVITY",
+   "msg": "never reached the ceiling"
+  },
+  {
+   "t": 65.73,
+   "kind": "GRAVITY",
+   "msg": "restored, y=19"
+  },
+  {
+   "t": 81.53,
+   "kind": "MILESTONE",
+   "msg": "first_gesture_travel @ 81.53s",
+   "guide": "quest"
+  },
+  {
+   "t": 90.03,
+   "kind": "FIVEMIN",
+   "msg": "at 5:00-ish (t=90.0s): guide=quest milestones=boot_interactive,move_beat_start,first_movement,first_jump,move_beat_done,first_monster_encounter,first_fight_won,first_mark,first_note,first_chord_travel,crossed_home,first_gravity_flip,first_gesture_travel"
+  },
+  {
+   "t": 90.11,
+   "kind": "GUIDE",
+   "msg": "quest beat text=\"East of where you first woke, a hill rises over an old hall — the barrow. In its deep room lies the Deep Stone, and something keeps it.Reach the stone. What you earn there is written down, and what is\" hint=\"East, to the barrow. Reach the Deep Stone.\""
+  },
+  {
+   "t": 180.33,
+   "kind": "TIMEOUT",
+   "msg": "walkTo the barrow shaft top (last pos 27.4,21)"
+  },
+  {
+   "t": 180.4,
+   "kind": "ASSIST",
+   "msg": "#1 teleportTo(45,31) — barrow not reached by walking in 90s"
+  },
+  {
+   "t": 183.05,
+   "kind": "SHOT",
+   "msg": "A2-04-barrow.png"
+  },
+  {
+   "t": 213.53,
+   "kind": "DESCENT",
+   "msg": "still at y=16 after 30s in the shaft"
+  },
+  {
+   "t": 213.53,
+   "kind": "ASSIST",
+   "msg": "#2 teleportTo(58,35) — shaft descent did not reach the deep room"
+  },
+  {
+   "t": 214.84,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone at (59.4,35.5) after 0.9s"
+  },
+  {
+   "t": 215.53,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone (retry) at (59.4,35.5) after 0.0s"
+  },
+  {
+   "t": 215.63,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone (retry) at (59.4,35.5) after 0.0s"
+  },
+  {
+   "t": 215.71,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone (retry) at (59.4,35.5) after 0.1s"
+  },
+  {
+   "t": 216,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone (retry) at (59.4,35.5) after 0.1s"
+  },
+  {
+   "t": 216.01,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone (retry) at (59.4,35.5) after 0.0s"
+  },
+  {
+   "t": 216.02,
+   "kind": "ARRIVE",
+   "msg": "the Deep Stone (retry) at (59.4,35.5) after 0.0s"
+  },
+  {
+   "t": 216.22,
+   "kind": "QUEST",
+   "msg": "questDone=false hp=8 score=575 walOps=[\"genesis\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"press-in\",\"strike\",\"scar\",\"chisel\",\"press-in\",\"break\",\"pickup\",\"press-in\",\"tune\",\"cross\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"scroll\",\"trail\",\"tune\",\"cross\",\"trail\",\"press-in\",\"press-in\",\"warp\",\"press-in\",\"press-in\",\"warp\",\"tune\",\"cross\",\"trail\",\"tune\",\"trail\",\"scroll\",\"scroll\",\"scroll\",\"cross\",\"trail\",\"press-in\",\"press-in\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"press-in\",\"contact\",\"return\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"return\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"return\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"return\",\"contact\",\"contact\",\"contact\",\"contact\",\"contact\",\"return\",\"contact\",\"contact\"]"
+  },
+  {
+   "t": 218.11,
+   "kind": "SHOT",
+   "msg": "A2-05-deepstone.png"
+  },
+  {
+   "t": 218.12,
+   "kind": "FPS",
+   "msg": "[{\"t\":7,\"fps\":5},{\"t\":9,\"fps\":2},{\"t\":11,\"fps\":4},{\"t\":14,\"fps\":5},{\"t\":16,\"fps\":5},{\"t\":18,\"fps\":5},{\"t\":20,\"fps\":4},{\"t\":22,\"fps\":5},{\"t\":24,\"fps\":4},{\"t\":27,\"fps\":4},{\"t\":29,\"fps\":3},{\"t\":31,\"fps\":4},{\"t\":33,\"fps\":5},{\"t\":35,\"fps\":4},{\"t\":37,\"fps\":4},{\"t\":40,\"fps\":3},{\"t\":42,\"fps\":3},{\"t\":44,\"fps\":4},{\"t\":46,\"fps\":4},{\"t\":48,\"fps\":4},{\"t\":50,\"fps\":5},{\"t\":52,\"fps\":5},{\"t\":55,\"fps\":5},{\"t\":57,\"fps\":5},{\"t\":59,\"fps\":5},{\"t\":61,\"fps\":4},{\"t\":63,\"fps\":5},{\"t\":65,\"fps\":4},{\"t\":67,\"fps\":4},{\"t\":69,\"fps\":4},{\"t\":72,\"fps\":5},{\"t\":74,\"fps\":5},{\"t\":76,\"fps\":4},{\"t\":78,\"fps\":3},{\"t\":80,\"fps\":4},{\"t\":82,\"fps\":4},{\"t\":85,\"fps\":3},{\"t\":87,\"fps\":3},{\"t\":89,\"fps\":3},{\"t\":91,\"fps\":4},{\"t\":93,\"fps\":4},{\"t\":95,\"fps\":4},{\"t\":97,\"fps\":4},{\"t\":99,\"fps\":4},{\"t\":101,\"fps\":3},{\"t\":104,\"fps\":4},{\"t\":106,\"fps\":3},{\"t\":108,\"fps\":3},{\"t\":110,\"fps\":4},{\"t\":112,\"fps\":4},{\"t\":114,\"fps\":3},{\"t\":116,\"fps\":4},{\"t\":119,\"fps\":3},{\"t\":121,\"fps\":3},{\"t\":123,\"fps\":3},{\"t\":125,\"fps\":4},{\"t\":127,\"fps\":4},{\"t\":129,\"fps\":4},{\"t\":131,\"fps\":4},{\"t\":133,\"fps\":4},{\"t\":136,\"fps\":4},{\"t\":138,\"fps\":3},{\"t\":140,\"fps\":3},{\"t\":143,\"fps\":4},{\"t\":145,\"fps\":5},{\"t\":147,\"fps\":5},{\"t\":149,\"fps\":4},{\"t\":151,\"fps\":5},{\"t\":153,\"fps\":4},{\"t\":155,\"fps\":3},{\"t\":158,\"fps\":3},{\"t\":160,\"fps\":3},{\"t\":162,\"fps\":3},{\"t\":164,\"fps\":3},{\"t\":166,\"fps\":4},{\"t\":169,\"fps\":3},{\"t\":171,\"fps\":3},{\"t\":173,\"fps\":4},{\"t\":176,\"fps\":3},{\"t\":178,\"fps\":2},{\"t\":180,\"fps\":2},{\"t\":182,\"fps\":3},{\"t\":184,\"fps\":4},{\"t\":187,\"fps\":3},{\"t\":189,\"fps\":3},{\"t\":191,\"fps\":4},{\"t\":193,\"fps\":4},{\"t\":196,\"fps\":4},{\"t\":198,\"fps\":2},{\"t\":200,\"fps\":3},{\"t\":202,\"fps\":3},{\"t\":205,\"fps\":4},{\"t\":207,\"fps\":4},{\"t\":209,\"fps\":3},{\"t\":211,\"fps\":4},{\"t\":213,\"fps\":4},{\"t\":215,\"fps\":4}]"
+  },
+  {
+   "t": 218.12,
+   "kind": "ERRORS",
+   "msg": "console errors: 0 "
+  },
+  {
+   "t": 218.12,
+   "kind": "SUMMARY",
+   "msg": "assists=2 milestones={\"boot_interactive\":4.15,\"move_beat_start\":8.61,\"first_movement\":10.13,\"first_jump\":12.61,\"move_beat_done\":15.13,\"first_monster_encounter\":16.71,\"first_fight_won\":19.31,\"first_mark\":21.74,\"first_note\":23.71,\"first_chord_travel\":31.7,\"crossed_home\":43.95,\"first_gravity_flip\":44.93,\"first_gesture_travel\":81.53}"
+  }
+ ],
+ "consoleErrors": []
+}

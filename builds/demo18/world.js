@@ -1,0 +1,1493 @@
+// Nova Fox demo2 — the world module: subspace physics + generation.
+//
+// Two halves, one rule (Will's clarification, REVIEW-1 #4):
+//
+//   * PHYSICS lives entirely in subspace. Per-scroll Life grids step
+//     here; monsters step here; gravity is a per-scroll fact stored
+//     here; nearby scrolls act on yours non-locally — the Life step
+//     reads across scroll borders, and monsters cross them.
+//   * The 3D world is GENERATED from that state: genChunk() is a pure
+//     function of (realm seed, the scroll states it touches, chunk
+//     coordinates). Same state in -> same blocks out. The view layer
+//     (game2.js) holds no world truth of its own; it meshes what this
+//     module generates and reports events back for inscription.
+//
+// The deterministic kernels (seed hash, foam, Life step) run in the
+// WASM core (core.rs, carried over from demo v1) when it instantiates,
+// with bit-identical JS fallbacks — same algorithms either way.
+//
+// v3 physics note (Will's feedback #6): the world below does not
+// switch, it ACCELERATES. Life density and neighbor pressure feed a
+// per-cell GROWTH level that ramps toward its target a few percent
+// per tick; generation reads the growth level, so crystal and bloom
+// creep in over many ticks and ebb the same way. Nothing derived
+// pops in or out of existence. Inscriptions (overrides, scars,
+// chisel work, the log itself) are the opposite: instant, permanent,
+// exactly as written — Law 8.
+//
+// The inscription log is the demo's stand-in for runtime WAL segments:
+// every consequential event appends a segment, in order, and nothing
+// inscribed is ever removed. (On-disk WAL + snapshot/replay and the
+// phext-lattice resident world are MVP steps 2-3, as in v1's plan.)
+
+// ---------- constants -------------------------------------------------
+
+export const WORLD_H = 64; // block columns are y in [0, WORLD_H)
+export const CHUNK = 16; // chunk edge, in blocks
+export const SCROLL = 64; // scroll edge, in blocks (4x4 chunks)
+export const LIFE_N = 32; // Life grid edge, in cells (1 cell = 2 blocks)
+export const CEIL_Y = 46; // riftstone vault underside when gravity flips
+
+export const BLOCK = {
+  AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WOOD: 4, LEAF: 5,
+  ASH: 6, REDROCK: 7, BASALT: 8, EMBER: 9, BRICK: 10,
+  DEEPSTONE: 11, SCAR: 12, CRYSTAL: 13, VAULT: 14, BEDROCK: 15,
+  SANDSTONE: 16,
+  // v5 (feedback #10): two more faces for the world to wear. MOSS
+  // caps Nova Prime's lush patches; SHALE bands Ashfall's strata.
+  MOSS: 17, SHALE: 18,
+};
+const SOLID = new Set(Object.values(BLOCK).filter((v) => v !== 0));
+export function isSolid(b) {
+  return SOLID.has(b);
+}
+
+// ---------- realms ------------------------------------------------------
+// Nova Prime is home. The other ten take the names of the first ten
+// ranch nodes (wiring.phext record order) — REVIEW-1 #12. Only the
+// first two are open in this demo slice; the rest are named and shut.
+
+// ---------- realms ------------------------------------------------------
+// Nova Prime is home. The other ten take the names of the first ten
+// ranch nodes (wiring.phext record order) — REVIEW-1 #12. Only the
+// first two are open in this demo slice; the rest are named and shut.
+//
+// Each realm also carries a subspace coordinate — WHERE it sits in
+// the 9-component phext space (Will, 2026-11-24: "everything in
+// this world is derived from subspace, not simply 'inspired' by
+// it"). No written source places the realms, so the positions are
+// derived from the SHAPE of CYOA (choose-your-own-adventure.phext,
+// 829 content scrolls) itself, by one mechanical rule: the realms,
+// in the order above, take the landmarks of CYOA's skeleton in
+// corridor/reading order — the entry scroll (1.1.1/1.1.1/1.1.1),
+// the Mytheon Arena corridor (Welcome, Basic Orientation, Choose
+// Your First Scroll), the four exits the corridor names — and then,
+// for the remaining realms, the anchors (lowest coordinate) of
+// CYOA's largest remaining library clusters (library 90, 175
+// scrolls; library 3, 97; library 7, 78 — library 1's anchor is the
+// entry itself, already taken). One honesty flag: the corridor's
+// four exit coordinates are written in the corridor scroll but no
+// scroll was ever written AT them — the shape names those doors
+// without filling them. Every other landmark is an occupied scroll.
+// Distances are the lattice's own: the Euclidean length of the
+// coordinate difference. The portal ring's geometry is a function
+// of that difference (riftRingGeometry, below; game3.js renders it).
+
+export const REALMS = [
+  { id: "nova", name: "Nova Prime", seed: "nova-prime", open: true, coord: [1, 1, 1, 1, 1, 1, 1, 1, 1] },
+  { id: "ashfall", name: "Ashfall Haven", seed: "ashfall-haven", open: true, coord: [10, 10, 1, 1, 1, 1, 1, 10, 10] },
+  { id: "ni-knight", name: "Ni-Knight", seed: "ni-knight", open: false, coord: [10, 10, 2, 1, 1, 1, 1, 10, 10] },
+  { id: "logos", name: "Logos Prime", seed: "logos-prime", open: false, coord: [10, 10, 3, 1, 1, 1, 1, 10, 10] },
+  { id: "elven", name: "Elven Path", seed: "elven-path", open: false, coord: [10, 1, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "orchid", name: "Orchid Flow", seed: "orchid-flow", open: false, coord: [1, 10, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "halycon", name: "Halycon Vector", seed: "halycon-vector", open: false, coord: [2, 10, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "delta", name: "Delta Wood", seed: "delta-wood", open: false, coord: [3, 10, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "willow", name: "Best Willow", seed: "best-willow", open: false, coord: [90, 1, 1, 1, 1, 1, 1, 1, 1] },
+  { id: "plain", name: "Plain View", seed: "plain-view", open: false, coord: [3, 1, 1, 1, 1, 1, 7, 7, 7] },
+  { id: "trust", name: "Trust Fall", seed: "trust-fall", open: false, coord: [7, 1, 1, 1, 1, 1, 1, 1, 1] },
+];
+export function realmById(id) {
+  return REALMS.find((r) => r.id === id);
+}
+// A realm's subspace coordinate (a copy — callers may not rewrite
+// the map), or null for an unknown id.
+export function realmCoord(id) {
+  const r = realmById(id);
+  return r ? [...r.coord] : null;
+}
+// The coordinate difference B − A in the 9-component space: the
+// jump a rift between the two realms actually spans.
+export function subspaceDelta(idA, idB) {
+  const a = realmCoord(idA), b = realmCoord(idB);
+  return b.map((v, i) => v - a[i]);
+}
+// The subspace distance between two realms: the Euclidean length
+// of their coordinate difference — the straight line through the
+// lattice, the metric the space itself carries.
+export function subspaceDistance(idA, idB) {
+  return Math.hypot(...subspaceDelta(idA, idB));
+}
+// The geometry of a rift ring between two realms, as a pure
+// function of their coordinate difference — no table: any pair's
+// ring is computed from the pair's own coordinates. The ring's
+// SIZE carries the distance (radius grows with the jump and
+// saturates, so the farthest doors stay walkable: 1.00 for a
+// within-realm hop, ~1.56 for Nova→Ashfall, ~2.03 for the widest
+// jump the shape affords); its FACETS carry the difference's
+// support (one step of smoothness per axis the jump crosses);
+// tube and disc keep the proportions of the ring as built.
+export function riftRingGeometry(idA, idB) {
+  const delta = subspaceDelta(idA, idB);
+  const distance = Math.hypot(...delta);
+  const axes = delta.filter((v) => v !== 0).length;
+  const radius = 1 + 1.3 * (distance / (distance + 24));
+  return {
+    delta, distance, axes, radius,
+    tube: radius * (0.07 / 1.55),
+    disc: radius * (1.46 / 1.55),
+    segments: 24 + 3 * axes,
+  };
+}
+// Where a crossing lands you in each open realm (block x, z).
+export const ARRIVAL = { nova: { x: 8, z: 8 }, ashfall: { x: 8, z: 8 } };
+
+// The bridge tune: the one chord the guide teaches. In Nova Prime it
+// crosses to Ashfall Haven; in Ashfall Haven it crosses home.
+export const BRIDGE_CHORD = [1, 4, 9];
+
+// ---------- realm palettes (feedback #27) --------------------------------
+// Will, 2026-11-22 23:09: "each level the user jumps to needs to
+// feel different — a different color palette — only 10 of them."
+// Exactly ten entries, one per ranch-named realm. Nova Prime is
+// home — the starting realm — and keeps the palette-v4 identity
+// (PALETTE-V4.md) as the built-in HOME_PALETTE below; paletteFor()
+// resolves any realm id to its palette, home included. The view
+// applies a palette whole on realm entry: void + fog (the sky a
+// player sees — the engine has no gradient skybox), hemisphere and
+// sun light, the atlas hue/sat re-skin of every block tile, a
+// material tint, and two accents (the primary also colors a rift
+// ring that leads there). Departures are hue changes, never mere
+// brightness steps; every realm stays OLED-dark so the HUD keeps
+// its contrast. See PALETTES-10.md for the design table.
+export const HOME_PALETTE = {
+  void: 0x000000, fog: 0x020814, fogNear: 34, fogFar: 110,
+  hemiSky: 0x8fd0ff, hemiGround: 0x0a1a33, hemiI: 0.95,
+  sun: 0xbfe3ff, sunI: 1.6,
+  accent: 0x00d9ff, accent2: 0x2979ff,
+  hue: 0, sat: 1.0, tint: 0xffffff,
+};
+export const REALM_PALETTES = {
+  ashfall: {
+    void: 0x000000, fog: 0x140301, fogNear: 26, fogFar: 88,
+    hemiSky: 0xc97a4e, hemiGround: 0x180602, hemiI: 0.7,
+    sun: 0xff9a5c, sunI: 1.25,
+    accent: 0xff7a00, accent2: 0xffd23f,
+    hue: 165, sat: 1.05, tint: 0xffe3cf,
+  },
+  "ni-knight": {
+    void: 0x000000, fog: 0x06030f, fogNear: 30, fogFar: 100,
+    hemiSky: 0x8a76d6, hemiGround: 0x0a0618, hemiI: 0.8,
+    sun: 0xa98fff, sunI: 1.35,
+    accent: 0x8b5cff, accent2: 0xc9a7ff,
+    hue: 55, sat: 1.0, tint: 0xe6dcff,
+  },
+  logos: {
+    void: 0x000000, fog: 0x0c0700, fogNear: 32, fogFar: 105,
+    hemiSky: 0xd6b25e, hemiGround: 0x171002, hemiI: 0.85,
+    sun: 0xffd76a, sunI: 1.55,
+    accent: 0xffc400, accent2: 0xffe082,
+    hue: 195, sat: 1.0, tint: 0xfff0c2,
+  },
+  elven: {
+    void: 0x000000, fog: 0x02100a, fogNear: 30, fogFar: 100,
+    hemiSky: 0x5ec98d, hemiGround: 0x04150a, hemiI: 0.8,
+    sun: 0x8fffca, sunI: 1.3,
+    accent: 0x2effa8, accent2: 0xa8ffd9,
+    hue: -65, sat: 1.05, tint: 0xd2ffe6,
+  },
+  orchid: {
+    void: 0x000000, fog: 0x10030c, fogNear: 30, fogFar: 98,
+    hemiSky: 0xd65ec0, hemiGround: 0x150410, hemiI: 0.8,
+    sun: 0xff8fe8, sunI: 1.35,
+    accent: 0xff4fd8, accent2: 0xffa8ef,
+    hue: 105, sat: 1.05, tint: 0xffd9f6,
+  },
+  halycon: {
+    void: 0x000000, fog: 0x050b0e, fogNear: 36, fogFar: 120,
+    hemiSky: 0xcfeeff, hemiGround: 0x0a1418, hemiI: 1.1,
+    sun: 0xeafcff, sunI: 1.85,
+    accent: 0xaee6ff, accent2: 0xeafcff,
+    hue: -15, sat: 0.55, tint: 0xf4fbff,
+  },
+  delta: {
+    void: 0x000000, fog: 0x02100e, fogNear: 30, fogFar: 102,
+    hemiSky: 0x4ec9bb, hemiGround: 0x03120e, hemiI: 0.85,
+    sun: 0x9ffce8, sunI: 1.4,
+    accent: 0x00ffd0, accent2: 0x8ffcf0,
+    hue: -32, sat: 1.1, tint: 0xd8fff4,
+  },
+  willow: {
+    void: 0x000000, fog: 0x080c02, fogNear: 30, fogFar: 100,
+    hemiSky: 0xa4d65e, hemiGround: 0x101602, hemiI: 0.85,
+    sun: 0xd9ff8f, sunI: 1.45,
+    accent: 0xb6ff2e, accent2: 0xe2ffa8,
+    hue: -125, sat: 1.0, tint: 0xf0ffd2,
+  },
+  plain: {
+    void: 0x000000, fog: 0x050505, fogNear: 32, fogFar: 108,
+    hemiSky: 0xcfd8dc, hemiGround: 0x0c0e10, hemiI: 0.95,
+    sun: 0xf2f2f2, sunI: 1.7,
+    accent: 0xe8e8e8, accent2: 0x9fb6c9,
+    hue: 0, sat: 0.12, tint: 0xf5f5f5,
+  },
+  trust: {
+    void: 0x000000, fog: 0x0d0206, fogNear: 28, fogFar: 92,
+    hemiSky: 0xd65e7a, hemiGround: 0x150308, hemiI: 0.75,
+    sun: 0xff5c7a, sunI: 1.3,
+    accent: 0xff2e63, accent2: 0xff8fab,
+    hue: 140, sat: 1.05, tint: 0xffd9e0,
+  },
+};
+export function paletteFor(realmId) {
+  return REALM_PALETTES[realmId] || HOME_PALETTE;
+}
+
+// ---------- the quest (Nova Prime): the Deep Stone ----------------------
+// A generated dungeon pocket inside scroll (0,0) of Nova Prime:
+// a hall under the hill, a glowing deep stone at its far end, and a
+// guardian the subspace keeps there.
+
+export const DUNGEON = {
+  realm: "nova",
+  x0: 40, x1: 63, z0: 26, z1: 45, // footprint (blocks, inclusive)
+  floorY: 4, ceilY: 10, // hall interior: floor top at floorY+1
+  shaftX: 44, shaftZ: 30, // entrance shaft (3x3), from the surface down
+  deepStone: { x: 60, y: 6, z: 35 }, // the goal block (on a pedestal)
+  guardianCell: { gx: 27, gy: 19 }, // global Life-cell coords of the guardian
+};
+export function inDungeon(x, z) {
+  return x >= DUNGEON.x0 && x <= DUNGEON.x1 && z >= DUNGEON.z0 && z <= DUNGEON.z1;
+}
+
+// ---------- things placed in the world: a weapon, three charms --------
+// Feedback #9: a real weapon beyond the bare strike, and powerups
+// with visible effects, placed so a first session meets both. The
+// Star Lance waits in Nova Prime's spawn scroll, in plain sight of
+// Arrival; the charms sit one per place a first session visits.
+// Placement is deterministic (seed hashes), like everything else.
+
+export const ITEM_DEFS = {
+  lance: {
+    kind: "lance", name: "the Star Lance", weapon: true,
+    range: 7.5, damage: 2,
+    blurb: "it reaches farther and hits harder",
+  },
+  swift: {
+    kind: "swift", name: "the Swift Charm", weapon: false,
+    blurb: "your stride lengthens — the meadow goes by quicker",
+  },
+  ward: {
+    kind: "ward", name: "the Ward Charm", weapon: false,
+    blurb: "it will turn one blow aside for you",
+  },
+  bright: {
+    kind: "bright", name: "the Bright Charm", weapon: false,
+    blurb: "the glimpses last longer; the dark gives up its shapes sooner",
+  },
+};
+// Where each item stands: {realmId, bx, bz} in block coords. The
+// view computes the standing height; the hall charm sits on the
+// barrow floor (fixed y handled there too).
+export const ITEM_SPOTS = {
+  lance: { realmId: "nova", bx: 15, bz: 12 },
+  bright: { realmId: "nova", bx: 24, bz: 6 },
+  swift: { realmId: "ashfall", bx: 13, bz: 11 },
+  ward: { realmId: "nova", bx: 52, bz: 35, y: DUNGEON.floorY + 1 },
+};
+
+// ---------- deterministic kernels (JS fallbacks, bit-identical) --------
+
+function scramble(h) {
+  h = (h ^ (h << 13)) >>> 0;
+  h = (h ^ (h >>> 17)) >>> 0;
+  h = (h ^ (h << 5)) >>> 0;
+  return h >>> 0;
+}
+function xorshift(s) {
+  s = (s ^ (s << 13)) >>> 0;
+  s = (s ^ (s >>> 17)) >>> 0;
+  s = (s ^ (s << 5)) >>> 0;
+  return s >>> 0;
+}
+const _enc = new TextEncoder();
+
+export function hashStringJS(str) {
+  let h = 2166136261 >>> 0;
+  for (const b of _enc.encode(str)) {
+    h = Math.imul(h ^ b, 16777619) >>> 0;
+  }
+  return scramble(h);
+}
+export function genFoamJS(seed, w, h) {
+  let s = scramble((seed ^ 0x9e3779b9) >>> 0);
+  if (s === 0) s = 0x2545f491;
+  const out = new Array(w * h);
+  for ( let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) out[i] = "=";
+      else {
+        s = xorshift(s);
+        out[i] = s % 100 < 30 ? "=" : " ";
+      }
+    }
+  }
+  return out.join("");
+}
+export function lifeStepJS(layer, w, h) {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && layer[ny * w + nx]) n++;
+        }
+      }
+      const alive = layer[y * w + x] !== 0;
+      out[y * w + x] = alive ? (n === 2 || n === 3 ? 1 : 0) : n === 3 ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+export const kernels = {
+  usingWasm: false,
+  _ex: null,
+  _mem: null,
+  async init(wasmBytes) {
+    if (wasmBytes) {
+      try {
+        const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+        this._ex = instance.exports;
+        this._mem = this._ex.memory;
+        this.usingWasm = true;
+        return true;
+      } catch (e) {
+        this.usingWasm = false;
+      }
+    }
+    return false;
+  },
+  _in(n) {
+    return new Uint8Array(this._mem.buffer, this._ex.in_ptr(), n);
+  },
+  _out(n) {
+    return new Uint8Array(this._mem.buffer, this._ex.out_ptr(), n);
+  },
+  hash(str) {
+    if (this.usingWasm) {
+      const bytes = _enc.encode(str);
+      this._in(bytes.length).set(bytes);
+      return this._ex.hash_bytes(bytes.length) >>> 0;
+    }
+    return hashStringJS(str);
+  },
+  foam(seed, w, h) {
+    if (this.usingWasm) {
+      this._ex.gen_foam(seed >>> 0, w, h);
+      return String.fromCharCode(...this._out(w * h));
+    }
+    return genFoamJS(seed, w, h);
+  },
+  life(layer, w, h) {
+    if (this.usingWasm) {
+      this._in(layer.length).set(layer);
+      this._ex.life_step(w, h);
+      return new Uint8Array(this._out(w * h));
+    }
+    return lifeStepJS(layer, w, h);
+  },
+};
+
+// ---------- small deterministic noise (terrain) --------------------------
+
+// Lattice value noise over block coords, from the seed hash. Pure.
+function latticeHash(seedStr, x, z) {
+  return kernels.hash(`${seedStr}|${x},${z}`) / 4294967296;
+}
+function vnoise(seedStr, x, z, cell) {
+  const gx = Math.floor(x / cell), gz = Math.floor(z / cell);
+  const fx = x / cell - gx, fz = z / cell - gz;
+  const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+  const a = latticeHash(seedStr, gx, gz), b = latticeHash(seedStr, gx + 1, gz);
+  const c = latticeHash(seedStr, gx, gz + 1), d = latticeHash(seedStr, gx + 1, gz + 1);
+  return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+}
+
+// Surface height of a column, from the realm seed alone (Life never
+// moves the ground itself — it grows features on it; see genChunk).
+export function heightAt(realmId, x, z) {
+  const r = realmById(realmId);
+  const n1 = vnoise(`${r.seed}|h1`, x, z, 18);
+  const n2 = vnoise(`${r.seed}|h2`, x, z, 5);
+  if (realmId === "ashfall") {
+    // Sharper, more rugged: ridged noise.
+    const ridge = 1 - Math.abs(2 * n1 - 1);
+    return Math.max(4, Math.floor(9 + ridge * ridge * 13 + n2 * 3));
+  }
+  let h = Math.floor(11 + n1 * 7 + n2 * 2.5);
+  // The Deep Stone barrow: a raised hill over the dungeon footprint,
+  // so the hall always has rock above its ceiling.
+  if (x >= DUNGEON.x0 - 2 && x <= DUNGEON.x1 + 2 &&
+      z >= DUNGEON.z0 - 2 && z <= DUNGEON.z1 + 2) {
+    h += 7;
+  }
+  return h;
+}
+
+// ---------- scroll coordinates -------------------------------------------
+// Blocks -> scrolls -> Life cells, all in "global" per-realm coords.
+
+export function scrollOfBlock(b) {
+  return Math.floor(b / SCROLL);
+}
+export function cellOfBlock(b) {
+  return Math.floor(b / 2);
+}
+function scrollKey(realmId, sx, sy) {
+  return `${realmId}|${sx},${sy}`;
+}
+
+// ---------- the subspace ---------------------------------------------------
+// One Subspace holds every realm's live scroll states, the monsters,
+// the block overrides (scars), and the inscription log. The game view
+// reads generation inputs from here and reports events back here.
+
+export class Subspace {
+  constructor() {
+    this.scrolls = new Map(); // scrollKey -> ScrollState
+    this.monsters = []; // monster records (see spawnMonster)
+    this.overrides = new Map(); // realmId -> Map("x,y,z" -> block)
+    this.wal = []; // inscription segments, in order
+    this.seq = 0;
+    this.tickCount = 0;
+    this.hatGranted = false;
+    this.questDone = false;
+    this.growth = new Map(); // "realm|gx,gy" -> 0..1 growth level (ramps, never snaps)
+    this.chisel = new Map(); // realmId -> Map("x,y,z" -> 1|2) sub-block shaping
+    this.items = []; // placed things (weapon + charms), see ITEM_DEFS
+    this.dailyClaimed = new Set(); // date strings whose daily pocket was reached
+    this.realmGravity = new Map(); // realmId -> +1|-1: down, remembered per WORLD (v5, feedback #25)
+    this._itemsPlaced = new Set(); // realmIds whose (0,0)-scroll items exist
+    this.genesisLife = null; // total alive cells when the first scrolls opened
+    this._monsterSeq = 0;
+    this.log("genesis", "the chart", "the world is loaded; the dark is counted, not empty");
+  }
+
+  log(op, where, detail) {
+    this.wal.push({ seq: ++this.seq, op, where, detail });
+  }
+
+  // --- scrolls ---------------------------------------------------------
+
+  getScroll(realmId, sx, sy, create = true) {
+    const key = scrollKey(realmId, sx, sy);
+    let s = this.scrolls.get(key);
+    if (!s && create) s = this._createScroll(realmId, sx, sy);
+    return s || null;
+  }
+
+  _createScroll(realmId, sx, sy) {
+    const r = realmById(realmId);
+    const seed = kernels.hash(`${r.seed}|scroll|${sx},${sy}`);
+    const foam = kernels.foam(seed, LIFE_N, LIFE_N);
+    let grid = new Uint8Array(LIFE_N * LIFE_N);
+    for (let i = 0; i < foam.length; i++) grid[i] = foam[i] === "=" ? 1 : 0;
+    // Pockets arrive already grown: evolve before anyone enters.
+    for (let i = 0; i < 12; i++) grid = kernels.life(grid, LIFE_N, LIFE_N);
+    const s = {
+      realmId, sx, sy, seed,
+      grid, // Uint8Array LIFE_N*LIFE_N — the scroll's living state
+      gravDir: 1, // +1: down is -y. -1: down is +y (the place remembers)
+      born: this.tickCount,
+    };
+    this.scrolls.set(scrollKey(realmId, sx, sy), s);
+    this.log("scroll", `${r.name} ${sx},${sy}`,
+      `a page of the chart opens (${this.lifeOf(s)} living cells)`);
+    if (this.genesisLife === null) {
+      // Baseline for the escalation law, taken once the spawn
+      // neighborhood exists (the game ensures 3x3 at boot).
+      let total = 0;
+      for (const sc of this.scrolls.values()) total += this.lifeOf(sc);
+      if (this.scrolls.size >= 9) this.genesisLife = total;
+    }
+    // Monsters live in subspace from the start: most scrolls hold one.
+    if (kernels.hash(`${r.seed}|mon|${sx},${sy}`) % 100 < 70) {
+      const gx = sx * LIFE_N + 6 + (kernels.hash(`${r.seed}|mx|${sx},${sy}`) % 20);
+      const gy = sy * LIFE_N + 6 + (kernels.hash(`${r.seed}|my|${sx},${sy}`) % 20);
+      this.spawnMonster(realmId, gx, gy, "surface");
+    }
+    if (realmId === DUNGEON.realm && sx === 0 && sy === 0) {
+      this.spawnMonster(realmId, DUNGEON.guardianCell.gx, DUNGEON.guardianCell.gy,
+        "guardian");
+    }
+    if (sx === 0 && sy === 0 && !this._itemsPlaced.has(realmId)) {
+      this._itemsPlaced.add(realmId);
+      for (const def of Object.values(ITEM_DEFS)) {
+        const spot = ITEM_SPOTS[def.kind];
+        if (spot.realmId !== realmId) continue;
+        this.items.push({
+          id: def.kind, kind: def.kind, realmId,
+          bx: spot.bx, bz: spot.bz, y: spot.y ?? null, taken: false,
+        });
+      }
+    }
+    return s;
+  }
+
+  // Take a placed thing. Returns the def exactly once; after that the
+  // thing is yours and the place no longer holds it. The taking is
+  // inscribed — written outlasts shown, for gear as for scars.
+  pickupItem(id) {
+    const it = this.items.find((i) => i.id === id && !i.taken);
+    if (!it) return null;
+    it.taken = true;
+    const def = ITEM_DEFS[it.kind];
+    this.log("pickup", realmById(it.realmId).name,
+      `${def.name} is taken up — ${def.blurb}`);
+    return def;
+  }
+  itemAt(realmId, bx, bz, radius = 1.6) {
+    for (const it of this.items) {
+      if (it.taken || it.realmId !== realmId) continue;
+      if (Math.abs(it.bx + 0.5 - bx) <= radius && Math.abs(it.bz + 0.5 - bz) <= radius) {
+        return it;
+      }
+    }
+    return null;
+  }
+
+  // The growth level of one global cell (0 when nothing grows there).
+  growthAt(realmId, gx, gy) {
+    return this.growth.get(`${realmId}|${gx},${gy}`) || 0;
+  }
+
+  lifeOf(scroll) {
+    let n = 0;
+    for (let i = 0; i < scroll.grid.length; i++) n += scroll.grid[i];
+    return n;
+  }
+  totalLife() {
+    let n = 0;
+    for (const s of this.scrolls.values()) n += this.lifeOf(s);
+    return n;
+  }
+  // The escalation law, demo measure: monster speed follows the size
+  // of the living world — Life-cell total across opened scrolls.
+  monsterSpeed() {
+    if (this.genesisLife === null) return 1;
+    return this.totalLife() >= this.genesisLife * 2 ? 2 : 1;
+  }
+
+  // Read one Life cell in GLOBAL cell coords (crosses scroll borders
+  // transparently — this is what makes the physics non-local).
+  cellAlive(realmId, gx, gy, create = false) {
+    const sx = Math.floor(gx / LIFE_N), sy = Math.floor(gy / LIFE_N);
+    const s = this.getScroll(realmId, sx, sy, create);
+    if (!s) return 0;
+    const lx = gx - sx * LIFE_N, ly = gy - sy * LIFE_N;
+    return s.grid[ly * LIFE_N + lx];
+  }
+  // Density of living cells in the 3x3 neighborhood of a global cell.
+  cellDensity(realmId, gx, gy) {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++)
+        n += this.cellAlive(realmId, gx + dx, gy + dy, false);
+    return n;
+  }
+
+  // --- physics tick ------------------------------------------------------
+  // One tick of the world's own physics, all of it in subspace:
+  //   1. Life steps on every live scroll, with neighbor counts read
+  //      across scroll borders (non-local coupling — a birth on your
+  //      edge can be caused by cells in the next scroll).
+  //   2. Monsters step toward the player (largest-gap axis), in cell
+  //      space; crossing a scroll border is a press-in, and is logged.
+  //   3. Visibility phases advance (a monster is *there* — visible and
+  //      dangerous — one phase in three: its slice agreeing with yours).
+  // player: {realmId, bx, bz} in block coords, or null.
+  //
+  // v5 (feedback #8): the tick is LOCAL. With a player present, only
+  // the scrolls in the player's neighborhood (their realm, within one
+  // scroll in every direction) step Life and growth; scrolls farther
+  // off sleep, and catch up in bounded steps when the neighborhood
+  // reaches them again — the dormancy PHYSICS Law 5's engine note
+  // already proposed for monsters, applied to the whole physics.
+  // With no player (tests, tools), every scroll steps, as before.
+  tick(player) {
+    this.tickCount++;
+    let live = [...this.scrolls.values()];
+    if (player) {
+      const psx = scrollOfBlock(player.bx), psy = scrollOfBlock(player.bz);
+      const active = [];
+      for (const s of live) {
+        const near = s.realmId === player.realmId &&
+          Math.abs(s.sx - psx) <= 1 && Math.abs(s.sy - psy) <= 1;
+        if (near) {
+          // Catch-up: a scroll that slept steps its own Life forward
+          // in bounded strides (its borders read as they are now —
+          // an approximation the growth ramp forgives), then rejoins
+          // the coupled step below.
+          const missed = s.missedTicks || 0;
+          if (missed > 0) {
+            const strides = Math.min(missed, 24);
+            for (let i = 0; i < strides; i++) {
+              s.grid = kernels.life(s.grid, LIFE_N, LIFE_N);
+            }
+            s.missedTicks = 0;
+          }
+          active.push(s);
+        } else {
+          s.missedTicks = (s.missedTicks || 0) + 1;
+        }
+      }
+      live = active;
+    }
+    // Life, coupled. Snapshot the stepping grids first so every
+    // active scroll steps from the same instant; a sleeping
+    // neighbor's border reads its last state.
+    const snaps = new Map();
+    for (const s of live) snaps.set(scrollKey(s.realmId, s.sx, s.sy), s.grid);
+    const aliveIn = (realmId, gx, gy) => {
+      const sx = Math.floor(gx / LIFE_N), sy = Math.floor(gy / LIFE_N);
+      const g = snaps.get(scrollKey(realmId, sx, sy)) ||
+        (this.getScroll(realmId, sx, sy, false) || {}).grid;
+      if (!g) return 0;
+      return g[(gy - sy * LIFE_N) * LIFE_N + (gx - sx * LIFE_N)];
+    };
+    for (const s of live) {
+      const next = new Uint8Array(LIFE_N * LIFE_N);
+      const ox = s.sx * LIFE_N, oy = s.sy * LIFE_N;
+      for (let ly = 0; ly < LIFE_N; ly++) {
+        for (let lx = 0; lx < LIFE_N; lx++) {
+          const gx = ox + lx, gy = oy + ly;
+          let n = 0;
+          for (let dy = -1; dy <= 1; dy++)
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              n += aliveIn(s.realmId, gx + dx, gy + dy);
+            }
+          const alive = s.grid[ly * LIFE_N + lx] !== 0;
+          next[ly * LIFE_N + lx] = alive ? (n === 2 || n === 3 ? 1 : 0) : n === 3 ? 1 : 0;
+        }
+      }
+      s.grid = next;
+    }
+    // Growth: the accelerator, not the switch (feedback #6). Every
+    // living cell carries a growth level that leans a few percent
+    // per tick toward what the local pattern would support — dense
+    // Life and hard neighbor pressure raise the target; a thinning
+    // pattern lowers it, and the growth ebbs just as gradually.
+    // Generation reads the level, so features creep and recede over
+    // ~half a minute of ticks instead of popping.
+    for (const s of live) {
+      const ox = s.sx * LIFE_N, oy = s.sy * LIFE_N;
+      const pcache = new Map();
+      for (let ly = 0; ly < LIFE_N; ly++) {
+        for (let lx = 0; lx < LIFE_N; lx++) {
+          const gx = ox + lx, gy = oy + ly;
+          const density = this.cellDensity(s.realmId, gx, gy);
+          let target = Math.max(0, (density - 3) / 4);
+          const pressure = borderPressure(this, s.realmId, gx, gy, pcache);
+          if (pressure >= 0.45) target = Math.max(target, pressure);
+          const key = `${s.realmId}|${gx},${gy}`;
+          const cur = this.growth.get(key) || 0;
+          if (target === 0 && cur === 0) continue;
+          const next = cur + (target - cur) * 0.07;
+          if (next < 0.01 && target === 0) this.growth.delete(key);
+          else this.growth.set(key, next);
+        }
+      }
+    }
+    // Monsters. A thing of the dark hunts the ground it haunts —
+    // and only that ground. (Playtest 1, 2026-11-22: homing had no
+    // range limit and nothing ever despawned, so every scroll a
+    // player ever visited converged on the fox — a fleeing,
+    // non-fighting player died twice in a 7-minute watch, and
+    // exploration itself was the punishment. Mario's worlds are
+    // safe to wander; the threat must be local.) Within its haunt
+    // a monster steps toward the player; beyond it, the
+    // monster drifts back to where it rose and rests there. The
+    // haunt radius is 48 cells (a scroll and a half): the unit
+    // suite convicts anything smaller — a monster a full scroll
+    // away is established to still be coming (press-in test).
+    //
+    // v5 (feedback #1): and things DO leave. A monster that has
+    // rested at its rise-place, unwatched, for a long while sinks
+    // back into the dark it came from — the record goes, the place
+    // keeps only what was written in it (scars stay; a cleared
+    // ground stays cleared). The dead are reaped on the same
+    // schedule: a struck-out record lingers ~a minute so the view
+    // can finish with it, then it is gone from the roll. Neither
+    // ever happens near the player: "unwatched" means the player
+    // is in another realm or at least two scrolls away.
+    const speed = this.monsterSpeed();
+    for (const m of this.monsters) {
+      if (!m.alive) continue;
+      if (m.kind === "wisp") continue; // it waits where it was set; it is for learning on
+      m.phase = (m.phase + 1) % 3;
+      if (!player || player.realmId !== m.realmId) continue;
+      if (m.hx === undefined) { m.hx = m.gx; m.hy = m.gy; }
+      const pcx = cellOfBlock(player.bx), pcy = cellOfBlock(player.bz);
+      const ddx = pcx - m.gx, ddy = pcy - m.gy;
+      if (ddx * ddx + ddy * ddy <= 48 * 48) {
+        for (let step = 0; step < speed; step++) this._monsterStep(m, pcx, pcy);
+      } else if (m.gx !== m.hx || m.gy !== m.hy) {
+        for (let step = 0; step < speed; step++) this._monsterStep(m, m.hx, m.hy);
+      }
+    }
+    // Despawn and reaping (v5, feedback #1).
+    if (this.monsters.length) {
+      const psx = player ? scrollOfBlock(player.bx) : 0;
+      const psy = player ? scrollOfBlock(player.bz) : 0;
+      const kept = [];
+      for (const m of this.monsters) {
+        if (!m.alive) {
+          // Reap the dead once the view has had its minute.
+          if (this.tickCount - (m.diedAt ?? this.tickCount) > 90) continue;
+          kept.push(m);
+          continue;
+        }
+        if (m.kind === "surface") {
+          if (m.hx === undefined) { m.hx = m.gx; m.hy = m.gy; }
+          const atHome = m.gx === m.hx && m.gy === m.hy;
+          const msx = Math.floor(m.gx / LIFE_N), msy = Math.floor(m.gy / LIFE_N);
+          const unwatched = !player || player.realmId !== m.realmId ||
+            Math.max(Math.abs(msx - psx), Math.abs(msy - psy)) >= 2;
+          if (atHome && unwatched) {
+            m.restTicks = (m.restTicks || 0) + 1;
+            if (m.restTicks > 150) {
+              this.log("fade", `${realmById(m.realmId).name} ${m.gx * 2 + 1},${m.gy * 2 + 1}`,
+                "unwatched, the dark thing sinks back into the dark");
+              continue; // it is gone
+            }
+          } else {
+            m.restTicks = 0;
+          }
+        }
+        kept.push(m);
+      }
+      this.monsters = kept;
+    }
+  }
+
+  _monsterStep(m, pcx, pcy) {
+    const dx = pcx - m.gx, dy = pcy - m.gy;
+    if (dx === 0 && dy === 0) return;
+    const axes =
+      Math.abs(dx) >= Math.abs(dy)
+        ? [{ x: Math.sign(dx), y: 0 }, { x: 0, y: Math.sign(dy) }]
+        : [{ x: 0, y: Math.sign(dy) }, { x: Math.sign(dx), y: 0 }];
+    const fromScroll = `${Math.floor(m.gx / LIFE_N)},${Math.floor(m.gy / LIFE_N)}`;
+    for (const a of axes) {
+      if (a.x === 0 && a.y === 0) continue;
+      const nx = m.gx + a.x, ny = m.gy + a.y;
+      if (!this._monsterPassable(m, nx, ny)) continue;
+      m.gx = nx;
+      m.gy = ny;
+      const toScroll = `${Math.floor(m.gx / LIFE_N)},${Math.floor(m.gy / LIFE_N)}`;
+      if (toScroll !== fromScroll) {
+        this.log("press-in", `${realmById(m.realmId).name} ${toScroll}`,
+          "the dark thing crosses from the next page, unfelt until seen");
+      }
+      return;
+    }
+  }
+
+  // Recoil after contact: step away from the player, in subspace.
+  _monsterStepBack(m, away) {
+    const tries = [
+      { x: away.x, y: 0 }, { x: 0, y: away.y }, { x: away.x, y: away.y },
+    ];
+    for (const a of tries) {
+      if (a.x === 0 && a.y === 0) continue;
+      const nx = m.gx + a.x, ny = m.gy + a.y;
+      if (this._monsterPassable(m, nx, ny)) {
+        m.gx = nx;
+        m.gy = ny;
+        return;
+      }
+    }
+  }
+
+  _monsterPassable(m, gx, gy) {
+    const bx = gx * 2 + 1, bz = gy * 2 + 1;
+    if (m.kind === "guardian") {
+      // The guardian keeps the hall.
+      return bx >= DUNGEON.x0 + 1 && bx <= DUNGEON.x1 - 1 &&
+        bz >= DUNGEON.z0 + 1 && bz <= DUNGEON.z1 - 1;
+    }
+    // Surface things walk the surface: a step is fine if the ground
+    // doesn't jump by more than a body-height.
+    const cur = heightAt(m.realmId, m.gx * 2 + 1, m.gy * 2 + 1);
+    const nxt = heightAt(m.realmId, bx, bz);
+    return Math.abs(nxt - cur) <= 3;
+  }
+
+  // --- monsters ------------------------------------------------------------
+
+  spawnMonster(realmId, gx, gy, kind) {
+    const m = {
+      id: ++this._monsterSeq, realmId, gx, gy, kind,
+      nativeRealmId: realmId, // where it rose; carrying never rewrites this
+      hx: gx, hy: gy, // where it rose; where it rests (v5 despawn)
+      restTicks: 0,
+      phase: 1 + (kernels.hash(`phase|${this._monsterSeq}`) % 2),
+      alive: true,
+      hp: kind === "guardian" ? 3 : kind === "wisp" ? 2 : 1,
+    };
+    this.monsters.push(m);
+    return m;
+  }
+  // Carrying (Will, 2026-11-24): "monsters start out native to
+  // different regions of subspace, but can be carried across by
+  // the rifts players open." A carried thing thereafter LIVES in
+  // the region it was carried to: its haunt (hx, hy) moves with
+  // it, so the step and despawn logic treats it as a resident of
+  // the new ground — it hunts there, drifts home there, and rests
+  // and fades there like anything that rose there. Nativeness
+  // does not move: nativeRealmId still names where it rose, and
+  // carrying never rewrites it. Only 'surface' monsters are
+  // carriable — wisps wait where they were set, and the guardian
+  // keeps its hall.
+  carryMonster(m, toRealmId, gx, gy) {
+    if (!m || !m.alive) return false;
+    if (m.kind === "wisp" || m.kind === "guardian") return false;
+    const nativeId = m.nativeRealmId ?? m.realmId;
+    m.realmId = toRealmId;
+    m.gx = gx;
+    m.gy = gy;
+    m.hx = gx;
+    m.hy = gy;
+    m.restTicks = 0;
+    this.log("carry", `${realmById(toRealmId).name} ${gx * 2 + 1},${gy * 2 + 1}`,
+      `the dark thing is carried through a rift from ${realmById(nativeId).name}, where it rose, to ${realmById(toRealmId).name}, where it now lives`);
+    return true;
+  }
+  monsterVisible(m) {
+    if (!m.alive) return false;
+    if (m.kind === "wisp") return true; // the training thing stays in the light
+    return m.phase === 0;
+  }
+  // A strike that lands: the thing is edited out of the world, and
+  // the place keeps the scar — an override the generator will honor
+  // on every future derivation of that chunk.
+  strikeMonster(m) {
+    if (!m.alive) return false;
+    m.hp--;
+    if (m.hp > 0) {
+      this.log("strike", realmById(m.realmId).name,
+        `the ${m.kind === "guardian" ? "guardian" : "dark thing"} is struck and holds (${m.hp} left)`);
+      return false;
+    }
+    m.alive = false;
+    m.diedAt = this.tickCount; // the reaper's clock (v5, feedback #1)
+    const bx = m.gx * 2 + 1, bz = m.gy * 2 + 1;
+    const by = m.kind === "guardian" ? DUNGEON.floorY + 1 : heightAt(m.realmId, bx, bz) + 1;
+    this.setOverride(m.realmId, bx, by, bz, BLOCK.SCAR);
+    this.log("scar", `${realmById(m.realmId).name} ${bx},${bz}`,
+      "struck out of the world; the place keeps the scar");
+    return true;
+  }
+
+  // --- gravity ---------------------------------------------------------------
+  // v5 (feedback #25): down is remembered per WORLD, not per page.
+  // A flip anywhere in a realm is the realm's down everywhere in
+  // it, from then on — the memory lives on the realm, and every
+  // scroll of the realm is kept in step with it. (PHYSICS Law 3
+  // frames the naming as per-room; the per-world ruling is the
+  // wider memory, and the law's text is Will's to amend — see
+  // V5-REPORT.md.) Scrolls created before any flip still carry
+  // their own gravDir, which gravityOf honors until the realm's
+  // first flip sets the realm memory.
+
+  gravityOf(realmId, sx, sy) {
+    const remembered = this.realmGravity.get(realmId);
+    if (remembered !== undefined) return remembered;
+    const s = this.getScroll(realmId, sx, sy, false);
+    return s ? s.gravDir : 1;
+  }
+  flipGravity(realmId, sx, sy) {
+    const next = -this.gravityOf(realmId, sx, sy);
+    this.realmGravity.set(realmId, next);
+    for (const s of this.scrolls.values()) {
+      if (s.realmId === realmId) s.gravDir = next;
+    }
+    this.log("warp", realmById(realmId).name,
+      `down is now ${next > 0 ? "down" : "up"} across the whole realm — the world remembers`);
+    return next;
+  }
+  // Attune this view to a gravity the SHARED chart declares (the
+  // gravity scroll, demo10): the realm's down as read back from
+  // subspace, applied without a flip's inscription — reading is not
+  // writing. Every scroll of the realm is kept in step, exactly as
+  // a flip keeps them. Returns true when the realm's down actually
+  // changed under this call.
+  applyRealmGravity(realmId, dir) {
+    const next = dir < 0 ? -1 : 1;
+    const changed = this.realmGravity.get(realmId) !== next;
+    this.realmGravity.set(realmId, next);
+    for (const s of this.scrolls.values()) {
+      if (s.realmId === realmId) s.gravDir = next;
+    }
+    return changed;
+  }
+
+  // --- overrides (scars and other inscribed block edits) ----------------------
+
+  setOverride(realmId, x, y, z, block) {
+    if (!this.overrides.has(realmId)) this.overrides.set(realmId, new Map());
+    this.overrides.get(realmId).set(`${x},${y},${z}`, block);
+  }
+  getOverride(realmId, x, y, z) {
+    const m = this.overrides.get(realmId);
+    return m ? m.get(`${x},${y},${z}`) : undefined;
+  }
+
+  // --- the chisel: granular deformation (feedback #10) ------------------
+  // A block is not all-or-nothing any more. Each chisel stroke shapes
+  // it down a level (the view draws it shrunk by its level); the
+  // third stroke breaks it, and the breaking is an inscription — an
+  // AIR override the generator honors forever. Shaping is written
+  // too: levels live here, in the world truth, not in the view.
+  chiselLevel(realmId, x, y, z) {
+    const m = this.chisel.get(realmId);
+    return m ? m.get(`${x},${y},${z}`) || 0 : 0;
+  }
+  chiselBlock(realmId, x, y, z) {
+    const b = baseBlockAt(this, realmId, x, y, z);
+    // v5 (feedback #11): a refusal now NAMES itself. There is no
+    // depth limit and never was — three different things refuse,
+    // and the view can finally say which one it was.
+    if (b === BLOCK.BEDROCK) return { ok: false, level: 0, broke: false, reason: "bedrock" };
+    if (b === BLOCK.DEEPSTONE) return { ok: false, level: 0, broke: false, reason: "deepstone" };
+    if (b === BLOCK.AIR) return { ok: false, level: 0, broke: false, reason: "air" };
+    if (this.getOverride(realmId, x, y, z) === BLOCK.AIR) {
+      return { ok: false, level: 3, broke: true, reason: "gone" };
+    }
+    if (!this.chisel.has(realmId)) this.chisel.set(realmId, new Map());
+    const m = this.chisel.get(realmId);
+    const key = `${x},${y},${z}`;
+    const level = (m.get(key) || 0) + 1;
+    if (level >= 3) {
+      m.delete(key);
+      this.setOverride(realmId, x, y, z, BLOCK.AIR);
+      this.log("break", `${realmById(realmId).name} ${x},${y},${z}`,
+        "shaped down and broken through — the mark stays");
+      return { ok: true, level: 3, broke: true };
+    }
+    m.set(key, level);
+    if (level === 1) {
+      this.log("chisel", `${realmById(realmId).name} ${x},${y},${z}`,
+        "a finer mark than a block: the chisel shapes the world by degrees");
+    }
+    return { ok: true, level, broke: false };
+  }
+
+  // --- the quest ----------------------------------------------------------------
+
+
+  // Returns true exactly once: the moment the player first reaches
+  // the deep stone. The prize is an inscription — a hat, granted in
+  // the log, worn in the view.
+  checkQuest(bx, by, bz) {
+    if (this.questDone) return false;
+    const d = DUNGEON.deepStone;
+    const near =
+      Math.abs(bx - d.x) <= 2 && Math.abs(bz - d.z) <= 2 && Math.abs(by - d.y) <= 3;
+    if (!near) return false;
+    this.questDone = true;
+    this.hatGranted = true;
+    this.log("quest", "the Deep Stone",
+      "the deep stone is reached — the chart itself bows");
+    this.log("grant", "the Deep Stone",
+      "a hat is granted, and written down: it stays");
+    return true;
+  }
+}
+
+// ---------- gravity on the shared chart (demo10) --------------------------
+// Will's ruling (2026-11-26): gravity is stored in subspace on a
+// per-realm basis — a real change, not a local flag — and a player
+// may shift a realm's gravity at most once per day per realm. The
+// store is one append-only scroll on the shared chart phext (the
+// gravity scroll): every shift is one line, and the realm's current
+// down is its LATEST line — the scroll is the realm's memory, held
+// in common by every fox. The shift lines double as the rate-limit
+// ledger: a line naming this realm, this player, this day is the
+// spent shift. Pure record logic lives here so the headless tests
+// exercise exactly what the game decides with.
+//
+// Line shape: grav|<realmId>|<dir>|<player>|<day>|<ts>
+//   dir: 1 (down is down) or -1 (down is up); day: YYYY-MM-DD local.
+
+export function gravityShiftLine(realmId, dir, player, day, ts) {
+  return `grav|${realmId}|${dir < 0 ? -1 : 1}|${player}|${day}|${ts}`;
+}
+
+export function parseGravityScroll(text) {
+  if (!text) return [];
+  const out = [];
+  for (const ln of String(text).split("\n")) {
+    const parts = ln.split("|");
+    if (parts.length !== 6 || parts[0] !== "grav") continue;
+    const [, realmId, dirRaw, player, day, tsRaw] = parts;
+    const dir = Number(dirRaw), ts = Number(tsRaw);
+    if (!realmId || !player || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    if (dir !== 1 && dir !== -1) continue;
+    if (!Number.isFinite(ts)) continue;
+    out.push({ realmId, dir, player, day, ts });
+  }
+  return out;
+}
+
+// The realm's current down, per the records: the last record for a
+// realm (in the order given) is its truth. Callers who merge
+// read-back rows with still-queued local records order the array
+// so the newest act stands last.
+export function latestGravityByRealm(records) {
+  const by = new Map();
+  for (const r of records || []) by.set(r.realmId, r);
+  return by;
+}
+
+// One shift per player per realm per day, judged against the
+// records — read-back and queued alike, so a shift still in the
+// outbox already counts as spent.
+export function gravityShiftAllowed(records, realmId, player, day) {
+  for (const r of records || []) {
+    if (r.realmId === realmId && r.player === player && r.day === day) return false;
+  }
+  return true;
+}
+
+// ---------- the brush: shaping at more than one size (feedback #4) --------
+// The chisel used to speak to one block at a time. A brush is a
+// small volume of blocks shaped together with one stroke: the four
+// sizes Will named — a single block, then 2x2x3, 3x3x2, 4x4x2
+// (width x height x depth). The volume hangs on the block you aim
+// at: width and height spread across the face you are looking at,
+// depth reaches INTO the material, away from you. Pure geometry —
+// the view aims, this module lays out the volume, chiselBlock
+// judges each block in it on its own merits.
+export const BRUSHES = [
+  { id: "one", label: "single block", dims: [1, 1, 1] },
+  { id: "flat", label: "2 by 2 by 3", dims: [2, 2, 3] },
+  { id: "wide", label: "3 by 3 by 2", dims: [3, 3, 2] },
+  { id: "grand", label: "4 by 4 by 2", dims: [4, 4, 2] },
+];
+export function brushBlocks(brush, x, y, z, dir) {
+  const [w, h, d] = brush.dims;
+  // The face axis: the aim's dominant component. The face normal
+  // points back toward the player; depth runs the other way.
+  const ax = Math.abs(dir.x), ay = Math.abs(dir.y), az = Math.abs(dir.z);
+  const axis = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+  const into = [0, 0, 0];
+  into[axis] = (axis === 0 ? dir.x : axis === 1 ? dir.y : dir.z) > 0 ? 1 : -1;
+  const tangents = [0, 1, 2].filter((a) => a !== axis);
+  // Centered offsets: odd sizes straddle the target evenly; even
+  // sizes lean one step toward the positive tangent.
+  const off = (n) => {
+    const s = -Math.floor((n - 1) / 2);
+    return Array.from({ length: n }, (_, i) => s + i);
+  };
+  const wo = off(w), ho = off(h);
+  const cells = [];
+  const base = [x, y, z];
+  for (let depth = 0; depth < d; depth++) {
+    for (const a of wo) {
+      for (const b of ho) {
+        const p = [...base];
+        p[axis] += into[axis] * depth;
+        p[tangents[0]] += a;
+        p[tangents[1]] += b;
+        cells.push(p);
+      }
+    }
+  }
+  return cells;
+}
+
+// ---------- chords: the instrument is the teleport -------------------------
+
+// Given the player's realm, the realm-scroll they stand in, and a
+// played chord (3 distinct note numbers, any order), where does the
+// tune take them? Pure and deterministic.
+//   -> {type:'realm', realmId}          the bridge tune, realm-crossing
+//   -> {type:'pocket', realmId, sx, sy} a page of the same realm
+//   -> {type:'stay'}                    the tune of the page you are on
+export function chordTarget(sub, realmId, sx, sy, chord, currentChord) {
+  const sorted = [...chord].sort((a, b) => a - b);
+  const isBridge =
+    sorted.length === BRIDGE_CHORD.length &&
+    sorted.every((n, i) => n === BRIDGE_CHORD[i]);
+  if (isBridge) {
+    if (realmId === "nova") return { type: "realm", realmId: "ashfall" };
+    if (realmId === "ashfall") return { type: "realm", realmId: "nova" };
+  }
+  if (currentChord &&
+      sorted.length === currentChord.length &&
+      sorted.every((n, i) => n === currentChord[i])) {
+    return { type: "stay" };
+  }
+  const h = kernels.hash(`${realmId}|chord|${sorted.join(",")}`);
+  let dx = (h % 5) - 2;
+  let dy = ((h >> 3) % 5) - 2;
+  if (dx === 0 && dy === 0) dx = 1;
+  return { type: "pocket", realmId, sx: sx + dx, sy: sy + dy, chord: sorted };
+}
+
+// ---------- generation: subspace state -> voxel chunks ----------------------
+
+// Block at a world position from the BASE generation only (terrain +
+// dungeon + vault), without Life features or overrides. Used by the
+// generator itself and by view-layer collision fallback. Callers
+// generating whole columns pass the column height `h` in — heightAt
+// is the expensive call and must run once per column, not per block.
+export function baseBlockAt(sub, realmId, x, y, z, h = heightAt(realmId, x, z)) {
+  if (y < 0 || y >= WORLD_H) return BLOCK.AIR;
+  if (y === 0) return BLOCK.BEDROCK;
+  // The dungeon is carved into Nova Prime's hill country.
+  if (realmId === DUNGEON.realm && inDungeon(x, z)) {
+    const db = dungeonBlockAt(x, y, z, h);
+    if (db !== null) return db;
+  }
+  if (y > h) {
+    // The riftstone vault: generated only where the place's gravity
+    // is turned — the ceiling exists because subspace says down is up.
+    const sx = scrollOfBlock(x), sy = scrollOfBlock(z);
+    if (sub.gravityOf(realmId, sx, sy) < 0 && (y === CEIL_Y || y === CEIL_Y + 1)) {
+      return BLOCK.VAULT;
+    }
+    return BLOCK.AIR;
+  }
+  if (realmId === "ashfall") {
+    if (y === h) return BLOCK.ASH;
+    if (y >= h - 2) return BLOCK.REDROCK;
+    // v5 (feedback #10): shale bands cut the strata every eleven
+    // layers, so a cliff face reads as geology, not wallpaper.
+    if (y % 11 === 4 || y % 11 === 5) return BLOCK.SHALE;
+    return y % 7 < 3 ? BLOCK.BASALT : BLOCK.STONE;
+  }
+  if (y === h) {
+    // v5 (feedback #10, #16): the meadow has character now — lush
+    // patches wear moss, dry flats wear sandstone, and the two
+    // noises disagree enough that the patches wander organically.
+    const lush = vnoise(`${realmById(realmId).seed}|lush`, x, z, 9);
+    if (lush > 0.62) return BLOCK.MOSS;
+    const dry = vnoise(`${realmById(realmId).seed}|dry`, x, z, 14);
+    if (dry > 0.66) return BLOCK.SANDSTONE;
+    return BLOCK.GRASS;
+  }
+  if (y >= h - 3) return BLOCK.DIRT;
+  return BLOCK.STONE;
+}
+
+// The dungeon overlay. Returns a block, or null for "carve air here"
+// handled by the caller via the CARVE sentinel: we return -1 for air
+// that must override terrain.
+const CARVE = -1;
+function dungeonBlockAt(x, y, z, surfaceH) {
+  const D = DUNGEON;
+  const inShaft =
+    x >= D.shaftX && x < D.shaftX + 3 && z >= D.shaftZ && z < D.shaftZ + 3;
+  const inHall = x > D.x0 && x < D.x1 && z > D.z0 && z < D.z1;
+  if (inShaft && y > D.ceilY) {
+    // The way down: open air, with one foothold brick per level
+    // walking the shaft's perimeter — a spiral you can climb back up,
+    // one jump at a time. The center stays open for the drop.
+    if (y >= surfaceH) return CARVE;
+    const href = heightAt(DUNGEON.realm, D.shaftX + 1, D.shaftZ + 1);
+    const PERIM = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
+    const pi = (((href - y) % 8) + 8) % 8;
+    const [px, pz] = PERIM[pi];
+    if (x - D.shaftX === px && z - D.shaftZ === pz) return BLOCK.BRICK;
+    return CARVE;
+  }
+  if (x === D.x0 || x === D.x1 || z === D.z0 || z === D.z1) {
+    if (y > D.floorY && y <= D.ceilY + 1) return BLOCK.BRICK; // hall walls
+    return null;
+  }
+  if (inHall) {
+    if (y === D.floorY) return BLOCK.BRICK; // hall floor
+    if (y === D.ceilY + 1) return BLOCK.BRICK; // hall ceiling (rock above)
+    if (y > D.floorY && y <= D.ceilY) {
+      // The deep stone on its pedestal.
+      if (x === D.deepStone.x && z === D.deepStone.z) {
+        if (y === D.deepStone.y - 1) return BLOCK.STONE;
+        if (y === D.deepStone.y) return BLOCK.DEEPSTONE;
+      }
+      // A few pillars, deterministic.
+      if ((x - D.x0) % 8 === 4 && (z - D.z0) % 9 === 5) return BLOCK.BRICK;
+      return CARVE;
+    }
+  }
+  return null;
+}
+
+// How hard the neighbor across the nearest border is pressing in:
+// the alive fraction of the neighbor scroll's edge line adjacent to
+// this cell's scroll, when the cell is within 2 cells of that border.
+const _edgeCol = (scroll, col) => {
+  let n = 0;
+  for (let i = 0; i < LIFE_N; i++) n += scroll.grid[i * LIFE_N + col];
+  return n / LIFE_N;
+};
+const _edgeRow = (scroll, row) => {
+  let n = 0;
+  for (let i = 0; i < LIFE_N; i++) n += scroll.grid[row * LIFE_N + i];
+  return n / LIFE_N;
+};
+export function borderPressure(sub, realmId, gx, gy, cache) {
+  const sx = Math.floor(gx / LIFE_N), sy = Math.floor(gy / LIFE_N);
+  const lx = gx - sx * LIFE_N, ly = gy - sy * LIFE_N;
+  let pressure = 0;
+  const get = (nsx, nsy, side, fn) => {
+    const key = `${nsx},${nsy},${side}`;
+    if (cache && cache.has(key)) return cache.get(key);
+    const nb = sub.getScroll(realmId, nsx, nsy, false);
+    const v = nb ? fn(nb) : 0;
+    if (cache) cache.set(key, v);
+    return v;
+  };
+  if (lx <= 1) pressure = Math.max(pressure, get(sx - 1, sy, "e", (s) => _edgeCol(s, LIFE_N - 1)));
+  if (lx >= LIFE_N - 2) pressure = Math.max(pressure, get(sx + 1, sy, "w", (s) => _edgeCol(s, 0)));
+  if (ly <= 1) pressure = Math.max(pressure, get(sx, sy - 1, "s", (s) => _edgeRow(s, LIFE_N - 1)));
+  if (ly >= LIFE_N - 2) pressure = Math.max(pressure, get(sx, sy + 1, "n", (s) => _edgeRow(s, 0)));
+  return pressure;
+}
+
+// Full chunk generation: base + Life-grown features + inscribed
+// overrides. Pure in (subspace state, chunk coords): the same state
+// always generates the same chunk, byte for byte.
+export function genChunk(sub, realmId, cx, cz) {
+  const data = new Uint8Array(CHUNK * CHUNK * WORLD_H);
+  const pressureCache = new Map();
+  const idx = (lx, y, lz) => (y * CHUNK + lz) * CHUNK + lx;
+  const put = (lx, y, lz, b) => {
+    if (lx < 0 || lz < 0 || lx >= CHUNK || lz >= CHUNK || y < 0 || y >= WORLD_H) return;
+    data[idx(lx, y, lz)] = b;
+  };
+  const x0 = cx * CHUNK, z0 = cz * CHUNK;
+
+  for (let lz = 0; lz < CHUNK; lz++) {
+    for (let lx = 0; lx < CHUNK; lx++) {
+      const x = x0 + lx, z = z0 + lz;
+      const h = heightAt(realmId, x, z);
+      for (let y = 0; y < WORLD_H; y++) {
+        let b = baseBlockAt(sub, realmId, x, y, z, h);
+        if (b === CARVE) b = BLOCK.AIR;
+        if (b !== BLOCK.AIR) put(lx, y, lz, b);
+      }
+      // Life-grown features, v3: generation reads the cell's GROWTH
+      // LEVEL — a value the physics tick ramps gradually toward what
+      // density and neighbor pressure would support (feedback #6).
+      // A young growth is a single bloom block; a mature one is a
+      // crystal spine. Because the level moves a few percent per
+      // tick, features creep in over many ticks and ebb the same
+      // way. Density and pressure near a border are still fed by the
+      // NEIGHBOR scroll's cells — the non-local effect, now gradual.
+      const gx = cellOfBlock(x), gy = cellOfBlock(z);
+      const isCellCenter = x % 2 === 0 && z % 2 === 0;
+      if (isCellCenter && !(realmId === DUNGEON.realm && inDungeon(x, z))) {
+        const level = sub.growthAt(realmId, gx, gy);
+        if (level > 0.45 && h + 1 < CEIL_Y - 1) {
+          const grow = 1 + Math.floor((level - 0.45) * 5); // 1..3 blocks
+          for (let i = 0; i < grow; i++) put(lx, h + 1 + i, lz, BLOCK.CRYSTAL);
+        } else if (level > 0.25 && h + 1 < CEIL_Y - 1 &&
+                   kernels.hash(`${realmId}|bloom|${x},${z}`) % 4 === 0) {
+          put(lx, h + 1, lz, realmId === "ashfall" ? BLOCK.EMBER : BLOCK.CRYSTAL);
+        }
+      }
+    }
+  }
+
+  // Trees (Nova Prime) / dead snags (Ashfall): placed per column from
+  // the seed hash, with a 2-block margin pass so canopies cross chunk
+  // borders seamlessly. v5 (feedback #16): the density breathes with
+  // a slow grove noise — woods gather into groves, clearings open
+  // between them, and a realm stops reading as one even scatter.
+  const treeP = realmId === "ashfall" ? 0.004 : 0.011;
+  for (let z = z0 - 2; z < z0 + CHUNK + 2; z++) {
+    for (let x = x0 - 2; x < x0 + CHUNK + 2; x++) {
+      if (realmId === DUNGEON.realm && inDungeon(x, z)) continue;
+      const r = realmById(realmId);
+      const roll = kernels.hash(`${r.seed}|tree|${x},${z}`) % 1000 / 1000;
+      const grove = vnoise(`${r.seed}|grove`, x, z, 22);
+      if (roll >= treeP * (0.25 + grove * 1.75)) continue;
+      const h = heightAt(realmId, x, z);
+      // No trees on steep ground.
+      if (Math.abs(heightAt(realmId, x + 1, z) - h) > 1) continue;
+      const trunk = 3 + (kernels.hash(`${r.seed}|th|${x},${z}`) % 3);
+      for (let i = 1; i <= trunk; i++) {
+        put(x - x0, h + i, z - z0, BLOCK.WOOD);
+      }
+      if (realmId === "nova") {
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            for (let dz = -1; dz <= 1; dz++) {
+              if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 2) continue;
+              const px = x + dx, py = h + trunk + dy, pz = z + dz;
+              if (baseBlockAt(sub, realmId, px, py, pz) === BLOCK.AIR) {
+                put(px - x0, py, pz - z0, BLOCK.LEAF);
+              }
+            }
+      }
+    }
+  }
+
+  // v5 (feedback #16): scatter with a memory of place — boulders
+  // dropped where the hash drops them, and one standing stone per
+  // scroll at most, so a realm has landmarks to navigate by instead
+  // of one more stretch of the same hill. Everything yields to
+  // what's already standing (trees, growth, the dungeon, the
+  // placed things) and to Arrival's clearing.
+  const clearOfArrival = (x, z) =>
+    !(realmId === "nova" && x >= 2 && x <= 14 && z >= 2 && z <= 14);
+  const clearOfItems = (x, z) =>
+    !Object.values(ITEM_SPOTS).some((s) =>
+      s.realmId === realmId && Math.abs(s.bx - x) <= 1 && Math.abs(s.bz - z) <= 1);
+  for (let lz = 0; lz < CHUNK; lz++) {
+    for (let lx = 0; lx < CHUNK; lx++) {
+      const x = x0 + lx, z = z0 + lz;
+      if (realmId === DUNGEON.realm && inDungeon(x, z)) continue;
+      if (!clearOfArrival(x, z) || !clearOfItems(x, z)) continue;
+      const roll = kernels.hash(`${realmById(realmId).seed}|rock|${x},${z}`) % 1000;
+      if (roll >= 7) continue;
+      const h = heightAt(realmId, x, z);
+      if (data[idx(lx, h + 1, lz)] !== BLOCK.AIR) continue;
+      const rock = realmId === "ashfall" ? BLOCK.SHALE : BLOCK.STONE;
+      put(lx, h + 1, lz, rock);
+      if (roll % 3 === 0 && data[idx(lx, h + 2, lz)] === BLOCK.AIR) {
+        put(lx, h + 2, lz, rock);
+      }
+    }
+  }
+  {
+    // The standing stone: one per scroll, where the scroll's own
+    // hash puts it — a deliberate-feeling marker in open country.
+    const sxFrom = Math.floor(x0 / SCROLL), sxTo = Math.floor((x0 + CHUNK - 1) / SCROLL);
+    const syFrom = Math.floor(z0 / SCROLL), syTo = Math.floor((z0 + CHUNK - 1) / SCROLL);
+    for (let ssx = sxFrom; ssx <= sxTo; ssx++) {
+      for (let ssy = syFrom; ssy <= syTo; ssy++) {
+        const r = realmById(realmId);
+        const sh = kernels.hash(`${r.seed}|stone|${ssx},${ssy}`);
+        if (sh % 100 >= 55) continue;
+        const gx = ssx * SCROLL + 8 + (sh % 40), gz = ssy * SCROLL + 8 + ((sh >> 5) % 40);
+        const lx = gx - x0, lz = gz - z0;
+        if (lx < 0 || lz < 0 || lx >= CHUNK || lz >= CHUNK) continue;
+        if (realmId === DUNGEON.realm && inDungeon(gx, gz)) continue;
+        if (!clearOfArrival(gx, gz) || !clearOfItems(gx, gz)) continue;
+        const h = heightAt(realmId, gx, gz);
+        let clear = true;
+        for (let i = 1; i <= 4; i++) {
+          if (data[idx(lx, h + i, lz)] !== BLOCK.AIR) { clear = false; break; }
+        }
+        if (!clear) continue;
+        for (let i = 1; i <= 3; i++) put(lx, h + i, lz, BLOCK.STONE);
+        put(lx, h + 4, lz, BLOCK.SANDSTONE);
+      }
+    }
+  }
+
+  // Inscribed overrides last: what was written, stays.
+  const ov = sub.overrides.get(realmId);
+  if (ov) {
+    for (const [key, b] of ov) {
+      const [x, y, z] = key.split(",").map(Number);
+      const lx = x - x0, lz = z - z0;
+      if (lx >= 0 && lz >= 0 && lx < CHUNK && lz < CHUNK && y >= 0 && y < WORLD_H) {
+        data[idx(lx, y, lz)] = b;
+      }
+    }
+  }
+  return data;
+}
+
+export function chunkBlock(data, lx, y, lz) {
+  if (lx < 0 || lz < 0 || lx >= CHUNK || lz >= CHUNK || y < 0 || y >= WORLD_H) {
+    return BLOCK.AIR;
+  }
+  return data[(y * CHUNK + lz) * CHUNK + lx];
+}
+
+// ---------- scoring: the leaderboard's arithmetic -----------------------
+// One rule, stated in PLAN.md and applied identically everywhere:
+// the board counts what the inscription log can prove.
+//   cross (a realm crossing) ......... 100
+//   tune to a pocket page ............  25
+//   scar (a thing struck out) ........  50
+//   pickup (weapon or charm taken) ...  40
+//   break (a block shaped through) ...  10
+//   daily pocket reached ............. 300
+//   quest (the Deep Stone reached) ... 500
+//   grant (the hat, written down) .... 250
+export const SCORE_WEIGHTS = {
+  cross: 100, tune: 25, scar: 50, pickup: 40, break: 10,
+  daily: 300, quest: 500, grant: 250,
+};
+export function computeScore(sub) {
+  let score = 0;
+  const counts = {};
+  for (const seg of sub.wal) {
+    // 'tune' segments are logged for every chord; only pocket-bound
+    // tunes score (the detail names the landing as a far page).
+    if (seg.op === "tune") continue;
+    const w = SCORE_WEIGHTS[seg.op];
+    if (w) { score += w; counts[seg.op] = (counts[seg.op] || 0) + 1; }
+  }
+  // Pocket tunes: a 'tune' followed by arrival on a far page is
+  // visible in the log as the pocket scroll opening after it; count
+  // distinct pocket scrolls opened instead — simpler and provable.
+  return { score, counts };
+}
+export function pocketScore(sub) {
+  // Distinct pocket pages visited (scroll opens beyond the home 3x3
+  // of each realm), 25 each — folded into the headline score by the
+  // view so computeScore stays a pure read of the log's own ops.
+  const seen = new Set();
+  for (const seg of sub.wal) {
+    if (seg.op !== "scroll") continue;
+    const m = /^(-?\d+),(-?\d+)$/.exec(seg.where.split(" ").pop() || "");
+    if (!m) continue;
+    const sx = Number(m[1]), sy = Number(m[2]);
+    if (Math.abs(sx) > 1 || Math.abs(sy) > 1) seen.add(seg.where);
+  }
+  return seen.size * 25;
+}
+export function totalScore(sub) {
+  return computeScore(sub).score + pocketScore(sub);
+}
+
+// ---------- the daily pocket (DESIGN.md's daily cycle) ------------------
+// One pocket per day, the same for everyone: the date seeds a chord
+// and a page, phorge-style. Reaching the page is the day's feat; the
+// daily board ranks it. Date is the player's local YYYY-MM-DD.
+export function dailyPocket(dateStr) {
+  const h = kernels.hash(`nova-phox|daily|${dateStr}`) >>> 0;
+  const notes = new Set();
+  let k = h;
+  while (notes.size < 3) {
+    notes.add(((k >>> 0) % 11) + 1);
+    k = (k >>> 3) + 7;
+  }
+  const chord = [...notes].sort((a, b) => a - b);
+  const dx = (h % 5) - 2 || 1;
+  const dy = ((h >>> 4) % 5) - 2 || -1;
+  return { date: dateStr, chord, sx: dx, sy: dy, realmId: "nova" };
+}
+// Call when the player stands in a scroll: claims the daily feat
+// exactly once per date, inscribed like everything else.
+export function checkDaily(sub, realmId, sx, sy, dateStr) {
+  const d = dailyPocket(dateStr);
+  if (realmId !== d.realmId || sx !== d.sx || sy !== d.sy) return false;
+  if (sub.dailyClaimed.has(dateStr)) return false;
+  sub.dailyClaimed.add(dateStr);
+  sub.log("daily", `${realmById(realmId).name} ${sx},${sy}`,
+    `the day's page (${dateStr}) is reached — tune ${d.chord.join("+")}`);
+  return true;
+}

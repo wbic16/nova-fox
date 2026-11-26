@@ -1,0 +1,75 @@
+{
+  "tree": "/home/hatch/workspace/nova-fox/demo7",
+  "at": "2026-11-26T22:31:43.307Z",
+  "pass": 2,
+  "fail": 3,
+  "absent": 3,
+  "results": [
+    {
+      "name": "spawn-state",
+      "status": "PASS",
+      "required": true,
+      "summary": "realm=nova pos=(8.5, 18.0, 8.5) hp=20/20 scheme=WASD purse=0 flux / 0 cr",
+      "realm": "nova",
+      "pos": {
+        "x": 8.5,
+        "y": 18.0001,
+        "z": 8.5
+      },
+      "hp": 20,
+      "scheme": "WASD"
+    },
+    {
+      "name": "portal-veer-18deg",
+      "status": "FAIL",
+      "required": false,
+      "summary": "turned 0.32 rad; closest approach 1.497 blocks (disc 1.467); crossed=false",
+      "closest": 1.4969750039148622,
+      "disc": 1.4667281105990784,
+      "crossed": false
+    },
+    {
+      "name": "portal-offcenter",
+      "status": "FAIL",
+      "required": true,
+      "summary": "lateral offset 1.28 blocks; closest approach 1.811 (disc 1.467); crossed=false",
+      "lateralOffset": 1.2800000000000011,
+      "closest": 1.8105326957601697,
+      "disc": 1.4667281105990784,
+      "crossed": false
+    },
+    {
+      "name": "tune-crossing-home",
+      "status": "ABSENT",
+      "required": true,
+      "summary": "prerequisite not met: the fox is not in Ashfall (off-center leg did not cross)"
+    },
+    {
+      "name": "portal-uphill",
+      "status": "FAIL",
+      "required": true,
+      "summary": "navigation to the slope failed (stopped 14.8 blocks short)"
+    },
+    {
+      "name": "gravity-flip",
+      "status": "PASS",
+      "required": true,
+      "summary": "gravDir 1 -> -1; subspace realm value null -> -1",
+      "before": 1,
+      "after": -1,
+      "realmValue": -1
+    },
+    {
+      "name": "gravity-refusal",
+      "status": "ABSENT",
+      "required": true,
+      "summary": "two shifts in a row succeeded — this build carries no once-per-day rule (it lands with the gravity build)"
+    },
+    {
+      "name": "fox-vision",
+      "status": "ABSENT",
+      "required": true,
+      "summary": "this build carries no Fox Vision"
+    }
+  ]
+}

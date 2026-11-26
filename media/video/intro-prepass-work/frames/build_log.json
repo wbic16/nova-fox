@@ -1,0 +1,11 @@
+{
+ "seed": 20261122,
+ "frames": 360,
+ "fps": 24,
+ "size": [
+  854,
+  480
+ ],
+ "renderer": "draw_prepass.py (Emise line renderer lineage)",
+ "sketch": "22.6.9/8.6.10/7.6.9"
+}

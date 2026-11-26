@@ -1,0 +1,77 @@
+  ok  page boots, NOVA_FOX3 handle present
+  ok  WASM core live in page
+  ok  spawn realm is Nova Prime
+  ok  the palette table has exactly 10 entries (feedback #27)
+  ok  home at boot wears palette v4 (ocean fog, Tron cyan)
+  ok  applying a realm's palette dresses the scene in it
+  ok  home's palette restores cleanly
+  ok  HP is numeric in the HUD from the first frame
+  ok  the ward holds at spawn (feedback #4)
+  ok  narration is embedded: all 27 beats ready
+  ok  the save state is labeled in the HUD (waiting or saving, never silent)
+  ok  score line is in the HUD
+  ok  guide opens on the wake step
+  ok  narration queues the wake beat while playback is locked (no gesture yet)
+  ok  the phext logo panel is up first (feedback #15)
+  ok  the bypass steps the panel aside
+  ok  the keys button switches to AWEF and persists it
+  ok  and back to WASD
+  ok  V lights the lamp
+  ok  V douses it
+  ok  guide advances to the rifts beat
+  ok  guide advances to the move beat
+  ok  the first gesture unlocks narration and the wake beat plays
+  ok  the wake beat's playback clock advances
+  ok  later guide beats queue behind the wake beat instead of chopping it
+  ok  a duplicate trigger for a queued beat is dropped
+FAIL  walking covers ground (step assist over the meadow) movedTotal=6.1400000000000015
+  .. timeout waiting for: first jump landing
+FAIL  space jumps, and the first jump lands under the ward jumped=1 done=false
+  ok  guide advances to the numbers beat (crossing taught first)
+  ok  the wake beat plays to its end, first in the ended list
+  ok  a number key plays a note
+  ok  guide advances to the bridge beat
+  ok  the bridge tune opens a rift — it does not jump-cut
+  ok  the rift carries a live view of the far side (feedback #27)
+  ok  the portal view renders a real place, not an empty target
+  ok  a thing standing only in the far realm is visible through the rift
+  .. timeout waiting for: ashfall crossing
+FAIL  walking through the rift crosses to Ashfall Haven nova
+FAIL  crossing applies Ashfall's own palette (feedback #27) 
+  .. timeout waiting for: swift pickup
+FAIL  the Swift Charm is taken up in Ashfall 
+  .. timeout waiting for: ashfall beat
+FAIL  guide advances to the ashfall beat bridge
+  ok  the same tune's rift carries you home to Nova Prime
+  .. timeout waiting for: handover beat
+FAIL  guide reaches the hand-over (the taught loop is complete) bridge
+FAIL  after the hand-over the guide waits on the fight, panel out of the way 
+  ok  the fight beat surfaces when its moment comes
+  ok  the wisp gets its featured introduction (feedback #8)
+FAIL  first strike lands and the wisp holds (hp 2 -> 1) 
+  .. timeout waiting for: wisp kill
+FAIL  second strike writes the wisp out 
+  ok  the kill is a scar in the log (a mark that stays)
+  .. timeout waiting for: mark beat
+FAIL  guide advances to the mark beat (the mark that stays, staged) bridge
+  ok  the grand brush breaks a volume through — marks of your own, written
+  ok  the Star Lance is taken up
+  ok  the taking is inscribed
+  .. timeout waiting for: gravity beat
+FAIL  guide advances to the gravity beat (its moment: a mark exists) bridge
+  ok  G flips the realm's gravity (per-world memory, feedback #25)
+FAIL  harness error: page exception: ReferenceError: NOVA_FOX3 is not defined
+    at <anonymous>:1:1
+rectory
+ALSA lib confmisc.c:855:(parse_card) cannot find card '0'
+ALSA lib conf.c:5208:(_snd_config_evaluate) function snd_func_card_inum returned error: No such file or directory
+ALSA lib confmisc.c:422:(snd_func_concat) error evaluating strings
+ALSA lib conf.c:5208:(_snd_config_evaluate) function snd_func_concat returned error: No such file or directory
+ALSA lib confmisc.c:1342:(snd_func_refer) error evaluating name
+ALSA lib conf.c:5208:(_snd_config_evaluate) function snd_func_refer returned error: No such file or directory
+ALSA lib conf.c:5731:(snd_config_expand) Evaluate error: No such file or directory
+ALSA lib pcm.c:2721:(snd_pcm_open_noupdate) Unknown PCM default
+[45542:45542:1126/220440.438409:ERROR:media/audio/alsa/alsa_util.cc:204] PcmOpen: plug:default,No such file or directory
+
+
+42 passed, 13 failed

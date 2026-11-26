@@ -1,0 +1,19 @@
+# fox.phext.io — HTTP bootstrap vhost: ACME webroot only, used for
+# certificate issuance. Installed by ~/fox-phext-launch/install.sh.
+# Webroot: /sites/web/fox.phext.io.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name fox.phext.io;
+    server_tokens off;
+
+    location /.well-known/acme-challenge/ {
+        root /sites/web/fox.phext.io;
+    }
+
+    location / {
+        root /sites/web/fox.phext.io;
+        index index.html;
+        try_files $uri $uri/ =404;
+    }
+}

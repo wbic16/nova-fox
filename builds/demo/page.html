@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova Fox — demo</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #07090f; color: #dbe4f5;
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  header { padding: 14px 20px 6px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: 0.14em; }
+  header h1 .fox { color: #e07b39; }
+  header .premise { margin: 4px 0 0; color: #93a7cc; font-style: italic; font-size: 14px; }
+  main { display: flex; gap: 14px; padding: 10px 20px 20px; align-items: stretch; }
+  #stage {
+    flex: 1 1 auto; min-height: 560px; background: #05070c;
+    border: 1px solid #1c2942; border-radius: 10px; overflow: hidden;
+    position: relative;
+  }
+  #stage canvas { display: block; }
+  aside { flex: 0 0 372px; display: flex; flex-direction: column; gap: 12px; }
+  .panel {
+    background: #0e1420; border: 1px solid #1c2942; border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .panel h2 {
+    margin: 0 0 8px; font-size: 12px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: #93a7cc;
+  }
+  #roomname { font-size: 17px; color: #fff; }
+  #msg { min-height: 40px; color: #ffd9a0; font-size: 14px; line-height: 1.45; }
+  .hudrow { display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; margin-top: 6px; }
+  #hearts { color: #ff6b81; letter-spacing: 2px; }
+  .pips { display: inline-flex; gap: 5px; vertical-align: middle; }
+  .pip {
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 1px solid #5b729e; display: inline-block;
+  }
+  .pip.on { background: #ffd9a0; border-color: #ffd9a0; }
+  .instrument { display: grid; grid-template-columns: repeat(11, 1fr); gap: 4px; }
+  .notepad {
+    background: #16213a; color: #cfe0ff; border: 1px solid #2b4066;
+    border-radius: 6px; padding: 7px 0; font-size: 12px; cursor: pointer;
+    text-align: center; user-select: none;
+  }
+  .notepad:hover { background: #1e2c4e; }
+  .notepad.held { background: #ffd9a0; color: #23180a; border-color: #ffd9a0; }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  button.act {
+    background: #16213a; color: #dbe4f5; border: 1px solid #2b4066;
+    border-radius: 6px; padding: 7px 10px; font-size: 13px; cursor: pointer;
+  }
+  button.act:hover { background: #1e2c4e; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 44px); gap: 4px; margin-top: 8px; }
+  .dpad button {
+    background: #16213a; color: #dbe4f5; border: 1px solid #2b4066;
+    border-radius: 6px; padding: 7px 0; cursor: pointer; font-size: 14px;
+  }
+  .dpad .blank { visibility: hidden; }
+  .controls { font-size: 12.5px; color: #a9bcdc; line-height: 1.65; }
+  .controls b { color: #dbe4f5; font-weight: 600; }
+  .readout { font-size: 12px; color: #9fb2d8; line-height: 1.6; }
+  .readout .warn { color: #ffb84d; }
+  .readout pre {
+    background: #05070c; border: 1px solid #1c2942; border-radius: 6px;
+    padding: 8px; font-size: 10.5px; line-height: 1.25; color: #c8d6f2;
+    overflow-x: auto; white-space: pre; margin: 6px 0 0;
+  }
+  #ro-wal { word-break: break-word; }
+  footer { padding: 0 20px 18px; color: #5b729e; font-size: 12px; }
+  @media (max-width: 900px) {
+    main { flex-direction: column; }
+    aside { flex: 1 1 auto; }
+    #stage { min-height: 420px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>NOVA <span class="fox">FOX</span> — demo</h1>
+  <p class="premise">The galaxy is conquered. The dark still outweighs it. Then the rifts opened.</p>
+</header>
+<main>
+  <div id="stage"></div>
+  <aside>
+    <section class="panel">
+      <h2 id="roomname">Arrival</h2>
+      <div id="msg">…</div>
+      <div class="hudrow">
+        <span id="hearts"></span>
+        <span>salvage <b id="salvage">0</b></span>
+        <span>crossings <b id="crossings">0</b></span>
+        <span>down <b id="garrow">↓</b></span>
+        <span>tune <span class="pips" id="pips"></span></span>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>The instrument — play three notes</h2>
+      <div class="instrument" id="instrument"></div>
+      <div class="btnrow">
+        <button class="act" id="btn-warp">⟳ turn the room (G)</button>
+        <button class="act" id="btn-wait">wait (Space)</button>
+        <button class="act" id="btn-earth">set stone (X)</button>
+        <button class="act" id="btn-derive">re-derive view (V)</button>
+      </div>
+      <div class="dpad">
+        <span class="blank"></span><button data-move="0,-1">▲</button><span class="blank"></span>
+        <button data-move="-1,0">◀</button><button data-move="0,1">▼</button><button data-move="1,0">▶</button>
+      </div>
+      <p class="controls">
+        <b>Arrows</b> walk · <b>Q W E R T Y U I O P [</b> the eleven notes
+        (three together travel) · <b>G</b> turns the room · <b>Space</b> waits ·
+        <b>X</b> sets stone where a deepening holds · <b>V</b> re-derives the view —
+        watch what shimmers and what stays.
+      </p>
+    </section>
+    <section class="panel readout">
+      <h2>Demo readout — for Will <span class="warn">(not in-fiction)</span></h2>
+      <div>kernel: <span id="ro-kernel">…</span></div>
+      <div>room: <span id="ro-room">…</span></div>
+      <div>world: <span id="ro-world">…</span></div>
+      <div><span id="ro-last">…</span></div>
+      <div>monster: <span id="ro-monster">…</span></div>
+      <div>inscription log (WAL stand-in) — <span id="ro-walcount">0</span> segments:</div>
+      <div id="ro-wal"></div>
+      <div style="margin-top:6px">the scroll you are standing in, as written:</div>
+      <pre id="ro-scroll"></pre>
+    </section>
+  </aside>
+</main>
+<footer>
+  Nova Fox demo — one shared document, derived views, inscription log in memory.
+  Local files only; nothing published. See PLAN.md.
+</footer>
+<script>
+  // The instrument pads (game.js wires the clicks).
+  document.getElementById("instrument").innerHTML =
+    Array.from({ length: 11 }, (_, i) =>
+      `<button class="notepad" data-note="${i}">${i + 1}</button>`).join("");
+</script>
+<script type="module">
+/*__BUILT_MODULE__*/
+</script>
+</body>
+</html>

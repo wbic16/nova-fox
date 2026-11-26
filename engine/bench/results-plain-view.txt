@@ -1,0 +1,123 @@
+===== 100 MB =====
+### ./novafox-bench gen world-100.phext 100
+gen: 104858525 bytes, 102301 scrolls -> world-100.phext
+	Maximum resident set size (kbytes): 104320
+-rw-rw-r-- 1 wbic16 wbic16 104858525 Nov 22 16:07 world-100.phext
+### ./novafox-bench scan world-100.phext
+raw read 33.943481ms; delimiter scan (index-build equivalent): 102301 breaks in 23.323012ms
+	Maximum resident set size (kbytes): 104448
+### ./novafox-bench phokenize world-100.phext
+read_to_string: 104858525 bytes in 40.771987ms
+phokenize: 102301 scrolls in 107.026622ms
+	Command being timed: "./novafox-bench phokenize world-100.phext"
+	Maximum resident set size (kbytes): 217728
+### ./novafox-bench explode world-100.phext
+read_to_string: 104858525 bytes in 40.86114ms
+explode: 102301 scrolls in 126.468959ms
+	Command being timed: "./novafox-bench explode world-100.phext"
+	Maximum resident set size (kbytes): 236680
+### ./novafox-bench spans world-100.phext
+read_to_string: 104858525 bytes in 43.060817ms
+spans: 102301 spans built in 69.374963ms; mid scroll 1024 bytes read in 461ns
+	Command being timed: "./novafox-bench spans world-100.phext"
+	Maximum resident set size (kbytes): 112896
+### ./novafox-bench offset world-100.phext
+read_to_string: 104858525 bytes in 43.896623ms
+offset(scroll #81840/102301): byte 83886000 in 116.324381ms (offset() rescans the document)
+	Command being timed: "./novafox-bench offset world-100.phext"
+	Maximum resident set size (kbytes): 343808
+### ./novafox-bench replace world-100.phext out-100.phext
+read_to_string: 104858525 bytes in 40.379098ms
+replace one mid scroll: 104858525 -> 104858525 bytes in 109.136261ms (whole-document re-serialization)
+write full document to disk: 50.152708ms
+	Command being timed: "./novafox-bench replace world-100.phext out-100.phext"
+	Maximum resident set size (kbytes): 320384
+===== 250 MB =====
+### ./novafox-bench gen world-250.phext 250
+gen: 262144775 bytes, 255751 scrolls -> world-250.phext
+	Maximum resident set size (kbytes): 257920
+-rw-rw-r-- 1 wbic16 wbic16 262144775 Nov 22 16:07 world-250.phext
+### ./novafox-bench scan world-250.phext
+raw read 86.203152ms; delimiter scan (index-build equivalent): 255751 breaks in 55.714083ms
+	Maximum resident set size (kbytes): 258048
+### ./novafox-bench phokenize world-250.phext
+read_to_string: 262144775 bytes in 99.206585ms
+phokenize: 255751 scrolls in 261.073169ms
+	Command being timed: "./novafox-bench phokenize world-250.phext"
+	Maximum resident set size (kbytes): 541824
+### ./novafox-bench explode world-250.phext
+read_to_string: 262144775 bytes in 99.277343ms
+explode: 255751 scrolls in 344.429388ms
+	Command being timed: "./novafox-bench explode world-250.phext"
+	Maximum resident set size (kbytes): 616412
+### ./novafox-bench spans world-250.phext
+read_to_string: 262144775 bytes in 106.069789ms
+spans: 255751 spans built in 171.542753ms; mid scroll 1024 bytes read in 611ns
+	Command being timed: "./novafox-bench spans world-250.phext"
+	Maximum resident set size (kbytes): 279936
+### ./novafox-bench offset world-250.phext
+read_to_string: 262144775 bytes in 103.882737ms
+offset(scroll #204600/255751): byte 209715000 in 287.743963ms (offset() rescans the document)
+	Command being timed: "./novafox-bench offset world-250.phext"
+	Maximum resident set size (kbytes): 857344
+### ./novafox-bench replace world-250.phext out-250.phext
+read_to_string: 262144775 bytes in 103.559985ms
+replace one mid scroll: 262144775 -> 262144775 bytes in 266.997333ms (whole-document re-serialization)
+write full document to disk: 124.522537ms
+	Command being timed: "./novafox-bench replace world-250.phext out-250.phext"
+	Maximum resident set size (kbytes): 797952
+===== 500 MB =====
+### ./novafox-bench gen world-500.phext 500
+gen: 524288525 bytes, 511501 scrolls -> world-500.phext
+	Maximum resident set size (kbytes): 513920
+-rw-rw-r-- 1 wbic16 wbic16 524288525 Nov 22 16:07 world-500.phext
+### ./novafox-bench scan world-500.phext
+raw read 175.001623ms; delimiter scan (index-build equivalent): 511501 breaks in 111.50171ms
+	Maximum resident set size (kbytes): 514048
+### ./novafox-bench phokenize world-500.phext
+read_to_string: 524288525 bytes in 196.232789ms
+phokenize: 511501 scrolls in 522.460548ms
+	Command being timed: "./novafox-bench phokenize world-500.phext"
+	Maximum resident set size (kbytes): 1081344
+### ./novafox-bench explode world-500.phext
+read_to_string: 524288525 bytes in 193.415435ms
+explode: 511501 scrolls in 695.72065ms
+	Command being timed: "./novafox-bench explode world-500.phext"
+	Maximum resident set size (kbytes): 1230476
+### ./novafox-bench spans world-500.phext
+read_to_string: 524288525 bytes in 199.766015ms
+spans: 511501 spans built in 342.851676ms; mid scroll 1024 bytes read in 551ns
+	Command being timed: "./novafox-bench spans world-500.phext"
+	Maximum resident set size (kbytes): 558080
+### ./novafox-bench offset world-500.phext
+read_to_string: 524288525 bytes in 196.661548ms
+offset(scroll #409200/511501): byte 419430000 in 575.653752ms (offset() rescans the document)
+	Command being timed: "./novafox-bench offset world-500.phext"
+	Maximum resident set size (kbytes): 1712768
+### ./novafox-bench replace world-500.phext out-500.phext
+read_to_string: 524288525 bytes in 200.578424ms
+replace one mid scroll: 524288525 -> 524288525 bytes in 532.305873ms (whole-document re-serialization)
+write full document to disk: 252.137042ms
+	Command being timed: "./novafox-bench replace world-500.phext out-500.phext"
+	Maximum resident set size (kbytes): 1593600
+===== WAL =====
+### ./novafox-bench wal wal.log 1000
+wal: 1000 appends of ~1 KB (fsync at end) in 12.53232ms
+	Maximum resident set size (kbytes): 2304
+-rw-rw-r-- 1 wbic16 wbic16 1025000 Nov 22 16:08 wal.log
+===== LIFE =====
+### ./novafox-bench life 1024 200
+life: 1024x1024 x 200 gens in 1.638958773s = 127956361 cells/sec (single thread, naive)
+	Maximum resident set size (kbytes): 4224
+### ./novafox-bench life 8192 20
+life: 8192x8192 x 20 gens in 12.407779194s = 108172241 cells/sec (single thread, naive)
+	Maximum resident set size (kbytes): 132992
+### ./novafox-bench life 22361 2
+life: 22361x22361 x 2 gens in 7.987374247s = 125201175 cells/sec (single thread, naive)
+	Maximum resident set size (kbytes): 978432
+===== PYTHON PARSER (500 MB) =====
+### python3 parse_phext.py world-500.phext
+world-500.phext: 511501 scroll slots, 511501 non-empty
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:21.74
+	Maximum resident set size (kbytes): 1134976
+SUITE DONE

@@ -1,0 +1,138 @@
+  ok  page boots, NOVA_FOX3 handle present
+  ok  WASM core live in page
+  ok  spawn realm is Nova Prime
+  ok  the palette table has exactly 10 entries (feedback #27)
+  ok  home at boot wears palette v4 (ocean fog, Tron cyan)
+  ok  applying a realm's palette dresses the scene in it
+  ok  home's palette restores cleanly
+  ok  HP is numeric in the HUD from the first frame
+  ok  the ward holds at spawn (feedback #4)
+  ok  narration is embedded: all 27 beats ready
+  ok  the save state is labeled in the HUD (waiting or saving, never silent)
+  ok  score line is in the HUD
+  ok  guide opens on the wake step
+  ok  narration queues the wake beat while playback is locked (no gesture yet)
+  ok  the phext logo panel is up first (feedback #15)
+  ok  the bypass steps the panel aside
+  ok  the keys button switches to AWEF and persists it
+  ok  and back to WASD
+  ok  V lights the lamp
+  ok  V douses it
+  ok  guide advances to the rifts beat
+  ok  guide advances to the move beat
+  ok  the first gesture unlocks narration and the wake beat plays
+  ok  the wake beat's playback clock advances
+  ok  later guide beats queue behind the wake beat instead of chopping it
+  ok  a duplicate trigger for a queued beat is dropped
+  ok  walking covers ground (step assist over the meadow)
+  ok  space jumps, and the first jump lands under the ward
+  ok  guide advances to the numbers beat (crossing taught first)
+  ok  the wake beat plays to its end, first in the ended list
+  ok  a number key plays a note
+  ok  guide advances to the bridge beat
+  ok  the bridge tune opens a rift — it does not jump-cut
+  ok  the rift carries a live view of the far side (feedback #27)
+  ok  the portal view renders a real place, not an empty target
+  ok  a thing standing only in the far realm is visible through the rift
+  ok  walking through the rift crosses to Ashfall Haven
+  ok  crossing applies Ashfall's own palette (feedback #27)
+  ok  the Swift Charm is taken up in Ashfall
+  ok  guide advances to the ashfall beat
+  ok  the same tune's rift carries you home to Nova Prime
+  ok  guide reaches the hand-over (the taught loop is complete)
+  ok  after the hand-over the guide waits on the fight, panel out of the way
+  ok  the fight beat surfaces when its moment comes
+  ok  the wisp gets its featured introduction (feedback #8)
+  ok  first strike lands and the wisp holds (hp 2 -> 1)
+  ok  second strike writes the wisp out
+  ok  the kill is a scar in the log (a mark that stays)
+  ok  guide advances to the mark beat (the mark that stays, staged)
+  ok  the grand brush breaks a volume through — marks of your own, written
+  ok  the Star Lance is taken up
+  ok  the taking is inscribed
+  ok  guide advances to the gravity beat (its moment: a mark exists)
+  ok  G flips the realm's gravity (per-world memory, feedback #25)
+  ok  the fox lands on the new ceiling
+  ok  guide advances to the gesture beat
+  ok  G again restores down, and the fox lands
+  ok  a drawn triangle opens the bridge rift (drawn, not keyed)
+  ok  walking through the drawn rift crosses the realm
+  ok  the gesture is marked used
+  ok  guide advances to the quest beat (every verb in hand)
+  ok  keys still cross home after the gesture (through the rift)
+  ok  the bridge rift opens as a standing link
+  ok  the standing door reports its subspace span: entry to corridor, 18
+  ok  the bridge ring is sized and faceted by its jump (~1.557, 36 facets)
+  ok  ring geometry tracks the difference: near pair smaller, far pair larger
+  ok  the door outlives the old 25-second fold — it stands in range
+  ok  crossing through the standing door reaches Ashfall
+  ok  the door still stands on the far side — the same link
+  ok  the near monster crossed and now lives in Ashfall, Nova-born
+  ok  the far monster stayed home
+  ok  the same door takes you home — no tune replayed
+  ok  one link, two crossings
+  ok  out of range, the rift folds
+  ok  the tune 2-2-2 opens its rift (repeats are valid)
+  ok  a pocket rift also carries a live view of its far page (feedback #27)
+  ok  a pocket door spans no subspace distance — the smallest ring stands
+  ok  a shift-drag plays the flute (notes sound)
+  ok  monster contact drops HP (outside the ward)
+  ok  the landed hit sounds the contact noise, not a voice (feedback #24)
+  ok  the surface kind was featured before it could hurt (intro)
+  ok  the HUD's numeric HP drops with it
+  ok  reaching the Deep Stone completes the quest
+  ok  the hat is granted (inscribed)
+  ok  the quest fanfare is a chip melody (feedback #13)
+  ok  guide reaches its closing beat
+  ok  the board opens (B) and shows your own standing
+  ok  the board states the shared chart's status plainly
+  ok  your score is the log's arithmetic (crossings + scar + pickups + quest)
+  ok  economy: a fresh fox plays free, purse empty
+  ok  economy: the board carries the written record and the purse
+  ok  economy: an hour of play drips 20 flux into the purse
+  ok  economy: the purse shows on the inventory line
+  ok  ladder: the shop renders Beat 1 rungs and names the Christmas bands
+  ok  ladder: ten conversions through the panel mint ten credits
+  ok  ladder: buying the pip through its button charges 5, once, and records the rung
+  ok  ladder: an owned rung offers no second buy button
+  ok  ladder: a Beat 2 rung is refused through the shop's own path, purse untouched
+  ok  ladder: the save copy carries the ladder
+  ok  the guide retires when told to explore
+  ok  the intro film is embedded in the build
+  ok  the memory screen stands at Arrival
+  ok  the viewer opens with the film wired (poster + data src, no preload)
+  ok  the viewer closes — the film is skippable
+  ok  the local save is v3 and carries the folded queue and the purse
+  ok  the outbox state is readable and undistorted
+  ok  clean UI: the key wall is an optional component, off by default
+  ok  clean UI: the standing realm title is optional, off by default
+  ok  clean UI: quest, score and sync lines are optional, off by default
+  ok  clean UI: the portrait is optional, off by default
+  ok  clean UI: what play requires stays — hearts, chord, objective, instrument
+  ok  clean UI: the extras toggle brings them all back, and the choice persists
+  ok  clean UI: and the toggle tucks them away again
+  ok  the film plays for the visibility test
+  ok  a fresh beat speaks for the visibility test, and gets past its opening
+  ok  hidden tab: the voice holds — the beat is back at the queue's head, whole
+  ok  hidden tab: the engine's clock is suspended — stopped, not muted
+  ok  hidden tab: the film pauses
+  ok  return: the held beat speaks again, from its start — not mid-line
+  ok  return: the engine's clock runs again
+  ok  return: the film resumes — the hold was what paused it
+  ok  touch: the first touch raises the touch controls
+  ok  touch: the stick walks the fox
+FAIL  touch: a drag on the world turns the fox yaw 0 -> 0
+  .. timeout waiting for: touch jump
+FAIL  touch: the jump button jumps 
+  .. timeout waiting for: touch flip
+FAIL  touch: the flip button turns down upside down 
+  .. timeout waiting for: ceiling landing (touch)
+FAIL  touch: the fox lands on the new ceiling 17.0001
+  ok  touch: and the flip button turns it back
+FAIL  touch: the draw button arms the second instrument 
+FAIL  touch: a drawn triangle opens the bridge rift, and spends the arming 
+  ok  touch: the flute button arms the spectral flute
+FAIL  touch: an upward drag sounds the flute, and spends the arming notes 18 -> 18
+  ok  no page console errors
+
+126 passed, 7 failed

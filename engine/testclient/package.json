@@ -1,0 +1,1 @@
+{"description":"A programmatic surface for a live Nova Fox: REST + MCP for builders and for players' own AIs, with the check suite that replaces the CDP harness.","name":"nova-fox-testclient","private":true,"scripts":{"checks":"node checks.mjs","serve":"node server.mjs"},"type":"module","version":"0.1.0"}
