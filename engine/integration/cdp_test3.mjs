@@ -7,7 +7,7 @@
 //   crosses to Ashfall and home -> the hand-over: Emise goes quiet
 //   -> the fight surfaces just in time at the wisp (two strikes,
 //   the Star Lance) -> the mark beat: a grand brush shapes the
-//   ground through -> gravity surfaces (G flips, ceiling, back) ->
+//   ground through -> gravity surfaces (G flips, ceiling; a second G is refused — one shift a day, demo10; another fox's read-back restores) ->
 //   the gesture beat: a drawn triangle crosses -> a repeated-digit
 //   tune (2-2-2) opens its rift -> a shift-drag plays the flute ->
 //   a monster's contact drops HP and sounds the noise cue -> the
@@ -21,8 +21,11 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const CHROME = "/opt/meta-chromium/chrome";
-const PORT = 9335;
-const URL = "file:///home/hatch/workspace/nova-fox/demo5/index.html";
+// demo12 runs its harness on its own port: every tree's suite
+// defaults to 9335, and parallel builds' Chromes collide there —
+// one suite ends up driving (or killing) another's browser.
+const PORT = 9352;
+const URL = "file:///home/hatch/workspace/nova-fox/demo20/index.html";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -201,6 +204,12 @@ try {
   check("the phext logo panel is up first (feedback #15)",
     await evalJs("NOVA_FOX3.state.splash") === true &&
     (await evalJs("getComputedStyle(document.getElementById('splash')).display")) === "flex");
+  // THE LOADING TRAIL (2026-11-26): a quiet line of words on the
+  // load panel, fed by the boot's own reads (here, offline, the
+  // local inscription log alone) — present, unlabeled, and fed.
+  check("the loading trail rides the load panel, fed by the boot's reads",
+    await evalJs("!!document.getElementById('trail-line')") === true &&
+    await evalJs("NOVA_FOX3.trailState().fed") > 0);
   await evalJs("document.getElementById('splash-btn').click()");
   await sleep(200);
   check("the bypass steps the panel aside",
@@ -407,18 +416,50 @@ try {
   await key("g", "KeyG");
   check("G flips the realm's gravity (per-world memory, feedback #25)",
     await waitFor("NOVA_FOX3.state.gravDir === -1", 6000, "gravity flip"));
+  check("the inversion woozes: the degauss treatment is on screen (demo10)",
+    await evalJs("NOVA_FOX3.invertFx().active") === true &&
+    await evalJs("Number(document.getElementById('degauss').style.opacity)") > 0 &&
+    (await evalJs("document.querySelector('#stage canvas').style.filter")).includes("blur"));
+  check("the inversion is announced: GRAVITY INVERSION!! warp text (demo18)",
+    await evalJs("NOVA_FOX3.warpText().shown") === 1 &&
+    await evalJs("NOVA_FOX3.warpText().text") === "GRAVITY INVERSION!!" &&
+    await evalJs("document.getElementById('warp-name').textContent") === "GRAVITY INVERSION!!" &&
+    await evalJs("document.getElementById('warpcard').classList.contains('show')") === true);
   check("the fox lands on the new ceiling",
     await waitFor("NOVA_FOX3.state.pos.y > 40", 20000, "ceiling landing"),
     await evalJs("NOVA_FOX3.state.pos.y"));
   check("guide advances to the gesture beat",
     await waitFor("NOVA_FOX3.guideCurrent().id === 'gesture'", 8000, "gesture beat"),
     await evalJs("NOVA_FOX3.guideCurrent().id"));
+  // ONE SHIFT A DAY (demo10; Will, 2026-11-26): gravity lives in
+  // subspace now, and this fox has spent today's shift in this
+  // realm — G again is refused, and down stays up.
   await key("g", "KeyG");
-  check("G again restores down, and the fox lands",
+  await sleep(1200);
+  check("G again is refused — one shift per realm per day (demo10)",
+    await evalJs("NOVA_FOX3.state.gravDir") === -1 &&
+    await evalJs("NOVA_FOX3.gravityState().allowed") === false &&
+    await evalJs("NOVA_FOX3.gravityState().known") >= 1,
+    JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
+  check("a refused shift announces nothing — no warp text (demo18)",
+    await evalJs("NOVA_FOX3.warpText().shown") === 1);
+  // The chart answers: another fox's shift, read back through the
+  // same reconcile path the flush uses, attunes this view — down
+  // is down again, and the fox lands.
+  const todayG = (() => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  })();
+  await evalJs(`NOVA_FOX3.gravityReadback("grav|nova|1|another-fox|${todayG}|${Date.now() + 60000}")`);
+  check("another fox's shift, read back, restores down — and the fox lands",
     await waitFor(
       "NOVA_FOX3.state.gravDir === 1 && NOVA_FOX3.state.pos.y < 26",
       20000, "ground landing"),
     await evalJs("NOVA_FOX3.state.pos.y"));
+  check("a read-back turn is announced too — the warp text fires again (demo18)",
+    await evalJs("NOVA_FOX3.warpText().shown") === 2);
 
   // THE GESTURE (feedback #5): a right-mouse triangle, drawn with
   // real mouse events (pointer-lock-free path).
@@ -529,6 +570,85 @@ try {
   await evalJs("NOVA_FOX3.teleportTo(9, 9)");
   await evalJs("NOVA_FOX3.state.invulnUntil = 0");
 
+  // PORTAL REGRESSION (EE 954 — PORTAL-DIAGNOSIS.md): the crossing
+  // test used to demand the fox pass within ~1.118 blocks of the
+  // ring's center while the visible disc spans 1.467 (defect 1),
+  // and it gated height against the ground where the tune was
+  // played instead of the ring's own ground (defect 2). Both legs
+  // below walk the way a human walks — off-center, and uphill —
+  // and both must cross. (Invulnerable again: traversal is what
+  // is under test here, not combat.)
+  await evalJs("NOVA_FOX3.state.invulnUntil = performance.now() + 120000");
+  const faceTheRing = async () => evalJs(`(() => {
+    const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
+    NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
+    return true;
+  })()`);
+  // (a) The veer: open on the flat Arrival meadow, turn ~21° off
+  // the ring, and walk. The path clips the disc ~1.2 blocks
+  // off-center — through the visible portal, outside the old
+  // trigger.
+  await evalJs("NOVA_FOX3.teleportTo(9, 9)");
+  await evalJs("NOVA_FOX3.state.yaw = 0; NOVA_FOX3.state.pitch = 0;");
+  await waitFor("NOVA_FOX3.state.onGround", 8000, "grounded for the veer leg");
+  const veerLinkBefore = await evalJs("NOVA_FOX3.portalState().linkId");
+  await key("1", "Digit1");
+  await key("4", "Digit4");
+  await key("9", "Digit9");
+  check("portal regression: the veer leg's rift opens",
+    await waitFor(`!!NOVA_FOX3.state.rift && ` +
+      `NOVA_FOX3.portalState().linkId !== ${veerLinkBefore}`,
+      6000, "veer rift opens"));
+  await evalJs("NOVA_FOX3.state.yaw += 0.37"); // ~21 degrees off the ring
+  await walkThroughRift();
+  check("portal regression: a ~20° veer through the disc crosses (defect 1)",
+    await waitFor("NOVA_FOX3.state.realm === 'ashfall'", 15000, "veer crossing"),
+    await evalJs("NOVA_FOX3.state.realm"));
+  await faceTheRing();
+  await walkThroughRift();
+  check("portal regression: the veer door takes the fox home again",
+    await waitFor("NOVA_FOX3.state.realm === 'nova'", 15000, "veer return"),
+    await evalJs("NOVA_FOX3.state.realm"));
+  // (b) The slope: at block (10, 29) facing -z the ground climbs
+  // 13 -> 14 -> 15 -> 16, so the ring planted 3.4 ahead stands on
+  // ground 3 blocks above the opener's — dead-center, and the old
+  // height gate refused it by construction (rise 3 > tolerance 2.4).
+  await evalJs("NOVA_FOX3.teleportTo(120, 120)"); // fold the veer door
+  await sleep(300);
+  await evalJs("NOVA_FOX3.teleportTo(10, 29)");
+  await evalJs("NOVA_FOX3.state.yaw = 0; NOVA_FOX3.state.pitch = 0;");
+  await waitFor("NOVA_FOX3.state.onGround", 8000, "grounded for the slope leg");
+  const slopeSetup = await evalJs(`(() => {
+    const feetHere = NOVA_FOX3.surfaceY(10, 29) - 1;
+    const ringGround = NOVA_FOX3.surfaceY(10, 26) - 1;
+    return { feetHere, ringGround, rise: ringGround - feetHere };
+  })()`);
+  check("portal regression: the slope leg's ground really rises 3 to the ring",
+    slopeSetup.rise === 3, JSON.stringify(slopeSetup));
+  const slopeLinkBefore = await evalJs("NOVA_FOX3.portalState().linkId");
+  await key("1", "Digit1");
+  await key("4", "Digit4");
+  await key("9", "Digit9");
+  check("portal regression: the slope rift opens on the ring's own ground",
+    await waitFor(`!!NOVA_FOX3.state.rift && ` +
+      `NOVA_FOX3.portalState().linkId !== ${slopeLinkBefore}`,
+      6000, "slope rift opens") &&
+    (await evalJs("NOVA_FOX3.state.rift.feetY")) === slopeSetup.ringGround,
+    `feetY=${await evalJs("NOVA_FOX3.state.rift && NOVA_FOX3.state.rift.feetY")}`);
+  await walkThroughRift();
+  check("portal regression: an uphill walk-through crosses (defect 2)",
+    await waitFor("NOVA_FOX3.state.realm === 'ashfall'", 15000, "slope crossing"),
+    await evalJs("NOVA_FOX3.state.realm"));
+  await faceTheRing();
+  await walkThroughRift();
+  check("portal regression: the slope door takes the fox home again",
+    await waitFor("NOVA_FOX3.state.realm === 'nova'", 15000, "slope return"),
+    await evalJs("NOVA_FOX3.state.realm"));
+  await evalJs("NOVA_FOX3.teleportTo(120, 120)"); // fold the slope door
+  await sleep(300);
+  await evalJs("NOVA_FOX3.teleportTo(9, 9)");
+  await evalJs("NOVA_FOX3.state.invulnUntil = 0");
+
   // REPEATED DIGITS (v5, feedback #9): 2-2-2 is a valid tune.
   await key("2", "Digit2");
   await key("2", "Digit2");
@@ -611,6 +731,78 @@ try {
   check("guide reaches its closing beat",
     await waitFor("NOVA_FOX3.guideCurrent().id === 'done'", 8000, "closing beat"),
     await evalJs("NOVA_FOX3.guideCurrent().id"));
+
+  // THE STRIKE HINT (2026-11-26): while the encounter with the
+  // Shadow lasts, the strike binding stands bulging at the view's
+  // edge — the binding as assigned, never lettered by hand — and
+  // fades on its own when the fox runs or the Shadow falls.
+  // Start from quiet ground: step away, so no encounter can stand.
+  await evalJs("NOVA_FOX3.state.pos.set(8.5, 30, 8.5); NOVA_FOX3.state.vel.set(0, 0, 0);");
+  await sleep(700);
+  check("strike hint: nothing stands before the guardian is met",
+    await evalJs("NOVA_FOX3.encounterState().guardian") === false &&
+    await evalJs("getComputedStyle(document.getElementById('striker')).display") === "none");
+  const meetShadow = async () => evalJs(`(() => {
+    const g = NOVA_FOX3.sub.monsters.find((m) => m.kind === "guardian");
+    if (!g) return false;
+    NOVA_FOX3.state.pos.set(g.gx * 2 + 1.5, 5.01, g.gy * 2 + 1.5);
+    NOVA_FOX3.state.vel.set(0, 0, 0);
+    return true;
+  })()`);
+  check("strike hint: the Shadow is there to be met", await meetShadow() === true);
+  check("strike hint: the guardian's touch raises the encounter",
+    await waitFor("NOVA_FOX3.encounterState().guardian", 30000, "guardian encounter"));
+  check("strike hint: the cap stands and names the assigned binding (WASD: F)",
+    await waitFor("document.getElementById('striker').classList.contains('on') && " +
+      "getComputedStyle(document.getElementById('striker')).opacity > 0.9",
+      20000, "cap faded in") &&
+    await evalJs("document.getElementById('striker-cap').textContent") === "F" &&
+    await evalJs("NOVA_FOX3.encounterState().label") === "F");
+  await evalJs("document.getElementById('btn-keys').click()");
+  check("strike hint: reassigning the scheme re-letters the cap (AWEF: the click)",
+    await waitFor("document.getElementById('striker-cap').textContent === 'CLICK'",
+      5000, "cap re-lettered"),
+    await evalJs("document.getElementById('striker-cap').textContent"));
+  await evalJs("document.getElementById('btn-keys').click()");
+  check("strike hint: and back again (WASD: F)",
+    await waitFor("document.getElementById('striker-cap').textContent === 'F'",
+      5000, "cap back to F"));
+  await evalJs("NOVA_FOX3.state.pos.set(8.5, 30, 8.5); NOVA_FOX3.state.vel.set(0, 0, 0);");
+  check("strike hint: running away ends the encounter, and the cap fades on its own",
+    await waitFor("!NOVA_FOX3.encounterState().guardian", 20000, "encounter fled") &&
+    await waitFor("getComputedStyle(document.getElementById('striker')).display === 'none'",
+      20000, "cap faded away"));
+  // Meet it again, and this time finish it — through the fox's own
+  // strike, aimed by hand each attempt as the Shadow moves.
+  check("strike hint: the Shadow is there to be met again", await meetShadow() === true);
+  check("strike hint: re-entering the encounter raises the cap again",
+    await waitFor("NOVA_FOX3.encounterState().guardian", 30000, "guardian encounter again"));
+  let shadowDown = false;
+  for (let i = 0; i < 90 && !shadowDown; i++) {
+    shadowDown = await evalJs(`(() => {
+      const S = NOVA_FOX3;
+      const g = S.sub.monsters.find((m) => m.kind === "guardian");
+      if (!g || !g.alive) return true;
+      const gx = g.gx * 2 + 1.5, gz = g.gy * 2 + 1.5;
+      const dx = S.state.pos.x - gx, dz = S.state.pos.z - gz;
+      const d = Math.hypot(dx, dz) || 1;
+      if (d > 2.6) { // close to striking distance, off its own square
+        S.state.pos.set(gx + (dx / d) * 2.2, 5.01, gz + (dz / d) * 2.2);
+        S.state.vel.set(0, 0, 0);
+      }
+      S.state.yaw = Math.atan2(-(gx - S.state.pos.x), -(gz - S.state.pos.z));
+      S.state.pitch = 0;
+      S.tryStrike();
+      const g2 = S.sub.monsters.find((m) => m.kind === "guardian");
+      return !g2 || !g2.alive;
+    })()`);
+    if (!shadowDown) await sleep(220);
+  }
+  check("strike hint: the Shadow falls to the fox's own strike", shadowDown);
+  check("strike hint: the vanquish ends the encounter, and the cap fades",
+    await waitFor("!NOVA_FOX3.encounterState().guardian", 20000, "encounter won") &&
+    await waitFor("getComputedStyle(document.getElementById('striker')).display === 'none'",
+      20000, "cap faded after the kill"));
 
   // THE BOARD: your own row, honestly labeled sync state.
   await key("b", "KeyB");
@@ -779,6 +971,17 @@ try {
   // verb, through real touch events: the stick walks, a drag on
   // the world looks, the buttons jump and flip, an armed drag
   // draws and flutes.
+  // The touch verbs run in Ashfall (demo10): Nova's gravity shift
+  // for today is spent under the once-a-day ruling, and the flip
+  // button needs a realm whose day is fresh. Cross by the bridge
+  // tune first, as a player does.
+  await key("1", "Digit1");
+  await key("4", "Digit4");
+  await key("9", "Digit9");
+  await walkThroughRift();
+  check("the touch tests cross to Ashfall (a fresh realm for the flip button)",
+    await waitFor("NOVA_FOX3.state.realm === 'ashfall'", 15000, "touch crossing"),
+    await evalJs("NOVA_FOX3.state.realm"));
   await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   await evalJs("NOVA_FOX3.teleportTo(120, 120)"); // fold any standing rift
   await sleep(400);
@@ -789,6 +992,30 @@ try {
     const r = document.querySelector('#stage canvas').getBoundingClientRect();
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   })()`);
+  // World-drag probe points (portal-fix pass, EE 954): a drag
+  // that STARTS on a UI panel is ignored by the game on purpose
+  // (its document touchstart handler skips the TOUCH_UI subtrees)
+  // — and in this small viewport the canvas center sits inside
+  // #bottombar, so the old world-drag legs never reached the
+  // world at all (PORTAL-DIAGNOSIS.md §4). Probe for a point the
+  // canvas itself owns, in its upper reaches, clear of every
+  // panel. Only the start point matters: moves are tracked by
+  // touch identifier wherever they wander.
+  const worldPoint = async (fx, fy) => evalJs(`(() => {
+    const cv = document.querySelector('#stage canvas');
+    const r = cv.getBoundingClientRect();
+    const tries = [[${fx}, ${fy}], [0.5, 0.3], [0.5, 0.2], [0.36, 0.3], [0.64, 0.3], [0.5, 0.42]];
+    for (const [tx, ty] of tries) {
+      const x = Math.round(r.left + r.width * tx);
+      const y = Math.round(r.top + r.height * ty);
+      if (document.elementFromPoint(x, y) === cv) return { x, y };
+    }
+    return null;
+  })()`);
+  const wpFound = await worldPoint(0.5, 0.3);
+  check("touch: a world-owned probe point exists for the drag legs",
+    !!wpFound, `canvas center=${JSON.stringify(canvasC)}`);
+  const wp = wpFound || canvasC;
   await touchEv("touchStart", [[canvasC.x, canvasC.y]]);
   await touchEv("touchEnd", []);
   check("touch: the first touch raises the touch controls",
@@ -813,9 +1040,9 @@ try {
     (await evalJs("NOVA_FOX3.state.movedTotal")) > movedBefore + 0.5,
     `movedTotal ${movedBefore} -> ${await evalJs("NOVA_FOX3.state.movedTotal")}`);
   const yawBefore = await evalJs("NOVA_FOX3.state.yaw");
-  await touchEv("touchStart", [[canvasC.x, canvasC.y]]);
-  await touchEv("touchMove", [[canvasC.x - 60, canvasC.y]]);
-  await touchEv("touchMove", [[canvasC.x - 130, canvasC.y]]);
+  await touchEv("touchStart", [[wp.x, wp.y]]);
+  await touchEv("touchMove", [[wp.x - 60, wp.y]]);
+  await touchEv("touchMove", [[wp.x - 130, wp.y]]);
   await touchEv("touchEnd", []);
   check("touch: a drag on the world turns the fox",
     Math.abs((await evalJs("NOVA_FOX3.state.yaw")) - yawBefore) > 0.25,
@@ -832,13 +1059,24 @@ try {
     await waitFor("NOVA_FOX3.state.pos.y > 40", 20000, "ceiling landing (touch)"),
     await evalJs("NOVA_FOX3.state.pos.y"));
   await tap("t-flip");
-  check("touch: and the flip button turns it back",
-    await waitFor("NOVA_FOX3.state.gravDir === 1 && NOVA_FOX3.state.onGround",
-      20000, "touch flip back"));
+  await sleep(1200);
+  check("touch: a second flip is refused — the realm's shift is spent for today (demo10)",
+    await evalJs("NOVA_FOX3.state.gravDir") === -1 &&
+    await evalJs("NOVA_FOX3.gravityState().allowed") === false,
+    JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
   await tap("t-draw");
   check("touch: the draw button arms the second instrument",
     await evalJs("NOVA_FOX3.touchState().mode") === "draw");
-  const tTriVerts = [[300, 330], [430, 190], [560, 330], [300, 330]];
+  // The drawn triangle is anchored on the probed world point
+  // (its apex): the old fixed vertices sat low in this small
+  // viewport, inside #bottombar's band, so the stroke's first
+  // touch was panel-owned and the stroke was never recorded.
+  const tTriVerts = [
+    [wp.x, wp.y],
+    [wp.x + 130, wp.y + 150],
+    [wp.x - 130, wp.y + 150],
+    [wp.x, wp.y],
+  ];
   const tTriPts = [];
   for (let v = 0; v < tTriVerts.length - 1; v++) {
     const [x0, y0] = tTriVerts[v], [x1, y1] = tTriVerts[v + 1];
@@ -857,9 +1095,10 @@ try {
   check("touch: the flute button arms the spectral flute",
     await evalJs("NOVA_FOX3.touchState().mode") === "flute");
   const notesBefore = await evalJs("NOVA_FOX3.state.notesPlayed");
-  await touchEv("touchStart", [[canvasC.x, canvasC.y + 30]]);
+  const wpFlute = (await worldPoint(0.5, 0.38)) || wp;
+  await touchEv("touchStart", [[wpFlute.x, wpFlute.y]]);
   for (let i = 1; i <= 5; i++) {
-    await touchEv("touchMove", [[canvasC.x, canvasC.y + 30 - i * 26]]);
+    await touchEv("touchMove", [[wpFlute.x, wpFlute.y - i * 26]]);
     await sleep(50);
   }
   await touchEv("touchEnd", []);
@@ -867,6 +1106,248 @@ try {
     (await evalJs("NOVA_FOX3.state.notesPlayed")) > notesBefore &&
     await evalJs("NOVA_FOX3.touchState().mode") === null,
     `notes ${notesBefore} -> ${await evalJs("NOVA_FOX3.state.notesPlayed")}`);
+
+  // PLAYER FORMS (demo6): the editor is a surface of the board;
+  // a form is a small phext the fox wears; the chart carries it.
+  // (Its own try, so a failure here still lets the console-error
+  // check below speak.)
+  try {
+  await evalJs(`(() => { const b = document.getElementById('board');
+    if (b.style.display !== 'block') document.getElementById('btn-board').click(); })()`);
+  await sleep(400);
+  check("form: the editor's DOM stands in the board",
+    (await evalJs(`['form-text','form-meter','btn-form-apply','form-preview','form-pages']` +
+      `.map(id => !!document.getElementById(id)).join(',')`)) === "true,true,true,true,true",
+    await evalJs(`['form-text','form-meter','btn-form-apply','form-preview','form-pages']` +
+      `.map(id => id + ':' + !!document.getElementById(id)).join(' ')`));
+  check("form: the editor lives in the board, open in-game, with a starter form loaded",
+    (await evalJs("document.getElementById('board').style.display")) === "block" &&
+    (await evalJs("document.getElementById('form-text').value")).includes("type: svg") &&
+    (await evalJs("document.getElementById('form-meter').textContent")).includes("bytes of phext"));
+  check("form: the svg example stands clean (3 frames, inside the ruled lines)",
+    await evalJs(`(() => { const s = NOVA_FOX3.formStanding(NOVA_FOX3.formExamples().svg);
+      return !s.refused && !s.leeway && s.frames.length === 3 &&
+        s.frames.every(f => f.type === 'svg'); })()`) === true);
+  check("form: the mixed example carries svg + bitmap + turtle in one form",
+    await evalJs(`(() => { const s = NOVA_FOX3.formStanding(NOVA_FOX3.formExamples().bitmap);
+      const t = NOVA_FOX3.formStanding(NOVA_FOX3.formExamples().turtle);
+      return !s.refused && !t.refused && s.frames[0].type === 'bitmap' &&
+        t.frames[0].type === 'turtle'; })()`) === true);
+  check("form: wearing the svg form applies, persists, and enters the save copy",
+    await evalJs(`(() => { const ex = NOVA_FOX3.formExamples().svg;
+      const r = NOVA_FOX3.formApply(ex);
+      const ls = JSON.parse(localStorage.getItem('nova-phox-form') || 'null');
+      return r.ok && NOVA_FOX3.formWorld().worn && ls && ls.text === ex &&
+        NOVA_FOX3.saveJson().includes('"form"'); })()`) === true);
+  await sleep(300);
+  const formFrameA = await evalJs("NOVA_FOX3.formWorld().frame");
+  await sleep(750);
+  check("form: the worn form animates in-world, stepping its coordinates",
+    (await evalJs("NOVA_FOX3.formWorld().spriteInScene")) === true &&
+    (await evalJs("NOVA_FOX3.formWorld().frame")) !== formFrameA,
+    `frame ${formFrameA} -> ${await evalJs("NOVA_FOX3.formWorld().frame")}`);
+  check("form: an unfit form is refused at apply and the worn form stands",
+    await evalJs(`(() => { const big = ['1.1.1/1.1.1/1.1.1','name: Big','',
+      '1.1.1/1.1.1/1.1.2','type: svg',
+      '<svg viewBox="0 0 400 360" xmlns="http://www.w3.org/2000/svg"><rect width="9" height="9" fill="#fff"/></svg>'].join('\\n');
+      const r = NOVA_FOX3.formApply(big);
+      return !r.ok && r.reason === 'fit' &&
+        NOVA_FOX3.formState().text === NOVA_FOX3.formExamples().svg; })()`) === true);
+  check("form: a script-bearing svg is worn as a picture and never runs",
+    await evalJs(`(() => { const evil = ['1.1.1/1.1.1/1.1.1','name: Evil','',
+      '1.1.1/1.1.1/1.1.2','type: svg',
+      '<svg viewBox="0 0 120 360" xmlns="http://www.w3.org/2000/svg" onload="window.__formPwned=1"><script>window.__formPwned=1</' + 'script><circle cx="60" cy="180" r="30" fill="#fff"/></svg>'].join('\\n');
+      return NOVA_FOX3.formApply(evil).ok; })()`) === true);
+  await sleep(900);
+  check("form: ...and after a second of wearing it, nothing has executed",
+    await evalJs("typeof window.__formPwned") === "undefined");
+  check("form: the editor's hard stop refuses to hold past the ceiling",
+    await evalJs(`(() => { const ta = document.getElementById('form-text');
+      ta.value = 'x'.repeat(90000);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      return new TextEncoder().encode(ta.value).length <= 65536; })()`) === true);
+  check("form: the wear button wears the editor's bitmap, the clear button takes it off",
+    await evalJs(`(() => { const ta = document.getElementById('form-text');
+      ta.value = NOVA_FOX3.formExamples().bitmap;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('btn-form-apply').click();
+      const worn = NOVA_FOX3.formState().text === NOVA_FOX3.formExamples().bitmap;
+      document.getElementById('btn-form-clear').click();
+      return worn && NOVA_FOX3.formState().text === null &&
+        !NOVA_FOX3.formWorld().worn; })()`) === true);
+  check("form: the preview names the frame it stands on",
+    (await evalJs("document.getElementById('form-frame-line').textContent")).includes("frame"));
+  } catch (e) {
+    fail++;
+    console.log("FAIL  form section error:", e.message);
+  }
+  // FOX VISION (demo11, Will 2026-11-26): the Hall sense. Outside
+  // The Unexpected Hall the N key is a quiet non-response; inside,
+  // every familiar within subspace range stands revealed in every
+  // phase — seen, strikable, and able to strike back — until the
+  // fox puts the sense down or walks out of the Hall. (Phases are
+  // pinned inside the same eval that reads them: the subspace
+  // ticks every 650 ms and would rotate the phase mid-assertion.)
+  await evalJs("NOVA_FOX3.teleportTo(8, 8)");
+  await sleep(300);
+  check("fox vision: Arrival is not the Hall",
+    await evalJs("NOVA_FOX3.foxVisionState().inHall") === false);
+  await key("n", "KeyN");
+  await sleep(200);
+  check("fox vision: N outside the Hall switches nothing on",
+    await evalJs("NOVA_FOX3.foxVisionState().on") === false);
+  await evalJs("NOVA_FOX3.state.pos.set(52.5, 5.01, 35.5); NOVA_FOX3.state.vel.set(0,0,0);");
+  check("fox vision: the deep room is the Hall",
+    await waitFor("NOVA_FOX3.foxVisionState().inHall", 5000, "hall entry"));
+  const guardianId = await evalJs(`(() => {
+    let g = NOVA_FOX3.sub.monsters.find((m) => m.alive && m.kind === "guardian");
+    if (!g) g = NOVA_FOX3.sub.spawnMonster("nova", 27, 19, "guardian");
+    return g.id;
+  })()`);
+  check("fox vision: out of phase, the Keeper is not seen the ordinary way",
+    await evalJs(`(() => { const m = NOVA_FOX3.sub.monsters.find((x) => x.id === ${guardianId}); m.phase = 1; return !NOVA_FOX3.sub.monsterVisible(m) && !NOVA_FOX3.familiarSeen(${guardianId}); })()`) === true);
+  await key("n", "KeyN");
+  await sleep(200);
+  check("fox vision: N inside the Hall wakes the sense",
+    await evalJs("NOVA_FOX3.foxVisionState().active") === true);
+  check("fox vision: the Keeper stands revealed in a dark phase",
+    await evalJs(`(() => { const m = NOVA_FOX3.sub.monsters.find((x) => x.id === ${guardianId}); m.phase = 2; return NOVA_FOX3.familiarSeen(${guardianId}); })()`) === true);
+  check("fox vision: the revealed Keeper lights up in the view",
+    await waitFor(`NOVA_FOX3.monsterLit(${guardianId}) && NOVA_FOX3.monsterOpacity(${guardianId}) > 0.9`, 30000, "keeper lit"));
+  const farId = await evalJs("NOVA_FOX3.sub.spawnMonster('nova', 220, 220, 'surface').id");
+  check("fox vision: a familiar beyond subspace range stays dark",
+    await evalJs(`NOVA_FOX3.familiarSeen(${farId})`) === false);
+  await key("n", "KeyN");
+  check("fox vision: putting the sense down restores the glimpses",
+    await evalJs(`(() => { const m = NOVA_FOX3.sub.monsters.find((x) => x.id === ${guardianId}); m.phase = 1; return !NOVA_FOX3.familiarSeen(${guardianId}); })()`) === true &&
+    await waitFor(`NOVA_FOX3.monsterLit(${guardianId}) === false`, 30000, "keeper unlit"));
+  await key("n", "KeyN");
+  await sleep(200);
+  await evalJs("NOVA_FOX3.teleportTo(8, 8)");
+  check("fox vision: leaving the Hall puts the sense down",
+    await waitFor("NOVA_FOX3.foxVisionState().on === false", 15000, "vision auto-off"));
+  // --- the in-game test console (2026-11-26): the checks moved
+  // into the client. Driven here through the real input path
+  // (Backquote key, typed commands) and the console's own handle;
+  // every assertion is on what the console measured and printed,
+  // never on a canned outcome. This build's traversal is the
+  // diagnosed one, so the veer and slope legs are expected to
+  // FAIL with the diagnosis's numbers — those checks assert the
+  // console reports the defect honestly, and they flip when the
+  // traversal fix lands in a later tree.
+  async function conRun(line) {
+    const before = (await evalJs("NOVA_FOX3.nfConsole.text()")).length;
+    await evalJs(`NOVA_FOX3.nfConsole.run(${JSON.stringify(line)})`);
+    return (await evalJs("NOVA_FOX3.nfConsole.text()")).slice(before);
+  }
+  await key("`", "Backquote");
+  await sleep(400);
+  check("console: Backquote opens the in-game test console",
+    await evalJs("NOVA_FOX3.nfConsole.isOpen()") === true &&
+    await evalJs("document.getElementById('nfconsole').style.display") === "block");
+  const leakNotes = await evalJs("NOVA_FOX3.state.notesPlayed");
+  const leakPos = await evalJs("JSON.stringify(NOVA_FOX3.state.pos)");
+  await send("Input.insertText", { text: "where" });
+  await key("Enter", "Enter");
+  await sleep(500);
+  const whereOut = await evalJs("NOVA_FOX3.nfConsole.text()");
+  check("console: a typed command runs and prints a live readout",
+    whereOut.includes("> where") && whereOut.includes("scroll"));
+  check("console: typing never reaches the game (no notes, no walking)",
+    await evalJs("NOVA_FOX3.state.notesPlayed") === leakNotes &&
+    await evalJs("JSON.stringify(NOVA_FOX3.state.pos)") === leakPos,
+    `notes ${leakNotes} -> ${await evalJs("NOVA_FOX3.state.notesPlayed")}`);
+  check("console: version reports the build's ship EE",
+    (await conRun("version")).includes("EE 950"));
+  check("console: purse reads the live economy state",
+    (await conRun("purse")).includes("flux"));
+  check("console: gravity reports the subspace value",
+    (await conRun("gravity")).includes("subspace"));
+  const geoOut = await conRun("geometry");
+  check("console: geometry check passes against the live function",
+    geoOut.includes("PASS") && geoOut.includes("1.5571"), geoOut.trim().split("\n").pop());
+  check("console: the geometry check measures the dead band",
+    geoOut.includes("dead ground"), geoOut.trim());
+  check("console: bridge check resolves the tune live",
+    (await conRun("bridge")).includes("PASS"));
+  // Terrain at hand, measured off the live heightAt (surfaceY):
+  // a flat stance (a level 3.4-block path) and a steep one (a
+  // >= 2.6-block rise across the gap), wherever the fox now is.
+  const terrain = await evalJs(`(() => {
+    const S = NOVA_FOX3, st = S.state;
+    const g = (x, z) => S.surfaceY(x, z) - 1;
+    const cx = Math.floor(st.pos.x), cz = Math.floor(st.pos.z);
+    let flat = null, steep = null;
+    for (let x = cx - 48; x <= cx + 48 && !(flat && steep); x++) {
+      for (let z = cz - 48; z <= cz + 48 && !(flat && steep); z++) {
+        const g0 = g(x, z);
+        let maxRise = -Infinity;
+        for (let i = 0; i < 36; i++) {
+          const yaw = i / 36 * Math.PI * 2;
+          const gr = g(Math.floor(x + 0.5 - Math.sin(yaw) * 3.4), Math.floor(z + 0.5 - Math.cos(yaw) * 3.4));
+          if (gr - g0 > maxRise) maxRise = gr - g0;
+          if (!flat && maxRise <= 1) {
+            let level = true;
+            for (const s of [0.85, 1.7, 2.55, 3.4]) {
+              const gs = g(Math.floor(x + 0.5 - Math.sin(yaw) * s), Math.floor(z + 0.5 - Math.cos(yaw) * s));
+              if (Math.abs(gs - g0) > 0.5) { level = false; break; }
+            }
+            if (level) flat = { x, z, yaw };
+          }
+        }
+        if (!steep && maxRise >= 2.6) steep = { x, z, rise: maxRise };
+      }
+    }
+    return { flat, steep };
+  })()`);
+  check("console: terrain for the legs exists in this realm (flat + steep)",
+    !!terrain.flat && !!terrain.steep, JSON.stringify(terrain));
+  if (terrain.flat) {
+    await evalJs(`NOVA_FOX3.teleportTo(${terrain.flat.x}, ${terrain.flat.z})`);
+    await evalJs(`NOVA_FOX3.state.yaw = ${terrain.flat.yaw}`);
+    const veerOut = await conRun("rift-veer");
+    const veerD = veerOut.match(/closest approach ([\d.]+)/);
+    check("console: veer probe measures a real closest approach",
+      !!veerD, veerOut.trim().split("\n").pop());
+    check("console: veer probe reports the diagnosed dead band honestly (fails on this build)",
+      veerOut.includes("FAIL") && !!veerD &&
+      Number(veerD[1]) > 1.118 &&
+      veerOut.includes("against a trigger radius of 1.118 and a visible disc of 1.467"),
+      veerOut.trim().split("\n").pop());
+    await evalJs(`NOVA_FOX3.teleportTo(${terrain.flat.x}, ${terrain.flat.z})`);
+    await evalJs(`NOVA_FOX3.state.yaw = ${terrain.flat.yaw}`);
+    const straightOut = await conRun("rift-straight");
+    check("console: straight probe crosses dead-center on flat ground",
+      straightOut.includes("PASS") && straightOut.includes("crossed"),
+      straightOut.trim().split("\n").pop());
+  }
+  if (terrain.steep) {
+    await evalJs(`NOVA_FOX3.teleportTo(${terrain.steep.x}, ${terrain.steep.z})`);
+    const slopeOut = await conRun("rift-slope");
+    check("console: slope probe runs on a real rise and reports both gates",
+      slopeOut.includes("steepest rise") && slopeOut.includes("the two gates, measured"),
+      slopeOut.trim().split("\n").pop());
+    check("console: slope probe reports the height gate unmet on this build",
+      slopeOut.includes("FAIL") && /height \|dy\| [\d.]+ vs 2\.4 — NOT met/.test(slopeOut),
+      slopeOut.trim().split("\n").pop());
+  }
+  const runallOut = await conRun("runall");
+  check("console: runall summarizes real counts, geometry among them",
+    /runall: \d+ passed, \d+ failed, \d+ not run/.test(runallOut) &&
+    runallOut.includes("geometry: pass"),
+    runallOut.trim().split("\n").pop());
+  await key("`", "Backquote");
+  await sleep(200);
+  check("console: Backquote closes it again",
+    await evalJs("NOVA_FOX3.nfConsole.isOpen()") === false);
+  const resumePos = await evalJs("({ x: NOVA_FOX3.state.pos.x, z: NOVA_FOX3.state.pos.z })");
+  await keyDown("w", "KeyW");
+  await sleep(900);
+  await keyUp("w", "KeyW");
+  const resumePos2 = await evalJs("({ x: NOVA_FOX3.state.pos.x, z: NOVA_FOX3.state.pos.z })");
+  check("console: play resumes unbroken after it closes",
+    Math.hypot(resumePos2.x - resumePos.x, resumePos2.z - resumePos.z) > 0.5,
+    `${JSON.stringify(resumePos)} -> ${JSON.stringify(resumePos2)}`);
 
   check("no page console errors", consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(" | "));

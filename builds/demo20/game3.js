@@ -20,7 +20,7 @@
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:950";
+const NF_SHIP_EE = "NF_SHIP_EE:974";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -51,6 +51,8 @@ const state = {
   jumped: 0,
   notesPlayed: 0,
   flips: 0,
+  invertFxT0: -1e9, // when the last real gravity inversion began (demo10)
+  invertFxOn: false, // the degauss treatment is on screen right now
   guideStep: 0,
   guideDone: false,
   // v3 state
@@ -62,6 +64,8 @@ const state = {
   gestureUsed: false,
   introKind: null,
   introUntil: 0,
+  warpT0: 0, // when the warp announcement last fired (demo18)
+  realmSince: 0, // when the fox entered the realm it stands in (demo18)
   swingT: 1, // swing-arc animation clock (1 = idle)
   lastGuideBeat: null,
   introduced: new Set(JSON.parse((() => {
@@ -74,16 +78,19 @@ const state = {
   brush: 0, // index into BRUSHES (world.js) — the chisel's size (feedback #4)
   scheme: "WASD", // control scheme (feedback #5); the other is AWEF
   lamp: false, // the fox's own light (feedback #12)
+  foxVision: false, // Fox Vision: the Hall sense (Will, 2026-11-26)
   flute: null, // a shift-drag in progress (feedback #6)
   splash: true, // the logo panel is up (feedback #15)
   extras: false, // optional UI components shown (2026-11-26); off by default
   introOpen: false, // the Arrival screen's film is showing (feedback #14)
+  guardianEncounter: false, // the Shadow has reached you; the strike hint stands (2026-11-26)
   exploreMoved0: 0, // movedTotal when the guide handed the game over
   jitShown: new Set(), // just-in-time guide steps already surfaced (#19)
 };
 
 // Spawn: Nova Prime, on the surface of the arrival column.
 state.pos.set(ARRIVAL.nova.x + 0.5, heightAt("nova", ARRIVAL.nova.x, ARRIVAL.nova.z) + 1.01, ARRIVAL.nova.z + 0.5);
+state.realmSince = performance.now(); // the spawn realm is "entered" now (demo18)
 ensureNeighborhood(state.realm, 0, 0);
 // The training wisp (feedback #2): a pale, harmless thing set in the
 // spawn meadow for learning the strike on. It never hunts, never hurts.
@@ -215,6 +222,17 @@ const sfx = {
   flip() {
     this.tone(180, { type: "sine", peak: 0.25, decay: 0.5, slide: 240 });
     this.tone(270, { type: "sine", peak: 0.15, decay: 0.5, slide: 360, delay: 0.06 });
+  },
+  degauss() {
+    // The CRT's thunk-buzz (demo10): a low thunk as the coil
+    // fires, then its hum — a sagging buzz at twice-mains that
+    // rings down as the field settles. Synthesized from the same
+    // tone/noise kit as every sound here; no asset, no download.
+    this.tone(64, { type: "sine", peak: 0.5, decay: 0.28, slide: -22 });
+    this.noise({ peak: 0.25, decay: 0.2, freq: 240, type: "lowpass" });
+    this.tone(118, { type: "sawtooth", peak: 0.16, decay: 1.5, slide: -30, delay: 0.03 });
+    this.tone(236, { type: "sawtooth", peak: 0.07, decay: 1.1, slide: -55, delay: 0.03 });
+    this.tone(59, { type: "square", peak: 0.1, decay: 0.9, slide: -12, delay: 0.03 });
   },
   portal() {
     [0, 4, 7, 11].forEach((st, i) =>
@@ -560,18 +578,6 @@ function ecoNote(msg) {
   const el = document.getElementById("eco-note");
   if (el) el.textContent = msg;
 }
-// Idea lines bound for the shared chart queue here — a dedicated
-// outbox with the eco outbox's exact discipline (EE 953 design):
-// persisted locally the moment a telling is made, flushed inside
-// backendFlush() under the shared insert budget with a login
-// token, oldest first, honest stop at the first refusal, and
-// never shown as told until the chart reads it back.
-const ideaOutbox = LS.get("nova-phox-idea-outbox", []);
-function persistIdeaOutbox() { LS.set("nova-phox-idea-outbox", ideaOutbox); }
-function queueIdeaLine(line) {
-  ideaOutbox.push({ coord: BACKEND.ideaCoord, line });
-  persistIdeaOutbox();
-}
 // Random bytes for gift keys: the browser's crypto, nothing else.
 function ecoRandomByte() {
   const a = new Uint8Array(1);
@@ -633,15 +639,15 @@ const BACKEND = {
   boardCoord: "1.1.1/1.1.2/1.1.1", // the shared leaderboard scroll
   purchaseCoord: "1.1.1/1.1.3/1.1.1", // the written record: purchase claims, in order (D1)
   ecoCoord: "1.1.1/1.1.4/1.1.1", // the economy ledger: gift issues/redeems, hand-downs (D12)
-  formCoord: "1.1.1/1.1.5/1.1.1", // the forms scroll: the shapes foxes wear (demo6)
-  ideaCoord: "1.1.1/1.1.6/1.1.1", // the ideas scroll: tellings at the door (demo8)
+  gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: one line per shift; a realm's latest line is its down (demo10)
+  formCoord: "1.1.1/1.1.6/1.1.1", // the forms scroll: the shapes foxes wear (demo6; coordinate reassigned at integration — demo6 and demo10 both claimed 1.1.1/1.1.5/1.1.1; gravity kept it, forms moved to 1.1.6)
   online: false,
   probed: false,
   boardRows: [], // rows actually read back from the shared chart
   purchaseRows: [], // purchase claims actually read back, numbered by arrival
   ecoLedger: null, // parsed economy ledger actually read back (null = not yet)
+  gravityRows: [], // gravity records actually read back from the shared chart
   formRows: null, // forms actually read back, by fox name (null = not yet)
-  ideaRows: [], // ideas actually read back, resolved to their current state
   lastPostedScore: LS.get("nova-phox-posted", -1),
 };
 // ---------- login, for saving (Will, 2026-11-22 18:05) ----------------------
@@ -713,6 +719,7 @@ function marksNote() {
   const origLog = sub.log.bind(sub);
   sub.log = (op, where, detail) => {
     origLog(op, where, detail);
+    trailTap(`${where} ${detail}`);
     const seg = sub.wal[sub.wal.length - 1];
     outbox.push({ ...seg, by: playerName, ts: Date.now() });
     foldOverflow();
@@ -720,6 +727,41 @@ function marksNote() {
     updateSyncLabel();
   };
 }
+// ---------- the loading trail -------------------------------------------
+// Set dressing on the load panel (world.js has the machinery): the
+// words of the boot's own reads — the inscription log as generation
+// writes it (tapped above), the shared chart's scrolls as the
+// gateway answers them (tapped in backendFlush below) — flow across
+// the panel while the world loads, flavor phrases woven through.
+// It starts with the load and ends when the world is ready: the
+// boot sync settling, the panel stepping aside, or a hard cap,
+// whichever comes first. No player-facing surface names it.
+const trail = new TrailFeed();
+for (const seg of sub.wal) trail.feedText(`${seg.where} ${seg.detail}`);
+function trailTap(text) { if (trail.live) trail.feedText(text); }
+const trailShown = [];
+let trailTimer = null;
+function trailRender() {
+  const el = document.getElementById("trail-line");
+  if (!el) { trailDone(); return; }
+  const w = trail.next();
+  if (w === null) return;
+  trailShown.push(w);
+  while (trailShown.length > 9) trailShown.shift();
+  el.textContent = trailShown.join(" ");
+}
+function trailDone() {
+  trail.stop();
+  if (trailTimer !== null) { clearInterval(trailTimer); trailTimer = null; }
+  const el = document.getElementById("trail-line");
+  if (el) {
+    el.style.opacity = "0";
+    setTimeout(() => { el.textContent = ""; }, 700);
+  }
+}
+trailTimer = setInterval(trailRender, 110);
+setTimeout(trailDone, 30000); // the trail never outlives the load
+
 // The gateway's rate limit is 120 inserts a minute (UPDATE-CHECK-1).
 // The flush paces itself under it, and a 429 means "wait and keep
 // draining", not "the line is dead".
@@ -806,6 +848,7 @@ async function backendFlush() {
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         const text = await r.text();
+        trailTap(text);
         BACKEND.boardRows = text.split("\n").map((ln) => {
           const [name, sc, date, daily, ts] = ln.split("|");
           return name && Number.isFinite(+sc)
@@ -835,27 +878,6 @@ async function backendFlush() {
       persistEcoOutbox();
     }
   }
-  // Flush the idea queue under the same discipline again: token,
-  // budget, oldest first, honest stop at the first refusal. One
-  // queued telling is exactly one insert.
-  if (writeHeaders && BACKEND.online) {
-    while (ideaOutbox.length) {
-      if (insertBudget() <= 0) break;
-      const seg = ideaOutbox[0];
-      try {
-        const r = await fetch(
-          `${BACKEND.base}/api/v2/insert?p=${BACKEND.phext}&c=${seg.coord}`,
-          { method: "POST", headers: writeHeaders, body: seg.line,
-            signal: AbortSignal.timeout(5000) });
-        if (r.status === 401) { LS.set("nova-phox-token", null); break; }
-        if (r.status === 429) { flushRetryAt = Date.now() + 25000; break; }
-        if (!r.ok) { BACKEND.online = false; break; }
-        insertTimes.push(Date.now());
-      } catch (e) { BACKEND.online = false; break; }
-      ideaOutbox.shift();
-      persistIdeaOutbox();
-    }
-  }
   // Read the written record and the economy ledger back — only
   // what is actually read is ever shown or acted on.
   if (BACKEND.online) {
@@ -863,26 +885,37 @@ async function backendFlush() {
       const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.purchaseCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
-      if (r.ok) BACKEND.purchaseRows = parsePurchaseBoard(await r.text());
+      if (r.ok) {
+        const text = await r.text();
+        trailTap(text);
+        BACKEND.purchaseRows = parsePurchaseBoard(text);
+      }
     } catch (e) { /* the record keeps its last honest state */ }
     try {
       const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.ecoCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
-      if (r.ok) BACKEND.ecoLedger = parseEcoLedger(await r.text());
+      if (r.ok) {
+        const text = await r.text();
+        trailTap(text);
+        BACKEND.ecoLedger = parseEcoLedger(text);
+      }
     } catch (e) { /* same */ }
+    try {
+      const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        BACKEND.gravityRows = parseGravityScroll(await r.text());
+        reconcileGravity();
+      }
+    } catch (e) { /* gravity keeps its last honest state */ }
     try {
       const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.formCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.formRows = parseFormChart(await r.text());
     } catch (e) { /* the forms keep their last honest state */ }
-    try {
-      const r = await fetch(
-        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.ideaCoord}`,
-        { method: "GET", signal: AbortSignal.timeout(5000) });
-      if (r.ok) BACKEND.ideaRows = parseIdeas(await r.text());
-    } catch (e) { /* the tellings keep their last honest state */ }
     if (BACKEND.ecoLedger) {
       // Hand-downs addressed to this fox land exactly once.
       const got = applyHanddowns(eco, BACKEND.ecoLedger, playerName);
@@ -927,8 +960,86 @@ async function backendFlush() {
   }
   updateSyncLabel();
   renderBoard();
-  renderIdeas();
 }
+// ---------- gravity on the shared chart (demo10) ----------------------------
+// Will's ruling (2026-11-26): gravity is stored in subspace on a
+// per-realm basis — make sure it's a real change — and a player may
+// shift a realm's gravity only once per day per realm. The store is
+// the gravity scroll on the shared chart: every shift appends one
+// record (world.js: gravityShiftLine), a realm's down is its latest
+// record, and the records double as the once-a-day ledger. The
+// local Subspace realm memory is a mirror for responsiveness; the
+// scroll is the truth, attuned to on every read-back and on realm
+// entry. A shift made offline or signed-out is queued in the record
+// outbox like every other inscription and counts as spent from the
+// moment it is made — it lands when the chart answers, and until
+// then the sync label says plainly that marks are waiting.
+
+// Every gravity record this fox can honestly know: the scroll as
+// read back, plus this fox's own shifts still queued for it. The
+// merge orders by the records' own timestamps; on a tie the
+// read-back stands last — the scroll wins its own ties, because
+// arrival order on the scroll is the final truth once a queued
+// shift lands.
+function gravityKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.gravityCoord) continue;
+    for (const r of parseGravityScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...BACKEND.gravityRows, ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+
+function regenChunksAroundPlayer() {
+  const pcx = Math.floor(state.pos.x / CHUNK), pcz = Math.floor(state.pos.z / CHUNK);
+  for (let dx = -1; dx <= 1; dx++)
+    for (let dz = -1; dz <= 1; dz++) regenerateChunk(pcx + dx, pcz + dz);
+}
+
+// Attune the local mirror to the chart's word. When the CURRENT
+// realm's down changes under the fox — another fox shifted it, or
+// the entry read-back speaks — the nearby ground is rebuilt so the
+// new down has somewhere to land; the physics loop settles the
+// body itself, with the border beat it already speaks.
+function reconcileGravity() {
+  const latest = latestGravityByRealm(gravityKnownRecords());
+  for (const [realmId, rec] of latest) {
+    if (!sub.applyRealmGravity(realmId, rec.dir)) continue;
+    if (realmId === state.realm) {
+      const { sx, sy } = playerScroll();
+      regenChunksAroundPlayer();
+      markScrollChunksDirty(state.realm, sx, sy);
+      syncReadout();
+      // The realm turned under the fox by the chart's word — an
+      // experienced inversion, announced big (demo18), once the
+      // fox has truly been standing here a while. Realm entry
+      // re-attunes through this same path with the dwell freshly
+      // restarted (enterRealmGravity), so arriving somewhere whose
+      // down is up stays quiet here — the border beat speaks it.
+      if (warpAnnounceOk(performance.now())) showGravityWarp();
+    }
+  }
+}
+
+// Realm entry: attune at once from what is already known, then ask
+// the chart again — its answer, when it comes, reconciles.
+async function enterRealmGravity(realmId) {
+  state.realmSince = performance.now(); // entry restarts the warp dwell (demo18)
+  reconcileGravity();
+  if (!BACKEND.online) return;
+  try {
+    const r = await fetch(
+      `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
+      { method: "GET", signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      BACKEND.gravityRows = parseGravityScroll(await r.text());
+      if (state.realm === realmId) reconcileGravity();
+    }
+  } catch (e) { /* the chart keeps its last honest state; entry already attuned from what is known */ }
+}
+
 function updateSyncLabel() {
   const el = document.getElementById("syncline");
   if (!el) return;
@@ -1195,7 +1306,6 @@ function initThree() {
   lampLight.target.position.set(0, -0.1, -8);
   camera.add(lampLight.target);
   buildIntroScreen();
-  buildTellingDoor();
   applyRealmSky();
   window.addEventListener("resize", onResize);
   onResize();
@@ -1293,87 +1403,6 @@ function closeIntroViewer() {
   if (v) v.pause();
   $("intro-viewer").style.display = "none";
   state.introOpen = false;
-}
-
-// ---------- the telling door (demo8, EE 953 design) ---------------------------
-// A standing door in Nova Prime on the taught path near Arrival —
-// fixed scenery, NOT a rift: rifts are player-opened travel links,
-// one at a time; this door never moves and carries nobody
-// anywhere. It stands east of Arrival, on the way a new fox is
-// taught to walk (the Deep Stone lies east), as a frame with a
-// warm light in it. Walking up to it offers the telling panel;
-// looking at it and clicking opens the panel too, and its hover
-// line speaks its name in the game's hover idiom.
-let tellingDoor = null, tellingDoorGlow = null;
-function buildTellingDoor() {
-  tellingDoor = new THREE.Group();
-  const bx = 13, bz = 10; // blocks, Nova Prime scroll (0,0), east of Arrival
-  const groundY = heightAt("nova", bx, bz) + 1;
-  const frameMat = new THREE.MeshLambertMaterial({ color: 0x3a2c1c });
-  const postGeo = new THREE.BoxGeometry(0.26, 3.1, 0.26);
-  for (const side of [-1, 1]) {
-    const post = new THREE.Mesh(postGeo, frameMat);
-    post.position.set(side * 0.95, 1.55, 0);
-    tellingDoor.add(post);
-  }
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.26, 0.26), frameMat);
-  lintel.position.set(0, 3.1, 0);
-  tellingDoor.add(lintel);
-  const step = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.12, 0.7), frameMat);
-  step.position.set(0, 0.06, 0);
-  tellingDoor.add(step);
-  // The warm light in the doorway: a soft pane that never opens.
-  tellingDoorGlow = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.64, 2.84),
-    new THREE.MeshBasicMaterial({
-      color: 0xffb84d, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
-    }));
-  tellingDoorGlow.position.set(0, 1.55, 0);
-  tellingDoor.add(tellingDoorGlow);
-  const lamp = new THREE.PointLight(0xffc37a, 14, 11, 1.8);
-  lamp.position.set(0, 1.9, 0.4);
-  tellingDoor.add(lamp);
-  tellingDoor.position.set(bx + 0.5, groundY, bz + 0.5);
-  // Face the spawn clearing, so the waking fox sees its light.
-  tellingDoor.rotation.y = Math.atan2(
-    (ARRIVAL.nova.x + 0.5) - (bx + 0.5), (ARRIVAL.nova.z + 0.5) - (bz + 0.5));
-  scene.add(tellingDoor);
-}
-const _doorRay = new THREE.Raycaster();
-function tellingDoorAimed() {
-  if (!tellingDoor || state.realm !== "nova" || !tellingDoor.visible) return false;
-  _doorRay.setFromCamera({ x: 0, y: 0 }, camera);
-  const hit = _doorRay.intersectObject(tellingDoor, true);
-  return hit.length > 0 && hit[0].distance < 7;
-}
-// The door's nearness, polled from animate(): the first approach
-// carries the teaching as a toast (once, ever, on this machine);
-// walking up to the door offers the panel, once per approach —
-// stepping away and back offers it again.
-let doorArmed = true, doorToastDone = LS.get("nova-phox-idea-door-met", false);
-function doorStep() {
-  const line = $("doorline");
-  if (!tellingDoor) { if (line) line.style.display = "none"; return; }
-  tellingDoor.visible = state.realm === "nova";
-  if (state.realm !== "nova") { if (line) line.style.display = "none"; return; }
-  const d = camera.position.distanceTo(tellingDoor.position);
-  // Hover: the door names itself while it is what you are looking at.
-  const aimed = d < 7 && tellingDoorAimed();
-  if (line) {
-    line.style.display = aimed ? "block" : "none";
-    if (aimed) line.textContent = "the telling door — leave an idea for the world";
-  }
-  if (d > 4.5) doorArmed = true;
-  if (d < 3.4 && !doorToastDone) {
-    doorToastDone = true;
-    LS.set("nova-phox-idea-door-met", true);
-    toast("The telling door. Leave an idea for the world — the world listens, and answers by changing.", 8000);
-  }
-  const panel = $("ideas");
-  if (d < 2.3 && doorArmed && panel && panel.style.display !== "block") {
-    doorArmed = false;
-    toggleIdeas(true);
-  }
 }
 
 function onResize() {
@@ -1661,6 +1690,7 @@ function buildMonsterMesh(kind) {
     const m = new THREE.MeshLambertMaterial({
       color, emissive, emissiveIntensity: ei, transparent: true, opacity: 0,
     });
+    m.userData.baseEI = ei; // Fox Vision scales from the material's own glow
     mats.push(m);
     return m;
   };
@@ -1755,14 +1785,26 @@ function syncMonsterMeshes(dt) {
     // Fades, never pops (feedback #6): the glimpse cycle becomes an
     // opacity ramp. The Bright Charm stretches the glimpse — a
     // phase-1 thing shows as a faint shape (0.22) instead of nothing.
+    // Fox Vision (Will, 2026-11-26): inside the Hall, a revealed
+    // familiar stands at full presence in EVERY phase — the fox
+    // sees it, lit, instead of catching its glimpses.
+    const revealed = visionReveals(m);
     let target = 0;
     if (m.kind === "wisp") target = 1;
-    else if (sub.monsterVisible(m)) target = 1;
+    else if (sub.monsterVisible(m) || revealed) target = 1;
     else if (state.charms.bright && m.phase === 1) target = 0.22;
     const cur = mesh.userData.opacity || 0;
     const next = cur + (target - cur) * Math.min(1, dt * 5);
     mesh.userData.opacity = next;
-    for (const mt of mesh.userData.mats) mt.opacity = next;
+    mesh.userData.visionLit = revealed;
+    for (const mt of mesh.userData.mats) {
+      mt.opacity = next;
+      // Lit: a revealed familiar burns brighter in every material,
+      // so it reads through the Hall's dark instead of merely
+      // fading in. The boost scales the material's own emissive —
+      // nothing new is painted on the thing.
+      mt.emissiveIntensity = (mt.userData.baseEI ?? 1) * (revealed ? 2.4 : 1);
+    }
     mesh.visible = next > 0.03;
     if (mesh.visible) {
       const p = monsterWorldPos(m);
@@ -1991,7 +2033,8 @@ function updatePlayer(dt) {
   const wishZ = (-cos * fwd - sin * strafe);
   const wishLen = Math.hypot(wishX, wishZ) || 1;
   const run = keys.has("ShiftLeft") || keys.has("ShiftRight");
-  const speed = (run ? 6.8 : 4.4) * (state.charms.swift ? 1.35 : 1);
+  const speed = (run ? 6.8 : 4.4) * (state.charms.swift ? 1.35 : 1)
+    * (invertFxActive(performance.now()) ? INVERT_SLOW : 1);
   const accel = state.onGround ? 42 : 12;
   state.vel.x += (wishX / wishLen) * (fwd || strafe ? accel : 0) * dt;
   state.vel.z += (wishZ / wishLen) * (fwd || strafe ? accel : 0) * dt;
@@ -2146,16 +2189,82 @@ function hurtPlayer(amount, fromPos, why) {
   syncHud();
 }
 
+// ---------- the strike hint (2026-11-26) -------------------------------------
+// While the encounter with the Shadow is in progress, the fox's
+// strike binding stands at the view's edge, bulging — the control
+// the moment asks for, impossible to forget while it matters. It
+// latches at the same event that can speak the guardian-contact
+// line (the guardian's touch, in checkMonsterContact below) and
+// it fades on its own when the encounter ends: the Shadow struck
+// down, or the fox gone beyond the leash — run away, and the
+// moment is over. No dismissal, nothing to close; meeting the
+// Shadow again raises it again.
+//
+// The binding is read from the assignment itself, never lettered
+// by hand: under WASD the strike lives on F; under AWEF, F walks
+// backward (see the key handler) and the strike lives on the
+// click; on touch it is the strike button. One pure function of
+// the assignment, so the unit suite can hold it to account.
+function strikeBindingLabel(scheme, touch) {
+  if (touch) return "STRIKE";
+  return scheme === "AWEF" ? "CLICK" : "F";
+}
+const GUARDIAN_LEASH = 16; // blocks: past this, you have run away
+function syncStrikeHint() {
+  const cap = $("striker-cap");
+  if (!cap) return;
+  const label = strikeBindingLabel(
+    state.scheme, document.body.classList.contains("touch"));
+  if (cap.textContent !== label) cap.textContent = label;
+  $("striker-word").style.display = label === "STRIKE" ? "none" : "block";
+}
+function setGuardianEncounter(on) {
+  if (state.guardianEncounter === on) return;
+  state.guardianEncounter = on;
+  const el = $("striker");
+  if (!el) return;
+  clearTimeout(setGuardianEncounter._t);
+  if (on) {
+    syncStrikeHint();
+    el.style.display = "block";
+    void el.offsetWidth; // let the fade start from 0, not jump
+    el.classList.add("on");
+  } else {
+    el.classList.remove("on");
+    setGuardianEncounter._t = setTimeout(() => {
+      if (!state.guardianEncounter) el.style.display = "none";
+    }, 480);
+  }
+}
+function updateGuardianEncounter() {
+  if (!state.guardianEncounter) return;
+  const g = sub.monsters.find(
+    (m) => m.kind === "guardian" && m.realmId === state.realm);
+  if (!g || !g.alive || state.dead) { setGuardianEncounter(false); return; }
+  const p = monsterWorldPos(g);
+  const dx = state.pos.x - p.x, dz = state.pos.z - p.z;
+  if (dx * dx + dz * dz > GUARDIAN_LEASH * GUARDIAN_LEASH) {
+    setGuardianEncounter(false);
+    return;
+  }
+  syncStrikeHint(); // the assignment may change mid-encounter
+}
+
 function checkMonsterContact() {
   if (state.dead) return;
   for (const m of sub.monsters) {
-    if (!m.alive || m.realmId !== state.realm || !sub.monsterVisible(m)) continue;
+    if (!m.alive || m.realmId !== state.realm || !familiarSeen(m)) continue;
     const p = monsterWorldPos(m);
     const dx = state.pos.x - p.x, dz = state.pos.z - p.z;
     const dy = (state.pos.y + 0.9) - (p.y + 0.9);
     if (dx * dx + dz * dz < 1.5 && Math.abs(dy) < 2.1) {
       const before = state.hp;
       if (m.kind === "wisp") return; // the training thing cannot hurt you
+      // The encounter with the Shadow begins at its touch — the
+      // same event that can speak the guardian-contact line below —
+      // and the strike hint stands for as long as the encounter
+      // lasts (updateGuardianEncounter keeps its end).
+      if (m.kind === "guardian") setGuardianEncounter(true);
       hurtPlayer(2, p, m.kind === "guardian"
         ? "The guardian reaches you. Strike it back — click, or F."
         : null);
@@ -2213,7 +2322,7 @@ function tryStrike() {
   const eye = eyePos();
   let best = null, bestT = range;
   for (const m of sub.monsters) {
-    if (!m.alive || m.realmId !== state.realm || !sub.monsterVisible(m)) continue;
+    if (!m.alive || m.realmId !== state.realm || !familiarSeen(m)) continue;
     const p = monsterWorldPos(m);
     const center = new THREE.Vector3(p.x, p.y + 0.95, p.z);
     const to = center.clone().sub(eye);
@@ -2341,6 +2450,40 @@ function toggleLamp() {
   state.lamp = !state.lamp;
   applyLamp();
   toast(state.lamp ? "Lamp on." : "Lamp off.", 2500);
+}
+
+// ---------- Fox Vision (Will, 2026-11-26) --------------------------------
+// "Introduce Fox Vision, usable when inside The Unexpected Hall —
+// it provides night vision of all familiars within subspace
+// range." The rules live in world.js (inTheHall, foxVisionToggle,
+// foxVisionReveals, FAMILIAR_RANGE_CELLS); the view composes them.
+// No cost, no cooldown: the Hall is the gate. No toast, no beat —
+// the sense waking IS the feedback: the dark gives up its shapes,
+// lit. (Joy's barrow line already promised it: "Your vision
+// alone can fix it.") An N press outside the Hall is a quiet
+// non-response — the toggle rule in world.js simply declines.
+function playerInHall() {
+  return state.realm === DUNGEON.realm &&
+    inTheHall(state.pos.x, state.pos.y, state.pos.z);
+}
+function foxVisionActive() {
+  return state.foxVision && playerInHall();
+}
+function visionReveals(m) {
+  if (!foxVisionActive() || !m.alive || m.realmId !== state.realm) return false;
+  return foxVisionReveals(m,
+    cellOfBlock(Math.floor(state.pos.x)), cellOfBlock(Math.floor(state.pos.z)));
+}
+// Seen: shown by the phases, or revealed by Fox Vision. The
+// strike and the reach both read this one word — what the Vision
+// shows the fox, the fox can strike; and it can strike back.
+// Vision cuts both ways, which is what makes it a sense and not
+// a cheat: inside the Hall, everything is simply THERE.
+function familiarSeen(m) {
+  return sub.monsterVisible(m) || visionReveals(m);
+}
+function toggleFoxVision() {
+  state.foxVision = foxVisionToggle(state.foxVision, playerInHall());
 }
 
 // ---------- the instrument: numbers are the teleport ----------------------------
@@ -2636,8 +2779,11 @@ function openRift(target) {
   // Both ends planted now (Will, 2026-11-24: not a 1-way trip):
   // the near end at the fox's ground, the far end at the landing
   // the tune names — a realm's Arrival, or a page's center.
-  const a = riftEnd(state.realm, state.pos.x, state.pos.z, state.yaw,
-    state.pos.y - 1.01);
+  // No feetY override (portal fix, EE 954): the near end's ground
+  // is the ring's own ground, computed by riftEnd from the ring's
+  // position — anchoring it to the opener's feet made rings opened
+  // on slopes untraversable (PORTAL-DIAGNOSIS.md, defect 2).
+  const a = riftEnd(state.realm, state.pos.x, state.pos.z, state.yaw);
   const b = riftEnd(target.realmId, dest.bx + 0.5, dest.bz + 0.5,
     state.yaw, undefined, true);
   state.riftLink = { id: ++riftSeq, target, a, b, crosses: 0 };
@@ -2731,7 +2877,7 @@ function riftStep(now, dt) {
     if (now < (monsterRiftCooldown.get(m.id) || 0)) continue;
     const p = monsterWorldPos(m);
     const mdx = p.x - r.x, mdz = p.z - r.z;
-    if (mdx * mdx + mdz * mdz < 1.25)
+    if (mdx * mdx + mdz * mdz < r.geo.disc * r.geo.disc)
       carryMonsterThrough(m, r.end, mdx, mdz, 2.4);
   }
   // A crossing arms only once the fox has stepped clear of the
@@ -2741,7 +2887,11 @@ function riftStep(now, dt) {
     return;
   }
   const dy = (state.pos.y - 1.01) - r.feetY;
-  if (dist2 < 1.25 && Math.abs(dy) < 2.4) crossThroughRift();
+  // The trigger is the visible disc itself (portal fix, EE 954):
+  // the old hard-coded 1.25 (radius ~1.118) left the outer ~42% of
+  // the disc dead (PORTAL-DIAGNOSIS.md, defect 1).
+  if (dist2 < r.geo.disc * r.geo.disc && Math.abs(dy) < 2.4)
+    crossThroughRift();
 }
 
 function playChord(chord) {
@@ -2795,6 +2945,7 @@ function doCross(target, opts = {}) {
     } else {
       respawnAtArrival();
     }
+    enterRealmGravity(state.realm);
     applyRealmSky();
     for (const [, mesh] of monsterMeshes) scene.remove(mesh);
     monsterMeshes.clear();
@@ -2829,10 +2980,108 @@ function flashPortal() {
   });
 }
 
+// ---------- the inversion wooze (demo10) ------------------------------------
+// Will (2026-11-26): a gravity inversion slows the player for
+// 5 seconds and the screen goes fuzzy for the same 5 seconds —
+// like degaussing a monitor, sound effect included. The effect
+// hangs on the REAL inversion: it starts only where a shift
+// actually turns the realm (flipGravityHere, past the once-a-day
+// gate). A refused shift inverts nothing and woozes nothing.
+const INVERT_FX_MS = 5000; // the wooze lasts five seconds
+const INVERT_SLOW = 0.5; // at half speed while it lasts
+function invertFxActive(now) { return now - state.invertFxT0 < INVERT_FX_MS; }
+function startInvertFx() {
+  state.invertFxT0 = performance.now();
+  sfx.degauss();
+}
+// The degauss treatment, driven per frame from animate(): the
+// picture starts bent and ringing — blur, a hue swing, a wobble
+// that collapses and settles on a damped envelope — under a
+// rainbow shimmer veil, and every trace is gone at five seconds.
+function updateInvertFx(now) {
+  const canvas = renderer.domElement, veil = $("degauss");
+  if (!invertFxActive(now)) {
+    if (state.invertFxOn) {
+      state.invertFxOn = false;
+      canvas.style.filter = "";
+      canvas.style.transform = "";
+      if (veil) veil.style.opacity = "0";
+    }
+    return;
+  }
+  state.invertFxOn = true;
+  const t = now - state.invertFxT0, u = t / INVERT_FX_MS;
+  const amp = Math.pow(1 - u, 1.6); // strong at the thunk, settling tail
+  const wob = Math.sin(t * 0.0138) * amp; // the ~2.2 Hz dying wobble
+  const shim = Math.sin(t * 0.055) * amp; // the faster rainbow shimmer
+  canvas.style.filter =
+    `blur(${(4.5 * amp).toFixed(2)}px) hue-rotate(${(70 * wob).toFixed(1)}deg) saturate(${(1 + 0.9 * amp).toFixed(2)})`;
+  canvas.style.transform =
+    `translate(${(6 * wob).toFixed(1)}px, ${(1.6 * shim).toFixed(1)}px) scale(${(1 + 0.03 * wob).toFixed(3)})`;
+  if (veil) veil.style.opacity = (0.26 * amp * (0.75 + 0.25 * shim)).toFixed(3);
+}
+
+// ---------- warp text: the inversion, announced (demo18) --------------------
+// Will (2026-11-26): "GRAVITY INVERSION!!" — warp text on the
+// announcement method: the intro card's presentation (a centered
+// serif name between cyan rules, shown, held, then gone), the name
+// at 3x the card's 40px, and the card itself warped — swung through
+// perspective with a skew that rings down and settles (the warpin /
+// warpname keyframes in page3.html). A dedicated card built exactly
+// on that method, so a warp announcement never preempts or corrupts
+// a monster introduction in flight (startIntro owns #introcard's
+// timer and its spotlight dim).
+//
+// It fires on the inversions the fox EXPERIENCES: its own shift,
+// past the once-a-day gate, beside the wooze (flipGravityHere); and
+// a turn that arrives by read-back while the fox is standing in the
+// realm (reconcileGravity) — down changed under the fox, and the
+// big text is the helpful word for why the world just turned. A
+// refused shift inverts nothing and announces nothing. Arriving
+// somewhere is not an inversion: the dwell below keeps realm entry
+// and the boot attunement quiet.
+const WARP_TEXT = "GRAVITY INVERSION!!";
+const WARP_MS = 2600; // on screen: lands with the inversion, clears well inside the wooze's 5000
+const WARP_DWELL_MS = 4000; // a read-back turn counts as experienced only after this long in the realm
+let warpShown = 0; // how many times the announcement has fired (playtest evidence)
+function showGravityWarp() {
+  const card = $("warpcard");
+  if (!card) return;
+  warpShown++;
+  state.warpT0 = performance.now();
+  card.style.display = "block";
+  card.classList.remove("show");
+  void card.offsetWidth; // restart the animation, as the intro card does
+  card.classList.add("show");
+  clearTimeout(showGravityWarp._t);
+  showGravityWarp._t = setTimeout(() => { card.style.display = "none"; }, WARP_MS);
+}
+function warpAnnounceOk(now) {
+  return !state.splash && now - state.realmSince >= WARP_DWELL_MS;
+}
+
 function flipGravityHere() {
+  // One shift per player per realm per day (Will, 2026-11-26),
+  // judged against every record known here — read back from the
+  // gravity scroll or still queued for it — so a shift counts from
+  // the moment it is made, not from when it lands. A refused shift
+  // does not happen; the toast below is a placeholder line in the
+  // game's comms style, flagged for Will's wording.
+  const day = todayStr();
+  if (!gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, day)) {
+    toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
+    return;
+  }
   const { sx, sy } = playerScroll();
   const dir = sub.flipGravity(state.realm, sx, sy);
+  // The shift is inscribed on the gravity scroll: that record IS
+  // the realm's new down, for every fox, from when the chart takes
+  // it — and it spends this fox's one shift in this realm today.
+  queueEcoLine(BACKEND.gravityCoord,
+    gravityShiftLine(state.realm, dir, playerName, day, Date.now()));
   state.flips++;
+  startInvertFx(); // the inversion is real — the wooze rides it
+  showGravityWarp(); // — and the warp text announces it, big (demo18)
   sfx.flip();
   // The vault (or its absence) is generation: rebuild nearby NOW so
   // the new down has somewhere to land you.
@@ -3454,184 +3703,6 @@ function toggleBoard(force) {
   if (show) renderBoard();
 }
 
-// ---------- the telling door's panel (demo8) ------------------------------------
-// The logic lives in ideas.js (pure, unit-tested); this glue owns
-// the panel, the outbox, and the chart. Player text is rendered
-// ONLY as text nodes — a telling is data, never markup, so no
-// player's words can become a script surface. Copy stays under
-// the veil: the world, the shared map, told / taken up / in the
-// world — no machinery words in the fiction.
-const IDEA_STATE_LABELS = {
-  submitted: "told",
-  picked: "taken up",
-  shipped: "in the world",
-};
-function ideaStateText(idea) {
-  const label = IDEA_STATE_LABELS[idea.status] || "told";
-  return idea.status === "shipped" && idea.shipEE
-    ? `${label} · EE ${idea.shipEE}` : label;
-}
-function ideaNote(msg) {
-  const el = document.getElementById("idea-note");
-  if (el) el.textContent = msg;
-}
-function ideaRowEl(nameText, titleText, stateText, here) {
-  const row = document.createElement("div");
-  row.className = "realmrow" + (here ? " here" : "");
-  const nm = document.createElement("span");
-  nm.className = "realmname2";
-  nm.textContent = nameText;
-  const tt = document.createElement("span");
-  tt.className = "realmname2";
-  tt.textContent = titleText;
-  const st = document.createElement("span");
-  st.className = "realmstatus";
-  st.textContent = stateText;
-  row.append(nm, tt, st);
-  return row;
-}
-function ideaEmptyEl(text) {
-  const row = document.createElement("div");
-  row.className = "realmrow";
-  const st = document.createElement("span");
-  st.className = "realmstatus";
-  st.textContent = text;
-  row.append(st);
-  return row;
-}
-function renderIdeas() {
-  const el = document.getElementById("ideas");
-  if (!el || el.style.display === "none") return;
-  // The character count, honest about the caps.
-  const title = $("idea-title").value || "";
-  const body = $("idea-body").value || "";
-  const count = $("idea-count");
-  const over = [...title].length > IDEA_TITLE_MAX || [...body].length > IDEA_BODY_MAX;
-  count.textContent =
-    `a title of at most ${IDEA_TITLE_MAX} letters (yours: ${[...title].length}) · ` +
-    `a telling of at most ${IDEA_BODY_MAX} (yours: ${[...body].length})`;
-  count.className = over ? "over" : "";
-  // Sign-in: only the write needs it — the same door the board uses.
-  const signin = $("idea-signin");
-  if (gameToken()) {
-    signin.style.display = "none";
-  } else {
-    signin.style.display = "block";
-    $("idea-signin-text").textContent = ideaOutbox.length
-      ? "Your telling is waiting on this machine. Sign in, and it travels to the shared map — until then it is kept here, not lost."
-      : "Tellings travel on the shared map, and writing there asks you to sign in — the same sign-in the board uses. An idea told while signed out waits on this machine and travels when you sign in.";
-  }
-  // Your ideas: the ones still waiting on this machine first
-  // (labelled plainly as waiting here), then yours as read back.
-  const yours = $("idea-yours");
-  yours.replaceChildren();
-  const readBackIds = new Set(BACKEND.ideaRows.map((r) => r.id));
-  let shown = 0;
-  for (const seg of ideaOutbox) {
-    const idea = parseIdeaLine(seg.line);
-    if (!idea || readBackIds.has(idea.id)) continue;
-    yours.append(ideaRowEl(idea.name, idea.title, "waiting on this machine", true));
-    shown++;
-  }
-  for (const idea of BACKEND.ideaRows) {
-    if (idea.name !== playerName) continue;
-    yours.append(ideaRowEl(idea.name, idea.title, ideaStateText(idea), true));
-    shown++;
-  }
-  if (!shown) {
-    yours.append(ideaEmptyEl(BACKEND.online
-      ? "you haven't told the world anything yet"
-      : "the shared map hasn't answered yet — your tellings wait with you"));
-  }
-  // Lately told: the latest 20 ideas the chart actually read back.
-  const lately = $("idea-lately");
-  lately.replaceChildren();
-  const recent = BACKEND.ideaRows.slice(-20).reverse();
-  if (!recent.length) {
-    lately.append(ideaEmptyEl(BACKEND.online
-      ? "no fox has told the world anything yet — yours could be the first"
-      : "the shared map hasn't answered yet this session"));
-  }
-  for (const idea of recent) {
-    lately.append(ideaRowEl(idea.name, idea.title, ideaStateText(idea),
-      idea.name === playerName));
-  }
-}
-function toggleIdeas(force) {
-  const el = $("ideas");
-  if (!el) return;
-  const show = force !== undefined ? force : el.style.display !== "block";
-  el.style.display = show ? "block" : "none";
-  if (show) {
-    renderIdeas();
-    if (document.exitPointerLock) document.exitPointerLock();
-  }
-}
-// One submit = one queued line = one insert when it flushes. A
-// short cooldown keeps a double-tap from spending two.
-let lastIdeaSubmitAt = 0;
-function submitIdea(titleRaw, bodyRaw) {
-  const title = String(titleRaw ?? "").trim();
-  const body = String(bodyRaw ?? "").trim();
-  const v = validateIdea(title, body);
-  if (!v.ok) {
-    ideaNote(
-      v.reason === "title-cap" ? `a title can be at most ${IDEA_TITLE_MAX} letters — yours is ${v.count}. Shorten it; nothing was told.`
-      : v.reason === "body-cap" ? `a telling can be at most ${IDEA_BODY_MAX} letters — yours is ${v.count}. Shorten it; nothing was told.`
-      : v.reason === "title-empty" ? "give your idea a short name first — that's how the world will know it."
-      : "say what you wish the world had, in the telling — an empty telling tells nothing.");
-    return { ok: false, reason: v.reason };
-  }
-  const now = Date.now();
-  if (now - lastIdeaSubmitAt < 3000) {
-    ideaNote("one telling at a time — that one is already on its way.");
-    return { ok: false, reason: "cooldown" };
-  }
-  // The id is checked against everything the chart has read back
-  // and everything still queued here; a collision rolls again.
-  const taken = new Set([
-    ...BACKEND.ideaRows.map((r) => r.id),
-    ...ideaOutbox.map((s) => { const p = parseIdeaLine(s.line); return p ? p.id : null; }),
-  ]);
-  let id = makeIdeaId(now, Math.random);
-  for (let tries = 0; tries < 8 && taken.has(id); tries++) id = makeIdeaId(now, Math.random);
-  if (taken.has(id)) {
-    ideaNote("the door stumbled over its own names just now — try the telling again.");
-    return { ok: false, reason: "id-collision" };
-  }
-  const line = serializeIdea({ id, name: playerName, ts: now, title, body });
-  if (!line) {
-    ideaNote("that telling couldn't be written down — nothing was told.");
-    return { ok: false, reason: "serialize" };
-  }
-  queueIdeaLine(line);
-  lastIdeaSubmitAt = now;
-  ideaNote(gameToken()
-    ? "your telling is on its way — it will stand as told once the shared map reads it back."
-    : "your telling is kept on this machine. Sign in, and it travels to the shared map.");
-  renderIdeas();
-  backendProbe().then(() => backendFlush());
-  return { ok: true, id };
-}
-function submitIdeaFromPanel() {
-  const res = submitIdea($("idea-title").value, $("idea-body").value);
-  if (res.ok) {
-    $("idea-title").value = "";
-    $("idea-body").value = "";
-    renderIdeas();
-  }
-}
-$("btn-idea-tell").addEventListener("click", () => submitIdeaFromPanel());
-$("btn-idea-close").addEventListener("click", () => toggleIdeas(false));
-$("btn-idea-login").addEventListener("click", () => {
-  if (gameToken()) { ideaNote("you're signed in — your tellings travel as you make them."); return; }
-  ideaNote("taking you to sign in — your telling stays on this machine and travels when you get back.");
-  location.href = loginUrl();
-});
-$("btn-board-idea").addEventListener("click", () => toggleIdeas(true));
-$("idea-title").addEventListener("input", () => renderIdeas());
-$("idea-body").addEventListener("input", () => renderIdeas());
-
 // ---------- player forms: the phext a fox wears (demo6) -------------------------
 // The logic lives in forms.js (pure, unit-tested); this glue owns
 // the state, the editor panel, the canvases, the in-world sprite,
@@ -4197,9 +4268,6 @@ function saveFileContents() {
     // demo6: the worn form's phext rides in the copy too — a
     // form is part of the player's record, and a copy restores it.
     form: formState,
-    // demo8: tellings still waiting on this machine ride too —
-    // a waiting idea is part of the player's record, like a mark.
-    ideaOutbox: [...ideaOutbox],
   }, null, 2);
 }
 function downloadLocalSave() {
@@ -4232,7 +4300,6 @@ function loadLocalSave(file) {
       // worn: over the ceiling, unparseable, or unfit, and the
       // copy simply carries no form (v2/v3-era copies predate it).
       LS.set("nova-phox-form", loadFormState(data.form || null));
-      LS.set("nova-phox-idea-outbox", Array.isArray(data.ideaOutbox) ? data.ideaOutbox : []);
       location.reload();
     } catch (e) {
       saveNote("that file is not a Nova Phox save copy — nothing was loaded.");
@@ -4284,6 +4351,7 @@ function toggleRealms(force) {
 function dismissSplash() {
   if (!state.splash) return;
   state.splash = false;
+  trailDone();
   const el = $("splash");
   if (el) el.style.display = "none";
 }
@@ -4338,7 +4406,6 @@ document.addEventListener("mousedown", (e) => {
       // if a thing of the dark is in reach — and otherwise the
       // chisel, so shaping is one click away like everything else.
       if (introScreenAimed()) { openIntroViewer(); return; }
-      if (tellingDoorAimed()) { toggleIdeas(true); return; }
       if (!tryStrike()) tryChisel();
     }
   }
@@ -4468,13 +4535,6 @@ document.addEventListener("keydown", (e) => {
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.code)) {
     e.preventDefault();
   }
-  // Typing in the telling door's fields is typing: no game verb
-  // fires from inside them (a title with an "i" in it must not
-  // shut the door it is being written at).
-  if (e.target && (e.target.id === "idea-title" || e.target.id === "idea-body")) {
-    if (e.code === "Escape") e.target.blur();
-    return;
-  }
   if (state.splash) { dismissSplash(); return; } // any key steps the panel aside (#15)
   if (e.repeat) return;
   keys.add(e.code);
@@ -4489,9 +4549,6 @@ document.addEventListener("keydown", (e) => {
   }
   // In the AWEF scheme, E is a walking key, not a note (feedback #5).
   if (state.scheme === "AWEF" && e.code === "KeyE") return;
-  // The telling door (demo8): I opens it from anywhere. (The
-  // letter row's note 8 keeps its number-row key, Digit8.)
-  if (e.code === "KeyI") { toggleIdeas(); return; }
   const li = LETTER_KEYS.indexOf(e.code);
   if (li >= 0) return playNote(li + 1);
   switch (e.code) {
@@ -4505,10 +4562,8 @@ document.addEventListener("keydown", (e) => {
     case "Comma": cycleBrush(-1); break;
     case "Period": cycleBrush(1); break;
     case "KeyV": toggleLamp(); break;
-    case "Escape":
-      if (state.introOpen) closeIntroViewer();
-      if ($("ideas").style.display === "block") toggleIdeas(false);
-      break;
+    case "KeyN": toggleFoxVision(); break;
+    case "Escape": if (state.introOpen) closeIntroViewer(); break;
     case "KeyB": toggleBoard(); break;
     case "KeyM": case "Tab": toggleRealms(); break;
     case "KeyL": {
@@ -4581,14 +4636,18 @@ $("btn-keys").addEventListener("click", () => {
     ? "Keys: A W E F — F walks backward in this scheme, so strike with the click."
     : "Keys: W A S D.", 4000);
 });
-// The version, as hover text (2026-11-26): the standing realm
-// title carries the ship stamp. A mouse resting on the title fades
-// the stamp in beneath it, in the game's own floating dress; on
-// touch, a tap on the title toggles it (the tap is claimed here,
-// so it never falls through to the world's tap-as-click). The
-// title rides the extras toggle like the rest of the standing
-// chrome — with the title away, the stamp is away.
+// The version (2026-11-26): the ship stamp speaks two ways, both
+// from the one SHIP_EE above. The number stands on screen at all
+// times in #ee-line, on the title's own line in the title
+// cluster — Will ruled it always visible for play testing, so it
+// never rides the extras toggle and never waits for a hover. The full
+// reading stays as hover text on the standing realm title: a
+// mouse resting on the title fades the tip in beneath the
+// cluster, in the game's own floating dress; on touch, a tap on
+// the title toggles it (the tap is claimed here, so it never
+// falls through to the world's tap-as-click).
 $("ver-line1").textContent = `Nova Fox — EE ${SHIP_EE}`;
+$("ee-line").textContent = `EE ${SHIP_EE}`;
 {
   const title = $("realm-big"), top = $("topcenter");
   title.addEventListener("mouseenter", () => top.classList.add("ver-on"));
@@ -4778,7 +4837,6 @@ document.addEventListener("touchend", (e) => {
                performance.now() - touch.lookT < 300 && touch.lookMoved < 10) {
       // A tap is the click (see the header): screen, strike, chisel.
       if (introScreenAimed()) { openIntroViewer(); return; }
-      if (tellingDoorAimed()) { toggleIdeas(true); return; }
       if (!tryStrike()) tryChisel();
     }
   }
@@ -4809,6 +4867,7 @@ tBtn("t-strike", () => { tryStrike(); });
 tBtn("t-chisel", () => { tryChisel(); });
 tBtn("t-flip", () => flipGravityHere());
 tBtn("t-lamp", () => toggleLamp());
+tBtn("t-vision", () => toggleFoxVision());
 tBtn("t-brushdn", () => cycleBrush(-1));
 tBtn("t-brushup", () => cycleBrush(1));
 tBtn("t-draw", () => setTouchMode(touch.mode === "draw" ? null : "draw"));
@@ -4843,6 +4902,10 @@ function animate() {
   lastT = now;
   if (!state.dead) updatePlayer(dt);
   if (!state.dead) riftStep(now, dt);
+  updateInvertFx(now);
+  // Fox Vision is a Hall sense: leaving the Hall puts it down,
+  // silently, the same quiet with which it refused to wake outside.
+  if (state.foxVision && !playerInHall()) state.foxVision = false;
   chunkMaintenance();
   syncMonsterMeshes(dt);
   syncItemMeshes(now);
@@ -4871,6 +4934,7 @@ function animate() {
       : "🛡 safe here — nothing can hurt you at Arrival";
   }
   checkMonsterContact();
+  updateGuardianEncounter();
   // The quest: reaching the stone is checked against the subspace.
   if (!sub.questDone) {
     const bx = Math.floor(state.pos.x), bz = Math.floor(state.pos.z);
@@ -4910,7 +4974,6 @@ function animate() {
     renderGuide();
   }
   if (introScreen) introScreen.visible = state.realm === "nova";
-  doorStep();
   renderer.render(scene, camera);
 }
 
@@ -4981,9 +5044,330 @@ toast("Nova Prime. I'm Emise — my panel is at the bottom of your screen.", 600
 // The chart-line: probe now, re-probe and flush every 20 s. Offline
 // is a first-class state (the ranch itself goes dark some days):
 // play never waits on it.
-backendProbe().then(() => backendFlush());
+backendProbe().then(() => backendFlush()).then(trailDone, trailDone);
 setInterval(() => { backendProbe().then(() => backendFlush()); }, 20000);
 setInterval(() => { ecoTick(); recordStandings(); syncHud(); }, 5000);
+
+// ---------- the test console (Will, 2026-11-26) ---------------------------
+// "Build the e2e testing into the game itself — give me a console
+// I can work with." The external harness walked portals dead-center
+// from a flat spawn for three builds while real traversal was
+// broken (PORTAL-DIAGNOSIS.md), and the harness itself aborts.
+// So the checks live here now, in the real client, run by a person
+// standing in the real world. Every command below calls the game's
+// own systems and prints what it measured; nothing is simulated.
+// In this build the veer and slope legs are EXPECTED to fail —
+// demo5's crossing test is the diagnosed one — and the console's
+// whole job is to make that visible from inside, with numbers,
+// until the traversal fix reconciles into a later tree.
+//
+// Toggle: Backquote (`) — checked free against the keydown switch,
+// LETTER_KEYS and NUMBER_KEYS, and the touch layer. While the
+// console is open, capture-phase handlers keep every keystroke
+// out of the game (no notes sounded, no walking) and the fox's
+// held keys are cleared, so opening it mid-stride stops him.
+// Closing it hands the keys back untouched.
+const NF_TRIGGER2 = 1.25; // riftStep's crossing test in this build:
+                          // dist2 < 1.25, a radius of ~1.118 blocks.
+                          // If the traversal fix changes riftStep,
+                          // it must change this with it — the
+                          // geometry command exists to catch drift.
+const nfCon = {
+  open: false, busy: false, history: [], hIdx: -1,
+  el: $("nfconsole"), out: $("nfconsole-out"), input: $("nfconsole-input"),
+};
+function nfPrint(text, cls = "") {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = text;
+  nfCon.out.appendChild(line);
+  nfCon.out.scrollTop = nfCon.out.scrollHeight;
+}
+function nfConsoleToggle(force) {
+  const want = force !== undefined ? !!force : !nfCon.open;
+  if (want === nfCon.open) return;
+  nfCon.open = want;
+  nfCon.el.style.display = want ? "block" : "none";
+  if (want) {
+    keys.clear();
+    wTap = null;
+    if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+    setTimeout(() => nfCon.input.focus(), 0);
+    if (!nfCon.out.childNodes.length)
+      nfPrint("the game's own checks, in the client. help lists them.", "dim");
+  } else {
+    nfCon.input.blur();
+  }
+}
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Backquote") {
+    if (state.splash) return; // any key steps the splash aside first
+    e.preventDefault();
+    e.stopPropagation();
+    nfConsoleToggle();
+    return;
+  }
+  if (!nfCon.open) return;
+  e.stopPropagation(); // the game never sees a console keystroke
+  if (e.code === "Escape") { nfConsoleToggle(false); return; }
+  if (e.target === nfCon.input) {
+    if (e.code === "Enter") {
+      e.preventDefault();
+      const line = nfCon.input.value;
+      nfCon.input.value = "";
+      nfConsoleRun(line);
+    } else if (e.code === "ArrowUp") {
+      e.preventDefault();
+      if (nfCon.hIdx > 0) { nfCon.hIdx--; nfCon.input.value = nfCon.history[nfCon.hIdx] || ""; }
+    } else if (e.code === "ArrowDown") {
+      e.preventDefault();
+      if (nfCon.hIdx < nfCon.history.length) { nfCon.hIdx++; nfCon.input.value = nfCon.history[nfCon.hIdx] || ""; }
+    }
+  }
+}, true);
+document.addEventListener("keyup", (e) => {
+  if (nfCon.open) e.stopPropagation();
+}, true);
+nfCon.el.addEventListener("click", (e) => {
+  if (e.target !== $("nfconsole-close")) nfCon.input.focus();
+});
+$("nfconsole-close").addEventListener("click", () => nfConsoleToggle(false));
+$("btn-console").addEventListener("click", () => nfConsoleToggle());
+
+// --- readouts: the facts a playtester needs, read off live state ---------
+function nfCmdWhere() {
+  const { sx, sy } = playerScroll();
+  nfPrint(`${realmName(state.realm)} (${state.realm}) · pos ${state.pos.x.toFixed(1)}, ${state.pos.y.toFixed(1)}, ${state.pos.z.toFixed(1)} · scroll ${sx},${sy} · block ${Math.floor(state.pos.x)}, ${Math.floor(state.pos.y)}, ${Math.floor(state.pos.z)} · facing ${(state.yaw * 180 / Math.PI).toFixed(0)}° · keys: ${state.scheme}`);
+}
+function nfCmdGravity() {
+  const { sx, sy } = playerScroll();
+  const g = sub.gravityOf(state.realm, sx, sy);
+  nfPrint(`you hang ${state.gravDir > 0 ? "down" : "UP"} (gravDir ${state.gravDir}) · subspace: scroll ${sx},${sy} of ${state.realm} declares ${g > 0 ? "down" : "UP"} (gravityOf ${g}) · the two ${state.gravDir === g ? "agree" : "differ"}`);
+}
+function nfCmdPurse() {
+  const e = eco, t = e.entitlement;
+  nfPrint(`purse: ${e.tokens} flux · ${e.credits} credit${e.credits === 1 ? "" : "s"} · tier ${t.status}${t.source ? ` (${t.source})` : ""}${t.purchaseNumber ? ` · purchase #${t.purchaseNumber}` : ""} · lifetime earned ${e.lifetime.tokensEarned} flux / ${e.lifetime.creditsEarned} credits`);
+}
+function nfCmdVersion() {
+  nfPrint(`Nova Fox — EE ${SHIP_EE}: the epoch this build shipped within (stamp token ${NF_SHIP_EE}, standing in #ee-line).`);
+}
+function nfCmdPortal() {
+  const r = state.rift, link = state.riftLink;
+  if (!r || !link) { nfPrint("no rift standing."); return; }
+  nfPrint(`rift link #${link.id} · end ${r.end} standing · target ${r.target.type}${r.target.realmId ? " " + r.target.realmId : ""} · crosses ${link.crosses} · ring at ${r.x.toFixed(1)}, ${r.z.toFixed(1)}, feetY ${r.feetY.toFixed(2)} · armed ${r.armed} · view ${r.viewOk ? "live" : "tint fallback"}`);
+  if (r.geo) nfPrint(`  geometry: radius ${r.geo.radius.toFixed(4)} · disc ${r.geo.disc.toFixed(3)} · segments ${r.geo.segments} · subspace distance ${r.geo.distance ? r.geo.distance.toFixed(3) : "?"}`);
+  if (r.viewOk && portalRT && portalView) {
+    renderPortalView(performance.now(), true);
+    const w = portalRT.width, h = portalRT.height;
+    const buf = new Uint8Array(w * h * 4);
+    renderer.readRenderTargetPixels(portalRT, 0, 0, w, h, buf);
+    const fog = paletteFor(portalView.dest.realmId).fog;
+    const fr = (fog >> 16) & 255, fg = (fog >> 8) & 255, fb = fog & 255;
+    let paleCool = 0, nonFog = 0;
+    for (let i = 0; i < buf.length; i += 4) {
+      const pr = buf[i], pg = buf[i + 1], pb = buf[i + 2];
+      if (pb > pr + 25 && pb > 120) paleCool++;
+      if (Math.abs(pr - fr) + Math.abs(pg - fg) + Math.abs(pb - fb) > 24) nonFog++;
+    }
+    nfPrint(`  portal view pixels (measured off the render target): pale-cool ${paleCool} · non-fog ${nonFog} · of ${w * h}`);
+  }
+}
+
+// --- checks: the unit suite's pins, against the live functions -----------
+function nfCheckGeometry() {
+  const g = riftRingGeometry("nova", "ashfall");
+  const trigR = Math.sqrt(NF_TRIGGER2);
+  const deadPct = (1 - NF_TRIGGER2 / (g.disc * g.disc)) * 100;
+  nfPrint(`  ring geometry, nova→ashfall, from riftRingGeometry itself: radius ${g.radius.toFixed(4)} · disc ${g.disc.toFixed(3)} · segments ${g.segments}`);
+  nfPrint(`  the crossing test in this build admits radius ${trigR.toFixed(3)} of that ${g.disc.toFixed(3)} disc — the outer ${deadPct.toFixed(1)}% of the visible portal is dead ground.`);
+  const ok = Math.abs(g.radius - 1.5571) < 0.001 && g.segments === 36;
+  nfPrint(ok
+    ? "  PASS  the live function still returns the unit suite's pinned geometry (radius 1.5571 ±0.001, 36 segments)."
+    : `  FAIL  geometry drifted from the unit pin (radius 1.5571, 36 segments) — measured radius ${g.radius.toFixed(4)}, segments ${g.segments}.`, ok ? "pass" : "fail");
+  return ok ? "pass" : "fail";
+}
+function nfCheckBridge() {
+  const { sx, sy } = playerScroll();
+  const t = chordTarget(sub, state.realm, sx, sy, [...BRIDGE_CHORD], state.pocketChord);
+  const ok = t.type === "realm" && t.realmId !== state.realm;
+  nfPrint(`  the bridge tune (1, 4, 9) from ${state.realm} scroll ${sx},${sy} resolves, by chordTarget itself, to ${t.type}${t.realmId ? " " + t.realmId : ""}.`);
+  nfPrint(ok ? "  PASS  it names the other open realm." : "  FAIL  it does not name another realm from here.", ok ? "pass" : "fail");
+  return ok ? "pass" : "fail";
+}
+
+// --- traversal probes: the diagnosis, runnable from where you stand ------
+// Open the bridge rift by playing its tune through the real
+// instrument path (playNote -> playChord -> openRift) — the same
+// path a player's fingers take. The pending-note buffer is
+// cleared first, and the fact is printed: a half-played tune of
+// the player's must not silently join the probe's chord.
+function nfOpenBridgeRift() {
+  state.notes = [];
+  clearTimeout(state.notesTimer);
+  for (const n of BRIDGE_CHORD) playNote(n);
+  return state.rift || null;
+}
+// Walk the fox forward — the forward key in the same keys set
+// updatePlayer reads, so the real physics, collision and
+// riftStep do the walking — until he crosses, the rift folds,
+// he falls, or the clock runs out. His distance to the ring's
+// center is sampled on the game's own animation frames (plus a
+// slow backstop in case frames stall), so the closest approach
+// printed is the closest riftStep itself ever saw — the quantity
+// that decides crossing — not a timer's guess between frames.
+// Resolves with measurements, never a bare verdict.
+function nfWalkProbe(timeoutMs) {
+  return new Promise((resolve) => {
+    const r = state.rift;
+    if (!r) return resolve({ error: "no rift standing" });
+    const startRealm = state.realm;
+    const crosses0 = state.riftLink ? state.riftLink.crosses : 0;
+    const ring = { x: r.x, z: r.z, feetY: r.feetY };
+    let minD = Infinity, dyAtMin = null, done = false;
+    const t0 = performance.now();
+    const finish = (flags) => {
+      if (done) return;
+      done = true;
+      keys.delete("KeyW");
+      resolve({ ...flags, minD, dyAtMin,
+        ms: Math.round(performance.now() - t0), realm: state.realm });
+    };
+    const tick = () => {
+      if (done) return;
+      const dx = state.pos.x - ring.x, dz = state.pos.z - ring.z;
+      const d = Math.hypot(dx, dz);
+      if (d < minD) { minD = d; dyAtMin = (state.pos.y - 1.01) - ring.feetY; }
+      const crossed = state.realm !== startRealm ||
+        (state.riftLink && state.riftLink.crosses > crosses0);
+      const folded = !state.rift && !crossed;
+      if (crossed || folded || state.dead || performance.now() - t0 > timeoutMs) {
+        finish({ crossed, folded, dead: !!state.dead });
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    keys.add("KeyW");
+    requestAnimationFrame(tick);
+    const backstop = setInterval(() => {
+      if (done) { clearInterval(backstop); return; }
+      tick();
+    }, 100);
+  });
+}
+function nfWalkFailLine(w, disc) {
+  if (w.dead) return "  FAIL  the fox went down mid-probe — no crossing measured.";
+  if (w.folded) return `  FAIL  the rift folded (leash) before any crossing — closest approach ${w.minD.toFixed(3)}.`;
+  return `  FAIL  no crossing in ${(w.ms / 1000).toFixed(1)}s — closest approach ${w.minD.toFixed(3)} against a trigger radius of ${Math.sqrt(NF_TRIGGER2).toFixed(3)} and a visible disc of ${disc.toFixed(3)}${w.minD < disc ? " — he passed through the visible portal and it did not take him" : ""}; |dy| at closest ${Math.abs(w.dyAtMin).toFixed(2)} against a gate of 2.4.`;
+}
+async function nfLegStraight() {
+  nfPrint("rift-straight: the bridge tune, walked dead-center — the control leg, the harness's own pattern.");
+  if (state.dead) { nfPrint("  NOT RUN  the fox is down.", "fail"); return "notrun"; }
+  const r = nfOpenBridgeRift();
+  if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
+  nfPrint(`  ring stands ahead at ${r.x.toFixed(1)}, ${r.z.toFixed(1)} · disc radius ${r.geo.disc.toFixed(3)} · ring feetY ${r.feetY.toFixed(2)}. walking…`);
+  const w = await nfWalkProbe(12000);
+  if (w.crossed) {
+    nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s; closest approach ${w.minD.toFixed(3)}.`, "pass");
+    return "pass";
+  }
+  nfPrint(nfWalkFailLine(w, r.geo.disc), "fail");
+  return "fail";
+}
+async function nfLegVeer(deg) {
+  nfPrint(`rift-veer: open the bridge rift, turn ${deg}°, walk — the approach a player actually makes.`);
+  if (state.dead) { nfPrint("  NOT RUN  the fox is down.", "fail"); return "notrun"; }
+  const r = nfOpenBridgeRift();
+  if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
+  const disc = r.geo.disc;
+  state.yaw += deg * Math.PI / 180;
+  nfPrint(`  veered ${deg}° (a ruler-straight line now misses the ring's center by ~${(3.4 * Math.sin(deg * Math.PI / 180)).toFixed(2)} blocks). walking…`);
+  const w = await nfWalkProbe(12000);
+  if (w.crossed) {
+    nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s; closest approach ${w.minD.toFixed(3)} of a ${disc.toFixed(3)} disc.`, "pass");
+    return "pass";
+  }
+  nfPrint(nfWalkFailLine(w, disc), "fail");
+  return "fail";
+}
+function nfFindSlope() {
+  const g0 = heightAt(state.realm, Math.floor(state.pos.x), Math.floor(state.pos.z));
+  let best = { yaw: state.yaw, rise: -Infinity, g0, gR: g0 };
+  for (let i = 0; i < 36; i++) {
+    const yaw = (i / 36) * Math.PI * 2;
+    const rx = state.pos.x - Math.sin(yaw) * 3.4;
+    const rz = state.pos.z - Math.cos(yaw) * 3.4;
+    const gR = heightAt(state.realm, Math.floor(rx), Math.floor(rz));
+    if (gR - g0 > best.rise) best = { yaw, rise: gR - g0, g0, gR };
+  }
+  return best;
+}
+async function nfLegSlope() {
+  nfPrint("rift-slope: the steepest rise within one rift's reach of where you stand, opened uphill, walked dead-center.");
+  if (state.dead) { nfPrint("  NOT RUN  the fox is down.", "fail"); return "notrun"; }
+  const spot = nfFindSlope();
+  nfPrint(`  steepest rise from here, measured off heightAt: ${spot.rise.toFixed(2)} blocks across the 3.4-block gap (ground ${spot.g0} → ${spot.gR}).`);
+  if (spot.rise < 2.4) {
+    nfPrint("  NOT RUN  no direction from here rises the 2.4 blocks the height gate cares about — stand on a hillside and run it again.", "dim");
+    return "notrun";
+  }
+  state.yaw = spot.yaw;
+  const r = nfOpenBridgeRift();
+  if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
+  nfPrint(`  ring feetY is ${r.feetY.toFixed(2)} — in this build the ring's height is anchored to the ground where the tune was played, while the ground at the ring itself is ${spot.gR}. walking…`);
+  const w = await nfWalkProbe(12000);
+  if (w.crossed) {
+    nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s up a ${spot.rise.toFixed(2)}-block rise; closest approach ${w.minD.toFixed(3)}, |dy| there ${Math.abs(w.dyAtMin).toFixed(2)}.`, "pass");
+    return "pass";
+  }
+  nfPrint(nfWalkFailLine(w, r.geo.disc), "fail");
+  nfPrint(`  the two gates, measured: distance ${w.minD.toFixed(3)} vs trigger ${Math.sqrt(NF_TRIGGER2).toFixed(3)} — ${w.minD < Math.sqrt(NF_TRIGGER2) ? "met" : "NOT met"} · height |dy| ${Math.abs(w.dyAtMin).toFixed(2)} vs 2.4 — ${Math.abs(w.dyAtMin) < 2.4 ? "met" : "NOT met"}.`, "dim");
+  return "fail";
+}
+async function nfRunAll() {
+  nfPrint("runall: every in-client check, in order. Every number below is measured in this client, just now.");
+  const results = [];
+  nfPrint("geometry:"); results.push(["geometry", nfCheckGeometry()]);
+  nfPrint("bridge:"); results.push(["bridge tune", nfCheckBridge()]);
+  results.push(["rift-straight", await nfLegStraight()]);
+  results.push(["rift-veer", await nfLegVeer(20)]);
+  results.push(["rift-slope", await nfLegSlope()]);
+  const p = results.filter((r) => r[1] === "pass").length;
+  const f = results.filter((r) => r[1] === "fail").length;
+  const n = results.filter((r) => r[1] === "notrun").length;
+  nfPrint(`runall: ${p} passed, ${f} failed, ${n} not run — ${results.map((r) => `${r[0]}: ${r[1]}`).join(" · ")}`, f ? "fail" : "pass");
+  return f ? "fail" : "pass";
+}
+const NF_COMMANDS = {
+  help: { usage: "help — this list", run: () => { for (const c of Object.values(NF_COMMANDS)) nfPrint(`  ${c.usage}`, "dim"); } },
+  where: { usage: "where — realm, position, scroll, facing", run: () => nfCmdWhere() },
+  gravity: { usage: "gravity — your orientation and the subspace value under you", run: () => nfCmdGravity() },
+  purse: { usage: "purse — flux, credits, tier, lifetime", run: () => nfCmdPurse() },
+  version: { usage: "version — this build's ship EE", run: () => nfCmdVersion() },
+  state: { usage: "state — where + gravity + purse", run: () => { nfCmdWhere(); nfCmdGravity(); nfCmdPurse(); } },
+  portal: { usage: "portal — the standing rift: link, geometry, view pixels", run: () => nfCmdPortal() },
+  geometry: { usage: "geometry — ring geometry vs the unit pin; the dead band, measured", run: () => nfCheckGeometry() },
+  bridge: { usage: "bridge — the bridge tune's target, resolved live", run: () => nfCheckBridge() },
+  "rift-straight": { usage: "rift-straight — open the bridge rift, walk dead-center (control)", probe: true, run: () => nfLegStraight() },
+  "rift-veer": { usage: "rift-veer [deg] — open, veer (default 20°), walk", probe: true, run: (args) => nfLegVeer(Math.min(45, Math.max(1, Number(args[0]) || 20))) },
+  "rift-slope": { usage: "rift-slope — open uphill on the steepest rise at hand, walk dead-center", probe: true, run: () => nfLegSlope() },
+  runall: { usage: "runall — geometry, bridge, and all three traversal legs", probe: true, run: () => nfRunAll() },
+  clear: { usage: "clear — empty the pane", run: () => { nfCon.out.innerHTML = ""; } },
+};
+async function nfConsoleRun(line) {
+  const trimmed = (line || "").trim();
+  if (!trimmed) return;
+  nfCon.history.push(trimmed);
+  nfCon.hIdx = nfCon.history.length;
+  nfPrint(`> ${trimmed}`, "cmd");
+  const [name, ...args] = trimmed.split(/\s+/);
+  const cmd = NF_COMMANDS[name.toLowerCase()];
+  if (!cmd) { nfPrint("no such command — help lists them.", "fail"); return; }
+  if (cmd.probe && nfCon.busy) { nfPrint("a probe is already walking — let it finish.", "fail"); return; }
+  if (cmd.probe) nfCon.busy = true;
+  try { await cmd.run(args); }
+  catch (err) { nfPrint(`  ERROR  ${err && err.message ? err.message : err}`, "fail"); }
+  finally { if (cmd.probe) nfCon.busy = false; }
+}
 
 // Demo instrumentation: a handle for headless playtests (and for
 // Will's own poking in devtools). Not part of the fiction.
@@ -4999,6 +5383,31 @@ window.NOVA_FOX3 = {
     state: () => narration.debugState(),
   },
   backendFlush: () => backendFlush(),
+  // demo10 handles: gravity in subspace — read what this fox knows
+  // of the gravity scroll, and feed a read-back line through the
+  // same reconcile path the flush uses (a playtest stands in for
+  // the chart answering: another fox's shift, read back, attunes
+  // this view — the ruling's other half).
+  gravityState: () => ({
+    dir: sub.gravityOf(state.realm, 0, 0),
+    known: gravityKnownRecords().length,
+    allowed: gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, todayStr()),
+  }),
+  gravityReadback: (line) => {
+    BACKEND.gravityRows.push(...parseGravityScroll(line));
+    reconcileGravity();
+  },
+  invertFx: () => ({
+    active: invertFxActive(performance.now()),
+    slow: INVERT_SLOW, ms: INVERT_FX_MS,
+  }),
+  // demo18 handle: the warp announcement — how often it has fired,
+  // whether it is on screen right now, and the words it throws.
+  warpText: () => ({
+    shown: warpShown,
+    active: state.warpT0 > 0 && performance.now() - state.warpT0 < WARP_MS,
+    text: WARP_TEXT, ms: WARP_MS,
+  }),
   loginUrl: () => loginUrl(),
   hasToken: () => !!gameToken(),
   saveJson: () => saveFileContents(),
@@ -5071,13 +5480,38 @@ window.NOVA_FOX3 = {
     mode: touch.mode,
   }),
   extrasState: () => state.extras,
+  // 2026-11-26 handle: the Shadow encounter and its strike hint.
+  encounterState: () => ({
+    guardian: state.guardianEncounter,
+    label: strikeBindingLabel(
+      state.scheme, document.body.classList.contains("touch")),
+  }),
   outboxState: () => ({
     queued: outbox.length, folded: outboxFolded.length, dropped: outboxDropped,
   }),
   dismissSplash,
+  trailState: () => ({ live: trail.live, fed: trail.fed, dropped: trail.dropped }),
   cycleBrush,
   setBrush: (i) => { state.brush = i; },
   toggleLamp,
+  // Fox Vision handles (demo11): the sense's state, and per-thing
+  // readings a test can take without trusting pixels.
+  toggleFoxVision,
+  foxVisionState: () => ({
+    on: state.foxVision, inHall: playerInHall(), active: foxVisionActive(),
+  }),
+  familiarSeen: (id) => {
+    const m = sub.monsters.find((mm) => mm.id === id);
+    return m ? familiarSeen(m) : false;
+  },
+  monsterLit: (id) => {
+    const mesh = monsterMeshes.get(id);
+    return mesh ? mesh.userData.visionLit === true : false;
+  },
+  monsterOpacity: (id) => {
+    const mesh = monsterMeshes.get(id);
+    return mesh ? (mesh.userData.opacity || 0) : 0;
+  },
   openIntroViewer, closeIntroViewer,
   introVideoReady: () => !!window.__INTRO_VIDEO,
   // feedback #27 handles: portal views + realm palettes
@@ -5127,17 +5561,6 @@ window.NOVA_FOX3 = {
   }),
   applyPalette: (id) => applyRealmPalette(id),
   screenPos: () => (introScreen ? introScreen.position : null),
-  // demo8 handles: the telling door — queue, read-back, the door.
-  ideaState: () => ({
-    coord: BACKEND.ideaCoord,
-    queued: ideaOutbox.length,
-    rows: JSON.parse(JSON.stringify(BACKEND.ideaRows)),
-    panelOpen: $("ideas").style.display === "block",
-  }),
-  ideaSubmit: (title, body) => submitIdea(title, body),
-  ideaToggle: (force) => toggleIdeas(force),
-  doorPos: () => (tellingDoor ? tellingDoor.position : null),
-  doorAimed: () => tellingDoorAimed(),
   teleportTo(x, z) {
     state.pos.set(x + 0.5, heightAt(state.realm, x, z) + 1.01, z + 0.5);
     state.vel.set(0, 0, 0);
@@ -5146,4 +5569,15 @@ window.NOVA_FOX3 = {
   },
   surfaceY(x, z) { return heightAt(state.realm, x, z) + 1; },
 
+};
+// The test console's handle (2026-11-26): the same surface the
+// person at the keyboard gets — open it, run a line, read the pane.
+window.NOVA_FOX3.nfConsole = {
+  open: () => nfConsoleToggle(true),
+  close: () => nfConsoleToggle(false),
+  toggle: () => nfConsoleToggle(),
+  isOpen: () => nfCon.open,
+  busy: () => nfCon.busy,
+  run: (line) => nfConsoleRun(line),
+  text: () => nfCon.out.innerText,
 };

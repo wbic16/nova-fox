@@ -20,7 +20,7 @@
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:950";
+const NF_SHIP_EE = "NF_SHIP_EE:974";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -51,6 +51,8 @@ const state = {
   jumped: 0,
   notesPlayed: 0,
   flips: 0,
+  invertFxT0: -1e9, // when the last real gravity inversion began (demo10)
+  invertFxOn: false, // the degauss treatment is on screen right now
   guideStep: 0,
   guideDone: false,
   // v3 state
@@ -62,6 +64,8 @@ const state = {
   gestureUsed: false,
   introKind: null,
   introUntil: 0,
+  warpT0: 0, // when the warp announcement last fired (demo18)
+  realmSince: 0, // when the fox entered the realm it stands in (demo18)
   swingT: 1, // swing-arc animation clock (1 = idle)
   lastGuideBeat: null,
   introduced: new Set(JSON.parse((() => {
@@ -74,16 +78,19 @@ const state = {
   brush: 0, // index into BRUSHES (world.js) — the chisel's size (feedback #4)
   scheme: "WASD", // control scheme (feedback #5); the other is AWEF
   lamp: false, // the fox's own light (feedback #12)
+  foxVision: false, // Fox Vision: the Hall sense (Will, 2026-11-26)
   flute: null, // a shift-drag in progress (feedback #6)
   splash: true, // the logo panel is up (feedback #15)
   extras: false, // optional UI components shown (2026-11-26); off by default
   introOpen: false, // the Arrival screen's film is showing (feedback #14)
+  guardianEncounter: false, // the Shadow has reached you; the strike hint stands (2026-11-26)
   exploreMoved0: 0, // movedTotal when the guide handed the game over
   jitShown: new Set(), // just-in-time guide steps already surfaced (#19)
 };
 
 // Spawn: Nova Prime, on the surface of the arrival column.
 state.pos.set(ARRIVAL.nova.x + 0.5, heightAt("nova", ARRIVAL.nova.x, ARRIVAL.nova.z) + 1.01, ARRIVAL.nova.z + 0.5);
+state.realmSince = performance.now(); // the spawn realm is "entered" now (demo18)
 ensureNeighborhood(state.realm, 0, 0);
 // The training wisp (feedback #2): a pale, harmless thing set in the
 // spawn meadow for learning the strike on. It never hunts, never hurts.
@@ -215,6 +222,17 @@ const sfx = {
   flip() {
     this.tone(180, { type: "sine", peak: 0.25, decay: 0.5, slide: 240 });
     this.tone(270, { type: "sine", peak: 0.15, decay: 0.5, slide: 360, delay: 0.06 });
+  },
+  degauss() {
+    // The CRT's thunk-buzz (demo10): a low thunk as the coil
+    // fires, then its hum — a sagging buzz at twice-mains that
+    // rings down as the field settles. Synthesized from the same
+    // tone/noise kit as every sound here; no asset, no download.
+    this.tone(64, { type: "sine", peak: 0.5, decay: 0.28, slide: -22 });
+    this.noise({ peak: 0.25, decay: 0.2, freq: 240, type: "lowpass" });
+    this.tone(118, { type: "sawtooth", peak: 0.16, decay: 1.5, slide: -30, delay: 0.03 });
+    this.tone(236, { type: "sawtooth", peak: 0.07, decay: 1.1, slide: -55, delay: 0.03 });
+    this.tone(59, { type: "square", peak: 0.1, decay: 0.9, slide: -12, delay: 0.03 });
   },
   portal() {
     [0, 4, 7, 11].forEach((st, i) =>
@@ -621,11 +639,15 @@ const BACKEND = {
   boardCoord: "1.1.1/1.1.2/1.1.1", // the shared leaderboard scroll
   purchaseCoord: "1.1.1/1.1.3/1.1.1", // the written record: purchase claims, in order (D1)
   ecoCoord: "1.1.1/1.1.4/1.1.1", // the economy ledger: gift issues/redeems, hand-downs (D12)
+  gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: one line per shift; a realm's latest line is its down (demo10)
+  formCoord: "1.1.1/1.1.6/1.1.1", // the forms scroll: the shapes foxes wear (demo6; coordinate reassigned at integration — demo6 and demo10 both claimed 1.1.1/1.1.5/1.1.1; gravity kept it, forms moved to 1.1.6)
   online: false,
   probed: false,
   boardRows: [], // rows actually read back from the shared chart
   purchaseRows: [], // purchase claims actually read back, numbered by arrival
   ecoLedger: null, // parsed economy ledger actually read back (null = not yet)
+  gravityRows: [], // gravity records actually read back from the shared chart
+  formRows: null, // forms actually read back, by fox name (null = not yet)
   lastPostedScore: LS.get("nova-phox-posted", -1),
 };
 // ---------- login, for saving (Will, 2026-11-22 18:05) ----------------------
@@ -697,6 +719,7 @@ function marksNote() {
   const origLog = sub.log.bind(sub);
   sub.log = (op, where, detail) => {
     origLog(op, where, detail);
+    trailTap(`${where} ${detail}`);
     const seg = sub.wal[sub.wal.length - 1];
     outbox.push({ ...seg, by: playerName, ts: Date.now() });
     foldOverflow();
@@ -704,6 +727,41 @@ function marksNote() {
     updateSyncLabel();
   };
 }
+// ---------- the loading trail -------------------------------------------
+// Set dressing on the load panel (world.js has the machinery): the
+// words of the boot's own reads — the inscription log as generation
+// writes it (tapped above), the shared chart's scrolls as the
+// gateway answers them (tapped in backendFlush below) — flow across
+// the panel while the world loads, flavor phrases woven through.
+// It starts with the load and ends when the world is ready: the
+// boot sync settling, the panel stepping aside, or a hard cap,
+// whichever comes first. No player-facing surface names it.
+const trail = new TrailFeed();
+for (const seg of sub.wal) trail.feedText(`${seg.where} ${seg.detail}`);
+function trailTap(text) { if (trail.live) trail.feedText(text); }
+const trailShown = [];
+let trailTimer = null;
+function trailRender() {
+  const el = document.getElementById("trail-line");
+  if (!el) { trailDone(); return; }
+  const w = trail.next();
+  if (w === null) return;
+  trailShown.push(w);
+  while (trailShown.length > 9) trailShown.shift();
+  el.textContent = trailShown.join(" ");
+}
+function trailDone() {
+  trail.stop();
+  if (trailTimer !== null) { clearInterval(trailTimer); trailTimer = null; }
+  const el = document.getElementById("trail-line");
+  if (el) {
+    el.style.opacity = "0";
+    setTimeout(() => { el.textContent = ""; }, 700);
+  }
+}
+trailTimer = setInterval(trailRender, 110);
+setTimeout(trailDone, 30000); // the trail never outlives the load
+
 // The gateway's rate limit is 120 inserts a minute (UPDATE-CHECK-1).
 // The flush paces itself under it, and a 429 means "wait and keep
 // draining", not "the line is dead".
@@ -790,6 +848,7 @@ async function backendFlush() {
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         const text = await r.text();
+        trailTap(text);
         BACKEND.boardRows = text.split("\n").map((ln) => {
           const [name, sc, date, daily, ts] = ln.split("|");
           return name && Number.isFinite(+sc)
@@ -826,14 +885,37 @@ async function backendFlush() {
       const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.purchaseCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
-      if (r.ok) BACKEND.purchaseRows = parsePurchaseBoard(await r.text());
+      if (r.ok) {
+        const text = await r.text();
+        trailTap(text);
+        BACKEND.purchaseRows = parsePurchaseBoard(text);
+      }
     } catch (e) { /* the record keeps its last honest state */ }
     try {
       const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.ecoCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
-      if (r.ok) BACKEND.ecoLedger = parseEcoLedger(await r.text());
+      if (r.ok) {
+        const text = await r.text();
+        trailTap(text);
+        BACKEND.ecoLedger = parseEcoLedger(text);
+      }
     } catch (e) { /* same */ }
+    try {
+      const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        BACKEND.gravityRows = parseGravityScroll(await r.text());
+        reconcileGravity();
+      }
+    } catch (e) { /* gravity keeps its last honest state */ }
+    try {
+      const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.formCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) BACKEND.formRows = parseFormChart(await r.text());
+    } catch (e) { /* the forms keep their last honest state */ }
     if (BACKEND.ecoLedger) {
       // Hand-downs addressed to this fox land exactly once.
       const got = applyHanddowns(eco, BACKEND.ecoLedger, playerName);
@@ -879,6 +961,85 @@ async function backendFlush() {
   updateSyncLabel();
   renderBoard();
 }
+// ---------- gravity on the shared chart (demo10) ----------------------------
+// Will's ruling (2026-11-26): gravity is stored in subspace on a
+// per-realm basis — make sure it's a real change — and a player may
+// shift a realm's gravity only once per day per realm. The store is
+// the gravity scroll on the shared chart: every shift appends one
+// record (world.js: gravityShiftLine), a realm's down is its latest
+// record, and the records double as the once-a-day ledger. The
+// local Subspace realm memory is a mirror for responsiveness; the
+// scroll is the truth, attuned to on every read-back and on realm
+// entry. A shift made offline or signed-out is queued in the record
+// outbox like every other inscription and counts as spent from the
+// moment it is made — it lands when the chart answers, and until
+// then the sync label says plainly that marks are waiting.
+
+// Every gravity record this fox can honestly know: the scroll as
+// read back, plus this fox's own shifts still queued for it. The
+// merge orders by the records' own timestamps; on a tie the
+// read-back stands last — the scroll wins its own ties, because
+// arrival order on the scroll is the final truth once a queued
+// shift lands.
+function gravityKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.gravityCoord) continue;
+    for (const r of parseGravityScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...BACKEND.gravityRows, ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+
+function regenChunksAroundPlayer() {
+  const pcx = Math.floor(state.pos.x / CHUNK), pcz = Math.floor(state.pos.z / CHUNK);
+  for (let dx = -1; dx <= 1; dx++)
+    for (let dz = -1; dz <= 1; dz++) regenerateChunk(pcx + dx, pcz + dz);
+}
+
+// Attune the local mirror to the chart's word. When the CURRENT
+// realm's down changes under the fox — another fox shifted it, or
+// the entry read-back speaks — the nearby ground is rebuilt so the
+// new down has somewhere to land; the physics loop settles the
+// body itself, with the border beat it already speaks.
+function reconcileGravity() {
+  const latest = latestGravityByRealm(gravityKnownRecords());
+  for (const [realmId, rec] of latest) {
+    if (!sub.applyRealmGravity(realmId, rec.dir)) continue;
+    if (realmId === state.realm) {
+      const { sx, sy } = playerScroll();
+      regenChunksAroundPlayer();
+      markScrollChunksDirty(state.realm, sx, sy);
+      syncReadout();
+      // The realm turned under the fox by the chart's word — an
+      // experienced inversion, announced big (demo18), once the
+      // fox has truly been standing here a while. Realm entry
+      // re-attunes through this same path with the dwell freshly
+      // restarted (enterRealmGravity), so arriving somewhere whose
+      // down is up stays quiet here — the border beat speaks it.
+      if (warpAnnounceOk(performance.now())) showGravityWarp();
+    }
+  }
+}
+
+// Realm entry: attune at once from what is already known, then ask
+// the chart again — its answer, when it comes, reconciles.
+async function enterRealmGravity(realmId) {
+  state.realmSince = performance.now(); // entry restarts the warp dwell (demo18)
+  reconcileGravity();
+  if (!BACKEND.online) return;
+  try {
+    const r = await fetch(
+      `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
+      { method: "GET", signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      BACKEND.gravityRows = parseGravityScroll(await r.text());
+      if (state.realm === realmId) reconcileGravity();
+    }
+  } catch (e) { /* the chart keeps its last honest state; entry already attuned from what is known */ }
+}
+
 function updateSyncLabel() {
   const el = document.getElementById("syncline");
   if (!el) return;
@@ -1529,6 +1690,7 @@ function buildMonsterMesh(kind) {
     const m = new THREE.MeshLambertMaterial({
       color, emissive, emissiveIntensity: ei, transparent: true, opacity: 0,
     });
+    m.userData.baseEI = ei; // Fox Vision scales from the material's own glow
     mats.push(m);
     return m;
   };
@@ -1623,14 +1785,26 @@ function syncMonsterMeshes(dt) {
     // Fades, never pops (feedback #6): the glimpse cycle becomes an
     // opacity ramp. The Bright Charm stretches the glimpse — a
     // phase-1 thing shows as a faint shape (0.22) instead of nothing.
+    // Fox Vision (Will, 2026-11-26): inside the Hall, a revealed
+    // familiar stands at full presence in EVERY phase — the fox
+    // sees it, lit, instead of catching its glimpses.
+    const revealed = visionReveals(m);
     let target = 0;
     if (m.kind === "wisp") target = 1;
-    else if (sub.monsterVisible(m)) target = 1;
+    else if (sub.monsterVisible(m) || revealed) target = 1;
     else if (state.charms.bright && m.phase === 1) target = 0.22;
     const cur = mesh.userData.opacity || 0;
     const next = cur + (target - cur) * Math.min(1, dt * 5);
     mesh.userData.opacity = next;
-    for (const mt of mesh.userData.mats) mt.opacity = next;
+    mesh.userData.visionLit = revealed;
+    for (const mt of mesh.userData.mats) {
+      mt.opacity = next;
+      // Lit: a revealed familiar burns brighter in every material,
+      // so it reads through the Hall's dark instead of merely
+      // fading in. The boost scales the material's own emissive —
+      // nothing new is painted on the thing.
+      mt.emissiveIntensity = (mt.userData.baseEI ?? 1) * (revealed ? 2.4 : 1);
+    }
     mesh.visible = next > 0.03;
     if (mesh.visible) {
       const p = monsterWorldPos(m);
@@ -1859,7 +2033,8 @@ function updatePlayer(dt) {
   const wishZ = (-cos * fwd - sin * strafe);
   const wishLen = Math.hypot(wishX, wishZ) || 1;
   const run = keys.has("ShiftLeft") || keys.has("ShiftRight");
-  const speed = (run ? 6.8 : 4.4) * (state.charms.swift ? 1.35 : 1);
+  const speed = (run ? 6.8 : 4.4) * (state.charms.swift ? 1.35 : 1)
+    * (invertFxActive(performance.now()) ? INVERT_SLOW : 1);
   const accel = state.onGround ? 42 : 12;
   state.vel.x += (wishX / wishLen) * (fwd || strafe ? accel : 0) * dt;
   state.vel.z += (wishZ / wishLen) * (fwd || strafe ? accel : 0) * dt;
@@ -2014,16 +2189,82 @@ function hurtPlayer(amount, fromPos, why) {
   syncHud();
 }
 
+// ---------- the strike hint (2026-11-26) -------------------------------------
+// While the encounter with the Shadow is in progress, the fox's
+// strike binding stands at the view's edge, bulging — the control
+// the moment asks for, impossible to forget while it matters. It
+// latches at the same event that can speak the guardian-contact
+// line (the guardian's touch, in checkMonsterContact below) and
+// it fades on its own when the encounter ends: the Shadow struck
+// down, or the fox gone beyond the leash — run away, and the
+// moment is over. No dismissal, nothing to close; meeting the
+// Shadow again raises it again.
+//
+// The binding is read from the assignment itself, never lettered
+// by hand: under WASD the strike lives on F; under AWEF, F walks
+// backward (see the key handler) and the strike lives on the
+// click; on touch it is the strike button. One pure function of
+// the assignment, so the unit suite can hold it to account.
+function strikeBindingLabel(scheme, touch) {
+  if (touch) return "STRIKE";
+  return scheme === "AWEF" ? "CLICK" : "F";
+}
+const GUARDIAN_LEASH = 16; // blocks: past this, you have run away
+function syncStrikeHint() {
+  const cap = $("striker-cap");
+  if (!cap) return;
+  const label = strikeBindingLabel(
+    state.scheme, document.body.classList.contains("touch"));
+  if (cap.textContent !== label) cap.textContent = label;
+  $("striker-word").style.display = label === "STRIKE" ? "none" : "block";
+}
+function setGuardianEncounter(on) {
+  if (state.guardianEncounter === on) return;
+  state.guardianEncounter = on;
+  const el = $("striker");
+  if (!el) return;
+  clearTimeout(setGuardianEncounter._t);
+  if (on) {
+    syncStrikeHint();
+    el.style.display = "block";
+    void el.offsetWidth; // let the fade start from 0, not jump
+    el.classList.add("on");
+  } else {
+    el.classList.remove("on");
+    setGuardianEncounter._t = setTimeout(() => {
+      if (!state.guardianEncounter) el.style.display = "none";
+    }, 480);
+  }
+}
+function updateGuardianEncounter() {
+  if (!state.guardianEncounter) return;
+  const g = sub.monsters.find(
+    (m) => m.kind === "guardian" && m.realmId === state.realm);
+  if (!g || !g.alive || state.dead) { setGuardianEncounter(false); return; }
+  const p = monsterWorldPos(g);
+  const dx = state.pos.x - p.x, dz = state.pos.z - p.z;
+  if (dx * dx + dz * dz > GUARDIAN_LEASH * GUARDIAN_LEASH) {
+    setGuardianEncounter(false);
+    return;
+  }
+  syncStrikeHint(); // the assignment may change mid-encounter
+}
+
 function checkMonsterContact() {
   if (state.dead) return;
   for (const m of sub.monsters) {
-    if (!m.alive || m.realmId !== state.realm || !sub.monsterVisible(m)) continue;
+    if (!m.alive || m.realmId !== state.realm || !familiarSeen(m)) continue;
     const p = monsterWorldPos(m);
     const dx = state.pos.x - p.x, dz = state.pos.z - p.z;
     const dy = (state.pos.y + 0.9) - (p.y + 0.9);
     if (dx * dx + dz * dz < 1.5 && Math.abs(dy) < 2.1) {
       const before = state.hp;
       if (m.kind === "wisp") return; // the training thing cannot hurt you
+      // The encounter with the Shadow begins at its touch — the
+      // same event that can speak the guardian-contact line below —
+      // and the strike hint stands for as long as the encounter
+      // lasts (updateGuardianEncounter keeps its end).
+      if (m.kind === "guardian") setGuardianEncounter(true);
       hurtPlayer(2, p, m.kind === "guardian"
         ? "The guardian reaches you. Strike it back — click, or F."
         : null);
@@ -2081,7 +2322,7 @@ function tryStrike() {
   const eye = eyePos();
   let best = null, bestT = range;
   for (const m of sub.monsters) {
-    if (!m.alive || m.realmId !== state.realm || !sub.monsterVisible(m)) continue;
+    if (!m.alive || m.realmId !== state.realm || !familiarSeen(m)) continue;
     const p = monsterWorldPos(m);
     const center = new THREE.Vector3(p.x, p.y + 0.95, p.z);
     const to = center.clone().sub(eye);
@@ -2209,6 +2450,40 @@ function toggleLamp() {
   state.lamp = !state.lamp;
   applyLamp();
   toast(state.lamp ? "Lamp on." : "Lamp off.", 2500);
+}
+
+// ---------- Fox Vision (Will, 2026-11-26) --------------------------------
+// "Introduce Fox Vision, usable when inside The Unexpected Hall —
+// it provides night vision of all familiars within subspace
+// range." The rules live in world.js (inTheHall, foxVisionToggle,
+// foxVisionReveals, FAMILIAR_RANGE_CELLS); the view composes them.
+// No cost, no cooldown: the Hall is the gate. No toast, no beat —
+// the sense waking IS the feedback: the dark gives up its shapes,
+// lit. (Joy's barrow line already promised it: "Your vision
+// alone can fix it.") An N press outside the Hall is a quiet
+// non-response — the toggle rule in world.js simply declines.
+function playerInHall() {
+  return state.realm === DUNGEON.realm &&
+    inTheHall(state.pos.x, state.pos.y, state.pos.z);
+}
+function foxVisionActive() {
+  return state.foxVision && playerInHall();
+}
+function visionReveals(m) {
+  if (!foxVisionActive() || !m.alive || m.realmId !== state.realm) return false;
+  return foxVisionReveals(m,
+    cellOfBlock(Math.floor(state.pos.x)), cellOfBlock(Math.floor(state.pos.z)));
+}
+// Seen: shown by the phases, or revealed by Fox Vision. The
+// strike and the reach both read this one word — what the Vision
+// shows the fox, the fox can strike; and it can strike back.
+// Vision cuts both ways, which is what makes it a sense and not
+// a cheat: inside the Hall, everything is simply THERE.
+function familiarSeen(m) {
+  return sub.monsterVisible(m) || visionReveals(m);
+}
+function toggleFoxVision() {
+  state.foxVision = foxVisionToggle(state.foxVision, playerInHall());
 }
 
 // ---------- the instrument: numbers are the teleport ----------------------------
@@ -2504,8 +2779,11 @@ function openRift(target) {
   // Both ends planted now (Will, 2026-11-24: not a 1-way trip):
   // the near end at the fox's ground, the far end at the landing
   // the tune names — a realm's Arrival, or a page's center.
-  const a = riftEnd(state.realm, state.pos.x, state.pos.z, state.yaw,
-    state.pos.y - 1.01);
+  // No feetY override (portal fix, EE 954): the near end's ground
+  // is the ring's own ground, computed by riftEnd from the ring's
+  // position — anchoring it to the opener's feet made rings opened
+  // on slopes untraversable (PORTAL-DIAGNOSIS.md, defect 2).
+  const a = riftEnd(state.realm, state.pos.x, state.pos.z, state.yaw);
   const b = riftEnd(target.realmId, dest.bx + 0.5, dest.bz + 0.5,
     state.yaw, undefined, true);
   state.riftLink = { id: ++riftSeq, target, a, b, crosses: 0 };
@@ -2599,7 +2877,7 @@ function riftStep(now, dt) {
     if (now < (monsterRiftCooldown.get(m.id) || 0)) continue;
     const p = monsterWorldPos(m);
     const mdx = p.x - r.x, mdz = p.z - r.z;
-    if (mdx * mdx + mdz * mdz < 1.25)
+    if (mdx * mdx + mdz * mdz < r.geo.disc * r.geo.disc)
       carryMonsterThrough(m, r.end, mdx, mdz, 2.4);
   }
   // A crossing arms only once the fox has stepped clear of the
@@ -2609,7 +2887,11 @@ function riftStep(now, dt) {
     return;
   }
   const dy = (state.pos.y - 1.01) - r.feetY;
-  if (dist2 < 1.25 && Math.abs(dy) < 2.4) crossThroughRift();
+  // The trigger is the visible disc itself (portal fix, EE 954):
+  // the old hard-coded 1.25 (radius ~1.118) left the outer ~42% of
+  // the disc dead (PORTAL-DIAGNOSIS.md, defect 1).
+  if (dist2 < r.geo.disc * r.geo.disc && Math.abs(dy) < 2.4)
+    crossThroughRift();
 }
 
 function playChord(chord) {
@@ -2663,6 +2945,7 @@ function doCross(target, opts = {}) {
     } else {
       respawnAtArrival();
     }
+    enterRealmGravity(state.realm);
     applyRealmSky();
     for (const [, mesh] of monsterMeshes) scene.remove(mesh);
     monsterMeshes.clear();
@@ -2697,10 +2980,108 @@ function flashPortal() {
   });
 }
 
+// ---------- the inversion wooze (demo10) ------------------------------------
+// Will (2026-11-26): a gravity inversion slows the player for
+// 5 seconds and the screen goes fuzzy for the same 5 seconds —
+// like degaussing a monitor, sound effect included. The effect
+// hangs on the REAL inversion: it starts only where a shift
+// actually turns the realm (flipGravityHere, past the once-a-day
+// gate). A refused shift inverts nothing and woozes nothing.
+const INVERT_FX_MS = 5000; // the wooze lasts five seconds
+const INVERT_SLOW = 0.5; // at half speed while it lasts
+function invertFxActive(now) { return now - state.invertFxT0 < INVERT_FX_MS; }
+function startInvertFx() {
+  state.invertFxT0 = performance.now();
+  sfx.degauss();
+}
+// The degauss treatment, driven per frame from animate(): the
+// picture starts bent and ringing — blur, a hue swing, a wobble
+// that collapses and settles on a damped envelope — under a
+// rainbow shimmer veil, and every trace is gone at five seconds.
+function updateInvertFx(now) {
+  const canvas = renderer.domElement, veil = $("degauss");
+  if (!invertFxActive(now)) {
+    if (state.invertFxOn) {
+      state.invertFxOn = false;
+      canvas.style.filter = "";
+      canvas.style.transform = "";
+      if (veil) veil.style.opacity = "0";
+    }
+    return;
+  }
+  state.invertFxOn = true;
+  const t = now - state.invertFxT0, u = t / INVERT_FX_MS;
+  const amp = Math.pow(1 - u, 1.6); // strong at the thunk, settling tail
+  const wob = Math.sin(t * 0.0138) * amp; // the ~2.2 Hz dying wobble
+  const shim = Math.sin(t * 0.055) * amp; // the faster rainbow shimmer
+  canvas.style.filter =
+    `blur(${(4.5 * amp).toFixed(2)}px) hue-rotate(${(70 * wob).toFixed(1)}deg) saturate(${(1 + 0.9 * amp).toFixed(2)})`;
+  canvas.style.transform =
+    `translate(${(6 * wob).toFixed(1)}px, ${(1.6 * shim).toFixed(1)}px) scale(${(1 + 0.03 * wob).toFixed(3)})`;
+  if (veil) veil.style.opacity = (0.26 * amp * (0.75 + 0.25 * shim)).toFixed(3);
+}
+
+// ---------- warp text: the inversion, announced (demo18) --------------------
+// Will (2026-11-26): "GRAVITY INVERSION!!" — warp text on the
+// announcement method: the intro card's presentation (a centered
+// serif name between cyan rules, shown, held, then gone), the name
+// at 3x the card's 40px, and the card itself warped — swung through
+// perspective with a skew that rings down and settles (the warpin /
+// warpname keyframes in page3.html). A dedicated card built exactly
+// on that method, so a warp announcement never preempts or corrupts
+// a monster introduction in flight (startIntro owns #introcard's
+// timer and its spotlight dim).
+//
+// It fires on the inversions the fox EXPERIENCES: its own shift,
+// past the once-a-day gate, beside the wooze (flipGravityHere); and
+// a turn that arrives by read-back while the fox is standing in the
+// realm (reconcileGravity) — down changed under the fox, and the
+// big text is the helpful word for why the world just turned. A
+// refused shift inverts nothing and announces nothing. Arriving
+// somewhere is not an inversion: the dwell below keeps realm entry
+// and the boot attunement quiet.
+const WARP_TEXT = "GRAVITY INVERSION!!";
+const WARP_MS = 2600; // on screen: lands with the inversion, clears well inside the wooze's 5000
+const WARP_DWELL_MS = 4000; // a read-back turn counts as experienced only after this long in the realm
+let warpShown = 0; // how many times the announcement has fired (playtest evidence)
+function showGravityWarp() {
+  const card = $("warpcard");
+  if (!card) return;
+  warpShown++;
+  state.warpT0 = performance.now();
+  card.style.display = "block";
+  card.classList.remove("show");
+  void card.offsetWidth; // restart the animation, as the intro card does
+  card.classList.add("show");
+  clearTimeout(showGravityWarp._t);
+  showGravityWarp._t = setTimeout(() => { card.style.display = "none"; }, WARP_MS);
+}
+function warpAnnounceOk(now) {
+  return !state.splash && now - state.realmSince >= WARP_DWELL_MS;
+}
+
 function flipGravityHere() {
+  // One shift per player per realm per day (Will, 2026-11-26),
+  // judged against every record known here — read back from the
+  // gravity scroll or still queued for it — so a shift counts from
+  // the moment it is made, not from when it lands. A refused shift
+  // does not happen; the toast below is a placeholder line in the
+  // game's comms style, flagged for Will's wording.
+  const day = todayStr();
+  if (!gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, day)) {
+    toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
+    return;
+  }
   const { sx, sy } = playerScroll();
   const dir = sub.flipGravity(state.realm, sx, sy);
+  // The shift is inscribed on the gravity scroll: that record IS
+  // the realm's new down, for every fox, from when the chart takes
+  // it — and it spends this fox's one shift in this realm today.
+  queueEcoLine(BACKEND.gravityCoord,
+    gravityShiftLine(state.realm, dir, playerName, day, Date.now()));
   state.flips++;
+  startInvertFx(); // the inversion is real — the wooze rides it
+  showGravityWarp(); // — and the warp text announces it, big (demo18)
   sfx.flip();
   // The vault (or its absence) is generation: rebuild nearby NOW so
   // the new down has somewhere to land you.
@@ -2979,6 +3360,21 @@ function drawPortrait() {
   const cv = $("portrait");
   const g = cv.getContext("2d");
   g.clearRect(0, 0, 72, 72);
+  // A worn form IS the fox's face while it lasts (demo6): the
+  // current animation frame, fitted into the portrait, standing
+  // on its floor.
+  if (typeof formState !== "undefined" && formState.text) {
+    const fc = formCanvases(formState.text);
+    if (fc && fc.frames.length) {
+      const fcv = fc.frames[Math.min(formFrameIdx, fc.frames.length - 1)];
+      g.fillStyle = "#0d1526";
+      g.fillRect(0, 0, 72, 72);
+      const sc = Math.min(72 / fcv.width, 72 / fcv.height);
+      g.drawImage(fcv, (72 - fcv.width * sc) / 2, 72 - fcv.height * sc,
+        fcv.width * sc, fcv.height * sc);
+      return;
+    }
+  }
   // Fox face.
   g.fillStyle = "#2f7fe0";
   g.beginPath(); g.moveTo(14, 30); g.lineTo(24, 8); g.lineTo(34, 26); g.closePath(); g.fill();
@@ -3108,6 +3504,7 @@ function renderBoard() {
     `<span class="realmstatus">${d.mine.daily ? "place of the day found ✓" : "place of the day not found yet"} · best ${standings.best} pts</span></div>`;
   $("board-note").textContent = globalNote;
   renderEco();
+  renderFormPanel();
   renderSaveState();
 }
 
@@ -3306,6 +3703,547 @@ function toggleBoard(force) {
   if (show) renderBoard();
 }
 
+// ---------- player forms: the phext a fox wears (demo6) -------------------------
+// The logic lives in forms.js (pure, unit-tested); this glue owns
+// the state, the editor panel, the canvases, the in-world sprite,
+// and the chart. The editor is a surface of this board — a player
+// opens it, edits, previews, and wears the form without ever
+// leaving the game.
+const formState = loadFormState(LS.get("nova-phox-form", null));
+function persistForm() { LS.set("nova-phox-form", formState); }
+
+// The stage a form stands on: the ruled box (120 x 360 form
+// units) centered in the leeway stage (box x ceiling scale).
+const FORM_STAGE = {
+  w: FORM_LIMITS.boxW * FORM_LIMITS.boxScaleCeiling,
+  h: FORM_LIMITS.boxH * FORM_LIMITS.boxScaleCeiling,
+};
+const FORM_PX = 2; // canvas pixels per form unit
+
+// Rasterize one compiled frame to its own canvas, at natural
+// size. Frames are rasterized once and cached; the animation
+// only ever swaps finished canvases, so a heavy form costs its
+// price once, at apply time, never per step.
+const formRasterCache = new Map();
+function rasterizeFrame(frame, palette) {
+  const b = frame.bounds || { x: 0, y: 0, w: 1, h: 1 };
+  const w = Math.max(1, b.w), h = Math.max(1, b.h);
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.min(720, Math.round(w * FORM_PX)));
+  cv.height = Math.max(1, Math.min(2160, Math.round(h * FORM_PX)));
+  const sx = cv.width / w, sy = cv.height / h;
+  const g = cv.getContext("2d");
+  cv._ready = true;
+  if (frame.type === "svg") {
+    // The second wall of the no-script rule: sanitized in
+    // forms.js on load, and drawn only ever as an <img> — a
+    // context in which SVG cannot execute at all.
+    cv._ready = false;
+    const img = new Image();
+    img.onload = () => {
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.drawImage(img, 0, 0, cv.width, cv.height);
+      cv._ready = true;
+      refreshFormSurfaces();
+    };
+    img.onerror = () => { cv._ready = true; };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(frame.svg);
+  } else if (frame.type === "bitmap") {
+    const cell = FORM_LIMITS.bitmapCell;
+    frame.rows.forEach((row, ri) => {
+      for (let ci = 0; ci < row.length; ci++) {
+        const ch = row[ci];
+        if (ch === ".") continue;
+        const pi = "0123456789abcdef".indexOf(ch);
+        g.fillStyle = palette[pi] || "#ffffff";
+        g.fillRect(ci * cell * sx, ri * cell * sy, Math.ceil(cell * sx), Math.ceil(cell * sy));
+      }
+    });
+  } else if (frame.type === "turtle") {
+    g.lineCap = "round";
+    for (const s of frame.segments) {
+      g.strokeStyle = s.color;
+      g.lineWidth = Math.max(1, s.width * ((sx + sy) / 2));
+      g.beginPath();
+      g.moveTo((s.x1 - b.x) * sx, (b.y + b.h - s.y1) * sy);
+      g.lineTo((s.x2 - b.x) * sx, (b.y + b.h - s.y2) * sy);
+      g.stroke();
+    }
+  } else if (frame.type === "shapes") {
+    for (const s of frame.shapes) {
+      g.fillStyle = s.color;
+      const X = (x) => (x - b.x) * sx, Y = (y) => (b.y + b.h - y) * sy;
+      g.beginPath();
+      if (s.kind === "circle") {
+        g.ellipse(X(s.cx), Y(s.cy), s.r * sx, s.r * sy, 0, 0, 7);
+      } else if (s.kind === "rect") {
+        g.rect(X(s.x), Y(s.y + s.h), s.w * sx, s.h * sy);
+      } else if (s.kind === "tri") {
+        g.moveTo(X(s.pts[0]), Y(s.pts[1]));
+        g.lineTo(X(s.pts[2]), Y(s.pts[3]));
+        g.lineTo(X(s.pts[4]), Y(s.pts[5]));
+        g.closePath();
+      } else if (s.kind === "star") {
+        const n = s.points;
+        for (let i = 0; i < n * 2; i++) {
+          const r = i % 2 === 0 ? s.r : s.r * 0.45;
+          const a = (Math.PI / n) * i - Math.PI / 2;
+          const px = X(s.cx) + Math.cos(a) * r * sx, py = Y(s.cy) + Math.sin(a) * r * sy;
+          if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+        }
+        g.closePath();
+      }
+      g.fill();
+    }
+  }
+  return cv;
+}
+function formCanvases(text) {
+  if (!text) return null;
+  const key = fnv1a64hex(text);
+  let hit = formRasterCache.get(key);
+  if (hit) return hit;
+  const parsed = parseForm(text);
+  if (!parsed.ok) return null;
+  hit = { parsed, frames: parsed.frames.map((f) => rasterizeFrame(f, parsed.palette)) };
+  formRasterCache.set(key, hit);
+  while (formRasterCache.size > 6) formRasterCache.delete(formRasterCache.keys().next().value);
+  return hit;
+}
+function whenFormReady(fc) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    (function poll() {
+      if (!fc || fc.frames.every((c) => c._ready) || Date.now() - t0 > 5000) resolve();
+      else setTimeout(poll, 30);
+    })();
+  });
+}
+// Draw one frame canvas onto a stage canvas, standing on the
+// stage floor, centered — the same stance in the preview, on
+// the portrait, and in the world.
+function drawFrameOnStage(g, frameCanvas) {
+  const W = FORM_STAGE.w * FORM_PX, H = FORM_STAGE.h * FORM_PX;
+  g.clearRect(0, 0, W, H);
+  if (!frameCanvas) return;
+  g.drawImage(frameCanvas, (W - frameCanvas.width) / 2, H - frameCanvas.height);
+}
+
+// The in-world body: a sprite at the fox's own position, sized
+// as the leeway stage in world units (0.9 x 2.7 — the ruled box
+// at 1.0, the leeway's edge at 1.5). It is the fox's appearance
+// and nothing else: no collision, no physics, no verb reads it.
+// This build is first-person, so the sprite stands aside
+// whenever the fox's own eye is near (it never blocks the view);
+// any other eye — a rift's far side, a future third person —
+// sees the form standing where the fox stands.
+let formSprite = null, formSpriteCanvas = null, formSpriteTex = null;
+let formFrameIdx = 0, formAnimT = 0;
+function ensureFormSprite() {
+  if (formSprite) return;
+  formSpriteCanvas = document.createElement("canvas");
+  formSpriteCanvas.width = FORM_STAGE.w * FORM_PX;
+  formSpriteCanvas.height = FORM_STAGE.h * FORM_PX;
+  formSpriteTex = new THREE.CanvasTexture(formSpriteCanvas);
+  formSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: formSpriteTex, transparent: true }));
+  formSprite.scale.set(0.6 * FORM_LIMITS.boxScaleCeiling, 1.8 * FORM_LIMITS.boxScaleCeiling, 1);
+  formSprite.visible = false;
+  scene.add(formSprite);
+}
+function drawFormSpriteFrame(fc, idx) {
+  ensureFormSprite();
+  const g = formSpriteCanvas.getContext("2d");
+  drawFrameOnStage(g, fc.frames[idx]);
+  formSpriteTex.needsUpdate = true;
+}
+// Called from animate(): the worn form walks its neighborhood,
+// and the sprite stands where the fox stands.
+function formStep(dt) {
+  if (!formState.text) {
+    if (formSprite) formSprite.visible = false;
+  } else {
+    const fc = formCanvases(formState.text);
+    if (fc) {
+      formAnimT += dt * 1000;
+      const idx = frameIndexAt(fc.parsed, formAnimT);
+      ensureFormSprite();
+      formSprite.position.set(
+        state.pos.x,
+        state.pos.y + (PHEIGHT / 2) * FORM_LIMITS.boxScaleCeiling * state.gravDir,
+        state.pos.z);
+      formSprite.material.rotation = state.gravDir < 0 ? Math.PI : 0;
+      formSprite.visible = camera.position.distanceTo(formSprite.position) > 1.2;
+      if (idx !== formFrameIdx) {
+        formFrameIdx = idx;
+        drawFormSpriteFrame(fc, idx);
+        drawPortrait();
+      }
+    }
+  }
+  // The editor's preview walks too, while the board is open.
+  const board = $("board");
+  if (board && board.style.display !== "none" && formEdit.playing && formEdit.parsed && formEdit.parsed.ok) {
+    formEdit.previewT += dt * 1000;
+    const idx = frameIndexAt(formEdit.parsed, formEdit.previewT);
+    if (idx !== formEdit.previewIdx) {
+      formEdit.previewIdx = idx;
+      drawFormPreview();
+    }
+  }
+}
+function refreshFormSurfaces() {
+  if (formState.text) {
+    const fc = formCanvases(formState.text);
+    if (fc) { drawFormSpriteFrame(fc, formFrameIdx); drawPortrait(); }
+  }
+  const board = $("board");
+  if (board && board.style.display !== "none") drawFormPreview();
+}
+
+// ---------- the form editor: this board's own surface ---------------------------
+const formEdit = {
+  init: false, lastGood: "", standing: null, parsed: null,
+  page: 0, previewIdx: 0, previewT: 0, playing: true, paint: "6",
+  gridSig: "",
+};
+function formNote(msg) {
+  const el = document.getElementById("form-note");
+  if (el) el.textContent = msg;
+}
+function scrollOffsets(text) {
+  // Character offset of each scroll's first line, for seating
+  // the cursor on a chosen page.
+  const scrolls = splitScrolls(text);
+  const lines = String(text).split("\n");
+  const offs = [];
+  let li = 0;
+  for (const s of scrolls) {
+    while (li < lines.length && lines[li].trim() !== s.coord) li++;
+    let chars = 0;
+    for (let i = 0; i < li; i++) chars += lines[i].length + 1;
+    offs.push(chars);
+    li++;
+  }
+  return offs;
+}
+function rebuildScroll(text, scrollIdx, newLines) {
+  const scrolls = splitScrolls(text);
+  if (scrollIdx < 0 || scrollIdx >= scrolls.length) return text;
+  scrolls[scrollIdx].lines = newLines;
+  return scrolls.map((s) => [s.coord, ...s.lines].join("\n")).join("\n\n") + "\n";
+}
+function formEditorRefresh() {
+  const ta = $("form-text");
+  if (!ta) return;
+  const text = ta.value;
+  const standing = formStanding(text);
+  formEdit.standing = standing;
+  formEdit.parsed = standing.parsed;
+  // The meter: where the phext stands against both lines.
+  const meter = $("form-meter");
+  const L = FORM_LIMITS;
+  meter.textContent =
+    `${standing.bytes.toLocaleString()} bytes of phext — the ruled line is ${L.capBaselineBytes.toLocaleString()}, ` +
+    `the leeway's ceiling ${L.capCeilingBytes.toLocaleString()}`;
+  meter.className = standing.cap === "over" ? "over" : standing.cap === "leeway" ? "warn" : "";
+  // The status: the first honest sentence about the form.
+  const status = $("form-status");
+  let msg = "", cls = "";
+  if (!standing.parsed.ok) {
+    msg = standing.parsed.errors[0] || "the phext doesn't parse yet";
+    cls = "over";
+  } else {
+    const badFit = standing.fit.frames.find((f) => !f.fitsCeiling);
+    if (badFit) {
+      msg = `frame ${badFit.index + 1} (${badFit.coord}) spills past the box — it needs ${badFit.need.toFixed(2)}x the player's size, and the leeway ends at ${L.boxScaleCeiling}x`;
+      cls = "over";
+    } else if (standing.leeway) {
+      const bits = [];
+      if (standing.cap === "leeway") bits.push("more phext than the ruled 4 KB");
+      if (standing.fit.leeway) bits.push("a frame standing larger than your body");
+      msg = `inside the leeway: ${bits.join(" and ")} — the leeway holds it, for now`;
+      cls = "warn";
+    } else {
+      msg = "this form stands inside the ruled lines";
+    }
+  }
+  status.textContent = msg;
+  status.className = cls;
+  $("btn-form-apply").disabled = standing.refused;
+  renderFormPages();
+  renderFormBitmapTools();
+  drawFormPreview();
+  renderFormChart();
+}
+function renderFormPages() {
+  const wrap = $("form-pages");
+  if (!wrap || !formEdit.parsed) return;
+  const scrolls = splitScrolls($("form-text").value);
+  formEdit.page = Math.min(formEdit.page, Math.max(0, scrolls.length - 1));
+  wrap.innerHTML = scrolls.map((s, i) => {
+    const label = i === 0 ? "head" : `frame ${i} — ${(formEdit.parsed.frames[i - 1] || {}).type || "?"}`;
+    return `<button class="ghost form-pagebtn ${i === formEdit.page ? "sel" : ""}" data-form-page="${i}">${label} · ${s.coord.split("/")[2]}</button>`;
+  }).join("");
+  const sel = $("form-type");
+  const frame = formEdit.parsed.frames[formEdit.page - 1];
+  if (sel) {
+    sel.disabled = formEdit.page === 0;
+    if (frame && frame.type) sel.value = frame.type;
+  }
+}
+function selectedBitmapFrame() {
+  if (formEdit.page === 0 || !formEdit.parsed) return null;
+  const f = formEdit.parsed.frames[formEdit.page - 1];
+  return f && f.type === "bitmap" ? f : null;
+}
+function renderFormBitmapTools() {
+  const tools = $("form-bitmap-tools");
+  if (!tools) return;
+  const frame = selectedBitmapFrame();
+  if (!frame) { tools.style.display = "none"; formEdit.gridSig = ""; return; }
+  tools.style.display = "block";
+  const pal = $("form-palette");
+  pal.innerHTML = [".", ..."0123456789abcdef"].map((k) => {
+    const color = k === "." ? "transparent" : formEdit.parsed.palette["0123456789abcdef".indexOf(k)];
+    return `<button class="swatch ${formEdit.paint === k ? "sel" : ""}" data-form-paint="${k}" title="${k === "." ? "clear" : k}" style="background:${color}"></button>`;
+  }).join("");
+  const sig = `${frame.coord}|${frame.cols}|${frame.rowCount}`;
+  if (sig === formEdit.gridSig) return;
+  formEdit.gridSig = sig;
+  const grid = $("form-grid");
+  grid.style.gridTemplateColumns = `repeat(${frame.cols}, 15px)`;
+  grid.innerHTML = frame.rows.map((row, ri) =>
+    [...row].map((ch, ci) => {
+      const color = ch === "." ? "rgba(20,32,54,0.6)" : formEdit.parsed.palette["0123456789abcdef".indexOf(ch)];
+      return `<button class="cell" data-form-cell="${ri}:${ci}" style="background:${color}"></button>`;
+    }).join("")).join("");
+}
+function drawFormPreview() {
+  const cv = $("form-preview");
+  if (!cv) return;
+  const g = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#050b16";
+  g.fillRect(0, 0, W, H);
+  // The leeway stage edge, dashed amber; the ruled box, solid.
+  g.strokeStyle = "rgba(255,184,77,0.55)";
+  g.setLineDash([8, 6]);
+  g.strokeRect(1, 1, W - 2, H - 2);
+  g.setLineDash([]);
+  const bw = FORM_LIMITS.boxW * FORM_PX, bh = FORM_LIMITS.boxH * FORM_PX;
+  g.strokeStyle = "rgba(0,217,255,0.8)";
+  g.strokeRect((W - bw) / 2, H - bh, bw, bh);
+  const text = $("form-text").value;
+  const fc = formCanvases(text);
+  const line = $("form-frame-line");
+  if (fc && fc.frames.length) {
+    const idx = Math.min(formEdit.previewIdx, fc.frames.length - 1);
+    drawFrameOnStage(g, fc.frames[idx]);
+    const f = fc.parsed.frames[idx];
+    const need = frameNeed(f);
+    if (line) line.textContent =
+      `frame ${idx + 1} of ${fc.frames.length} — ${f.type} — ${f.coord}` +
+      (need > 1 ? ` — standing at ${need.toFixed(2)}x your size (the leeway)` : "");
+  } else if (line) {
+    line.textContent = formEdit.parsed && !formEdit.parsed.ok
+      ? "the preview waits for a phext that parses" : "";
+  }
+}
+function renderFormChart() {
+  const el = $("form-chart");
+  if (!el) return;
+  const rows = BACKEND.formRows;
+  if (!rows || !rows.size) {
+    el.innerHTML = `<div class="sub">${BACKEND.online
+      ? "no fox has worn a form onto the record yet"
+      : "the shared map hasn't answered yet — forms on the record wait with your marks"}</div>`;
+    return;
+  }
+  const reason = (entry) => {
+    if (!entry.standing) return "";
+    if (entry.standing.cap === "over") return "past even the leeway's cap — not rendered";
+    if (!entry.standing.parsed.ok) return "doesn't parse — not rendered";
+    if (!entry.standing.fit.ok) return "a frame doesn't fit the box — not rendered";
+    return "";
+  };
+  el.innerHTML = `<h3>Forms on the record</h3>` + [...rows.values()]
+    .sort((a, b) => a.ts - b.ts)
+    .map((e) => `<div class="realmrow ${e.name === playerName ? "here" : ""}"><span class="realmname2">${e.name}</span>` +
+      `<span class="realmstatus">${e.text === null ? "wearing no form"
+        : e.refused ? reason(e)
+        : `wearing "${(e.standing.parsed.name || "a form")}" — ${e.standing.parsed.frames.length} frame${e.standing.parsed.frames.length === 1 ? "" : "s"}`}</span></div>`)
+    .join("");
+}
+function renderFormPanel() {
+  const ta = $("form-text");
+  if (!ta) return;
+  if (!formEdit.init) {
+    formEdit.init = true;
+    ta.value = formState.text || FORM_EXAMPLES.svg;
+    formEdit.lastGood = ta.value;
+  }
+  formEditorRefresh();
+}
+function formPublish(text, ts) {
+  queueEcoLine(BACKEND.formCoord, formChartLine(playerName, text, ts));
+  formState.publishedAt = ts;
+  persistForm();
+}
+// The editor's events. The textarea is the one source of truth;
+// every structural button rewrites it and lets the refresh say
+// what the rewrite means.
+{
+  const ta = $("form-text");
+  if (ta) {
+    ta.addEventListener("input", () => {
+      // The hard stop: the editor will not hold more phext
+      // than the ceiling, whatever is pasted at it.
+      if (formByteLength(ta.value) > FORM_LIMITS.capCeilingBytes) {
+        ta.value = formEdit.lastGood;
+        formNote(`too much phext — the editor stops at ${FORM_LIMITS.capCeilingBytes.toLocaleString()} bytes, and that paste didn't land`);
+      } else {
+        formEdit.lastGood = ta.value;
+      }
+      formEdit.previewT = 0;
+      formEditorRefresh();
+    });
+    $("btn-form-apply").addEventListener("click", () => {
+      const text = ta.value;
+      const r = applyForm(formState, text, Date.now());
+      if (!r.ok) {
+        formNote(r.reason === "cap" ? "too much phext — past even the leeway's ceiling"
+          : r.reason === "fit" ? "a frame spills past the box — the preview names it"
+          : "the phext doesn't parse yet — the line above says where");
+        return;
+      }
+      persistForm();
+      formPublish(text, formState.appliedAt);
+      formAnimT = 0; formFrameIdx = 0;
+      refreshFormSurfaces();
+      formNote(r.standing.leeway
+        ? "you're wearing it — inside the leeway, and on its way to the shared map, where it's your public shape"
+        : "you're wearing it — and it's on its way to the shared map, where it's your public shape");
+      renderFormChart();
+    });
+    $("btn-form-clear").addEventListener("click", () => {
+      clearForm(formState);
+      persistForm();
+      queueEcoLine(BACKEND.formCoord, formOffLine(playerName, Date.now()));
+      if (formSprite) formSprite.visible = false;
+      drawPortrait();
+      formNote("form off — you're the fox again. The record will say so when the map reads it back.");
+      renderFormChart();
+    });
+    $("form-pages").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-form-page]");
+      if (!btn) return;
+      formEdit.page = +btn.dataset.formPage;
+      formEdit.gridSig = "";
+      const offs = scrollOffsets(ta.value);
+      if (offs[formEdit.page] !== undefined) {
+        ta.focus();
+        ta.setSelectionRange(offs[formEdit.page], offs[formEdit.page]);
+      }
+      formEditorRefresh();
+    });
+    $("form-type").addEventListener("change", (ev) => {
+      if (formEdit.page === 0) return;
+      const type = ev.target.value;
+      ta.value = rebuildScroll(ta.value, formEdit.page,
+        FORM_PAGE_STARTERS[type].split("\n"));
+      formEdit.lastGood = ta.value;
+      formEdit.gridSig = "";
+      formEditorRefresh();
+      formNote(`this page is a ${type} page now — it starts from the ${type} starter; make it yours`);
+    });
+    $("btn-form-addpage").addEventListener("click", () => {
+      const scrolls = splitScrolls(ta.value);
+      if (!scrolls.length) {
+        formNote("the form needs its head first — start from one of the starter forms below");
+        return;
+      }
+      const type = $("form-type").value || "svg";
+      const headParts = scrolls[0].parts.slice();
+      let maxSc = 1;
+      for (const s of scrolls) maxSc = Math.max(maxSc, s.parts[8]);
+      headParts[8] = maxSc + 1;
+      const coord = `${headParts[0]}.${headParts[1]}.${headParts[2]}/${headParts[3]}.${headParts[4]}.${headParts[5]}/${headParts[6]}.${headParts[7]}.${headParts[8]}`;
+      const next = ta.value.replace(/\s+$/, "") + `\n\n${coord}\n${FORM_PAGE_STARTERS[type]}\n`;
+      if (formByteLength(next) > FORM_LIMITS.capCeilingBytes) {
+        formNote("no room for another page — the ceiling is the ceiling");
+        return;
+      }
+      ta.value = next;
+      formEdit.lastGood = ta.value;
+      formEdit.page = scrolls.length;
+      formEdit.gridSig = "";
+      formEditorRefresh();
+    });
+    document.querySelectorAll("[data-form-example]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        ta.value = FORM_EXAMPLES[btn.dataset.formExample];
+        formEdit.lastGood = ta.value;
+        formEdit.page = 0;
+        formEdit.gridSig = "";
+        formEdit.previewT = 0;
+        formEditorRefresh();
+        formNote("a starter form — edit it, break it, wear it");
+      });
+    });
+    $("btn-form-play").addEventListener("click", (ev) => {
+      formEdit.playing = !formEdit.playing;
+      ev.target.textContent = formEdit.playing ? "pause" : "play";
+    });
+    $("btn-form-prev").addEventListener("click", () => {
+      if (!formEdit.parsed || !formEdit.parsed.ok) return;
+      const n = formEdit.parsed.frames.length;
+      formEdit.previewIdx = (formEdit.previewIdx + n - 1) % n;
+      formEdit.previewT = formEdit.previewIdx * formEdit.parsed.stepMs;
+      drawFormPreview();
+    });
+    $("btn-form-next").addEventListener("click", () => {
+      if (!formEdit.parsed || !formEdit.parsed.ok) return;
+      const n = formEdit.parsed.frames.length;
+      formEdit.previewIdx = (formEdit.previewIdx + 1) % n;
+      formEdit.previewT = formEdit.previewIdx * formEdit.parsed.stepMs;
+      drawFormPreview();
+    });
+    $("form-palette").addEventListener("click", (ev) => {
+      const sw = ev.target.closest("[data-form-paint]");
+      if (sw) { formEdit.paint = sw.dataset.formPaint; renderFormBitmapTools(); }
+    });
+    let painting = false;
+    const paintCell = (cellBtn) => {
+      const frame = selectedBitmapFrame();
+      if (!frame || !cellBtn) return;
+      const [ri, ci] = cellBtn.dataset.formCell.split(":").map(Number);
+      const rows = frame.rows.map((r) => [...r]);
+      while (rows[ri].length <= ci) rows[ri].push(".");
+      rows[ri][ci] = formEdit.paint;
+      const scrolls = splitScrolls(ta.value);
+      const typeLine = scrolls[formEdit.page].lines.findIndex((l) => /^\s*type\s*:/i.test(l));
+      const head = scrolls[formEdit.page].lines.slice(0, typeLine + 1);
+      ta.value = rebuildScroll(ta.value, formEdit.page,
+        [...head, ...rows.map((r) => r.join(""))]);
+      formEdit.lastGood = ta.value;
+      cellBtn.style.background = formEdit.paint === "."
+        ? "rgba(20,32,54,0.6)"
+        : formEdit.parsed.palette["0123456789abcdef".indexOf(formEdit.paint)];
+      formEditorRefresh();
+    };
+    $("form-grid").addEventListener("mousedown", (ev) => {
+      const cell = ev.target.closest("[data-form-cell]");
+      if (cell) { painting = true; paintCell(cell); }
+    });
+    $("form-grid").addEventListener("mouseover", (ev) => {
+      if (painting) paintCell(ev.target.closest("[data-form-cell]"));
+    });
+    document.addEventListener("mouseup", () => { painting = false; });
+  }
+}
+
 // ---------- saving: two doors (Will, 2026-11-22 18:05) -----------------------
 // Exactly two ways to save, and playing needs neither:
 //  (a) log in to save your game — marks land on the shared chart
@@ -3327,6 +4265,9 @@ function saveFileContents() {
     // v3 (demo4): the purse rides too — ledgers, entitlement, and
     // the economy queue are part of the player's record now.
     economy: eco, ecoOutbox: [...ecoOutbox],
+    // demo6: the worn form's phext rides in the copy too — a
+    // form is part of the player's record, and a copy restores it.
+    form: formState,
   }, null, 2);
 }
 function downloadLocalSave() {
@@ -3355,6 +4296,10 @@ function loadLocalSave(file) {
       // v3 copies carry the purse; a v2 copy simply starts one fresh.
       if (data.economy) LS.set("nova-phox-economy", loadEconomyState(data.economy));
       LS.set("nova-phox-eco-outbox", Array.isArray(data.ecoOutbox) ? data.ecoOutbox : []);
+      // A copy's form passes the loader's gate before it is
+      // worn: over the ceiling, unparseable, or unfit, and the
+      // copy simply carries no form (v2/v3-era copies predate it).
+      LS.set("nova-phox-form", loadFormState(data.form || null));
       location.reload();
     } catch (e) {
       saveNote("that file is not a Nova Phox save copy — nothing was loaded.");
@@ -3406,6 +4351,7 @@ function toggleRealms(force) {
 function dismissSplash() {
   if (!state.splash) return;
   state.splash = false;
+  trailDone();
   const el = $("splash");
   if (el) el.style.display = "none";
 }
@@ -3616,6 +4562,7 @@ document.addEventListener("keydown", (e) => {
     case "Comma": cycleBrush(-1); break;
     case "Period": cycleBrush(1); break;
     case "KeyV": toggleLamp(); break;
+    case "KeyN": toggleFoxVision(); break;
     case "Escape": if (state.introOpen) closeIntroViewer(); break;
     case "KeyB": toggleBoard(); break;
     case "KeyM": case "Tab": toggleRealms(); break;
@@ -3920,6 +4867,7 @@ tBtn("t-strike", () => { tryStrike(); });
 tBtn("t-chisel", () => { tryChisel(); });
 tBtn("t-flip", () => flipGravityHere());
 tBtn("t-lamp", () => toggleLamp());
+tBtn("t-vision", () => toggleFoxVision());
 tBtn("t-brushdn", () => cycleBrush(-1));
 tBtn("t-brushup", () => cycleBrush(1));
 tBtn("t-draw", () => setTouchMode(touch.mode === "draw" ? null : "draw"));
@@ -3954,9 +4902,14 @@ function animate() {
   lastT = now;
   if (!state.dead) updatePlayer(dt);
   if (!state.dead) riftStep(now, dt);
+  updateInvertFx(now);
+  // Fox Vision is a Hall sense: leaving the Hall puts it down,
+  // silently, the same quiet with which it refused to wake outside.
+  if (state.foxVision && !playerInHall()) state.foxVision = false;
   chunkMaintenance();
   syncMonsterMeshes(dt);
   syncItemMeshes(now);
+  formStep(dt);
   // The swing arc (feedback #2): a bright wedge sweeping the view
   // for a quarter second — the blow is something you SEE.
   if (swoosh) {
@@ -3981,6 +4934,7 @@ function animate() {
       : "🛡 safe here — nothing can hurt you at Arrival";
   }
   checkMonsterContact();
+  updateGuardianEncounter();
   // The quest: reaching the stone is checked against the subspace.
   if (!sub.questDone) {
     const bx = Math.floor(state.pos.x), bz = Math.floor(state.pos.z);
@@ -4090,9 +5044,330 @@ toast("Nova Prime. I'm Emise — my panel is at the bottom of your screen.", 600
 // The chart-line: probe now, re-probe and flush every 20 s. Offline
 // is a first-class state (the ranch itself goes dark some days):
 // play never waits on it.
-backendProbe().then(() => backendFlush());
+backendProbe().then(() => backendFlush()).then(trailDone, trailDone);
 setInterval(() => { backendProbe().then(() => backendFlush()); }, 20000);
 setInterval(() => { ecoTick(); recordStandings(); syncHud(); }, 5000);
+
+// ---------- the test console (Will, 2026-11-26) ---------------------------
+// "Build the e2e testing into the game itself — give me a console
+// I can work with." The external harness walked portals dead-center
+// from a flat spawn for three builds while real traversal was
+// broken (PORTAL-DIAGNOSIS.md), and the harness itself aborts.
+// So the checks live here now, in the real client, run by a person
+// standing in the real world. Every command below calls the game's
+// own systems and prints what it measured; nothing is simulated.
+// In this build the veer and slope legs are EXPECTED to fail —
+// demo5's crossing test is the diagnosed one — and the console's
+// whole job is to make that visible from inside, with numbers,
+// until the traversal fix reconciles into a later tree.
+//
+// Toggle: Backquote (`) — checked free against the keydown switch,
+// LETTER_KEYS and NUMBER_KEYS, and the touch layer. While the
+// console is open, capture-phase handlers keep every keystroke
+// out of the game (no notes sounded, no walking) and the fox's
+// held keys are cleared, so opening it mid-stride stops him.
+// Closing it hands the keys back untouched.
+const NF_TRIGGER2 = 1.25; // riftStep's crossing test in this build:
+                          // dist2 < 1.25, a radius of ~1.118 blocks.
+                          // If the traversal fix changes riftStep,
+                          // it must change this with it — the
+                          // geometry command exists to catch drift.
+const nfCon = {
+  open: false, busy: false, history: [], hIdx: -1,
+  el: $("nfconsole"), out: $("nfconsole-out"), input: $("nfconsole-input"),
+};
+function nfPrint(text, cls = "") {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = text;
+  nfCon.out.appendChild(line);
+  nfCon.out.scrollTop = nfCon.out.scrollHeight;
+}
+function nfConsoleToggle(force) {
+  const want = force !== undefined ? !!force : !nfCon.open;
+  if (want === nfCon.open) return;
+  nfCon.open = want;
+  nfCon.el.style.display = want ? "block" : "none";
+  if (want) {
+    keys.clear();
+    wTap = null;
+    if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+    setTimeout(() => nfCon.input.focus(), 0);
+    if (!nfCon.out.childNodes.length)
+      nfPrint("the game's own checks, in the client. help lists them.", "dim");
+  } else {
+    nfCon.input.blur();
+  }
+}
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Backquote") {
+    if (state.splash) return; // any key steps the splash aside first
+    e.preventDefault();
+    e.stopPropagation();
+    nfConsoleToggle();
+    return;
+  }
+  if (!nfCon.open) return;
+  e.stopPropagation(); // the game never sees a console keystroke
+  if (e.code === "Escape") { nfConsoleToggle(false); return; }
+  if (e.target === nfCon.input) {
+    if (e.code === "Enter") {
+      e.preventDefault();
+      const line = nfCon.input.value;
+      nfCon.input.value = "";
+      nfConsoleRun(line);
+    } else if (e.code === "ArrowUp") {
+      e.preventDefault();
+      if (nfCon.hIdx > 0) { nfCon.hIdx--; nfCon.input.value = nfCon.history[nfCon.hIdx] || ""; }
+    } else if (e.code === "ArrowDown") {
+      e.preventDefault();
+      if (nfCon.hIdx < nfCon.history.length) { nfCon.hIdx++; nfCon.input.value = nfCon.history[nfCon.hIdx] || ""; }
+    }
+  }
+}, true);
+document.addEventListener("keyup", (e) => {
+  if (nfCon.open) e.stopPropagation();
+}, true);
+nfCon.el.addEventListener("click", (e) => {
+  if (e.target !== $("nfconsole-close")) nfCon.input.focus();
+});
+$("nfconsole-close").addEventListener("click", () => nfConsoleToggle(false));
+$("btn-console").addEventListener("click", () => nfConsoleToggle());
+
+// --- readouts: the facts a playtester needs, read off live state ---------
+function nfCmdWhere() {
+  const { sx, sy } = playerScroll();
+  nfPrint(`${realmName(state.realm)} (${state.realm}) · pos ${state.pos.x.toFixed(1)}, ${state.pos.y.toFixed(1)}, ${state.pos.z.toFixed(1)} · scroll ${sx},${sy} · block ${Math.floor(state.pos.x)}, ${Math.floor(state.pos.y)}, ${Math.floor(state.pos.z)} · facing ${(state.yaw * 180 / Math.PI).toFixed(0)}° · keys: ${state.scheme}`);
+}
+function nfCmdGravity() {
+  const { sx, sy } = playerScroll();
+  const g = sub.gravityOf(state.realm, sx, sy);
+  nfPrint(`you hang ${state.gravDir > 0 ? "down" : "UP"} (gravDir ${state.gravDir}) · subspace: scroll ${sx},${sy} of ${state.realm} declares ${g > 0 ? "down" : "UP"} (gravityOf ${g}) · the two ${state.gravDir === g ? "agree" : "differ"}`);
+}
+function nfCmdPurse() {
+  const e = eco, t = e.entitlement;
+  nfPrint(`purse: ${e.tokens} flux · ${e.credits} credit${e.credits === 1 ? "" : "s"} · tier ${t.status}${t.source ? ` (${t.source})` : ""}${t.purchaseNumber ? ` · purchase #${t.purchaseNumber}` : ""} · lifetime earned ${e.lifetime.tokensEarned} flux / ${e.lifetime.creditsEarned} credits`);
+}
+function nfCmdVersion() {
+  nfPrint(`Nova Fox — EE ${SHIP_EE}: the epoch this build shipped within (stamp token ${NF_SHIP_EE}, standing in #ee-line).`);
+}
+function nfCmdPortal() {
+  const r = state.rift, link = state.riftLink;
+  if (!r || !link) { nfPrint("no rift standing."); return; }
+  nfPrint(`rift link #${link.id} · end ${r.end} standing · target ${r.target.type}${r.target.realmId ? " " + r.target.realmId : ""} · crosses ${link.crosses} · ring at ${r.x.toFixed(1)}, ${r.z.toFixed(1)}, feetY ${r.feetY.toFixed(2)} · armed ${r.armed} · view ${r.viewOk ? "live" : "tint fallback"}`);
+  if (r.geo) nfPrint(`  geometry: radius ${r.geo.radius.toFixed(4)} · disc ${r.geo.disc.toFixed(3)} · segments ${r.geo.segments} · subspace distance ${r.geo.distance ? r.geo.distance.toFixed(3) : "?"}`);
+  if (r.viewOk && portalRT && portalView) {
+    renderPortalView(performance.now(), true);
+    const w = portalRT.width, h = portalRT.height;
+    const buf = new Uint8Array(w * h * 4);
+    renderer.readRenderTargetPixels(portalRT, 0, 0, w, h, buf);
+    const fog = paletteFor(portalView.dest.realmId).fog;
+    const fr = (fog >> 16) & 255, fg = (fog >> 8) & 255, fb = fog & 255;
+    let paleCool = 0, nonFog = 0;
+    for (let i = 0; i < buf.length; i += 4) {
+      const pr = buf[i], pg = buf[i + 1], pb = buf[i + 2];
+      if (pb > pr + 25 && pb > 120) paleCool++;
+      if (Math.abs(pr - fr) + Math.abs(pg - fg) + Math.abs(pb - fb) > 24) nonFog++;
+    }
+    nfPrint(`  portal view pixels (measured off the render target): pale-cool ${paleCool} · non-fog ${nonFog} · of ${w * h}`);
+  }
+}
+
+// --- checks: the unit suite's pins, against the live functions -----------
+function nfCheckGeometry() {
+  const g = riftRingGeometry("nova", "ashfall");
+  const trigR = Math.sqrt(NF_TRIGGER2);
+  const deadPct = (1 - NF_TRIGGER2 / (g.disc * g.disc)) * 100;
+  nfPrint(`  ring geometry, nova→ashfall, from riftRingGeometry itself: radius ${g.radius.toFixed(4)} · disc ${g.disc.toFixed(3)} · segments ${g.segments}`);
+  nfPrint(`  the crossing test in this build admits radius ${trigR.toFixed(3)} of that ${g.disc.toFixed(3)} disc — the outer ${deadPct.toFixed(1)}% of the visible portal is dead ground.`);
+  const ok = Math.abs(g.radius - 1.5571) < 0.001 && g.segments === 36;
+  nfPrint(ok
+    ? "  PASS  the live function still returns the unit suite's pinned geometry (radius 1.5571 ±0.001, 36 segments)."
+    : `  FAIL  geometry drifted from the unit pin (radius 1.5571, 36 segments) — measured radius ${g.radius.toFixed(4)}, segments ${g.segments}.`, ok ? "pass" : "fail");
+  return ok ? "pass" : "fail";
+}
+function nfCheckBridge() {
+  const { sx, sy } = playerScroll();
+  const t = chordTarget(sub, state.realm, sx, sy, [...BRIDGE_CHORD], state.pocketChord);
+  const ok = t.type === "realm" && t.realmId !== state.realm;
+  nfPrint(`  the bridge tune (1, 4, 9) from ${state.realm} scroll ${sx},${sy} resolves, by chordTarget itself, to ${t.type}${t.realmId ? " " + t.realmId : ""}.`);
+  nfPrint(ok ? "  PASS  it names the other open realm." : "  FAIL  it does not name another realm from here.", ok ? "pass" : "fail");
+  return ok ? "pass" : "fail";
+}
+
+// --- traversal probes: the diagnosis, runnable from where you stand ------
+// Open the bridge rift by playing its tune through the real
+// instrument path (playNote -> playChord -> openRift) — the same
+// path a player's fingers take. The pending-note buffer is
+// cleared first, and the fact is printed: a half-played tune of
+// the player's must not silently join the probe's chord.
+function nfOpenBridgeRift() {
+  state.notes = [];
+  clearTimeout(state.notesTimer);
+  for (const n of BRIDGE_CHORD) playNote(n);
+  return state.rift || null;
+}
+// Walk the fox forward — the forward key in the same keys set
+// updatePlayer reads, so the real physics, collision and
+// riftStep do the walking — until he crosses, the rift folds,
+// he falls, or the clock runs out. His distance to the ring's
+// center is sampled on the game's own animation frames (plus a
+// slow backstop in case frames stall), so the closest approach
+// printed is the closest riftStep itself ever saw — the quantity
+// that decides crossing — not a timer's guess between frames.
+// Resolves with measurements, never a bare verdict.
+function nfWalkProbe(timeoutMs) {
+  return new Promise((resolve) => {
+    const r = state.rift;
+    if (!r) return resolve({ error: "no rift standing" });
+    const startRealm = state.realm;
+    const crosses0 = state.riftLink ? state.riftLink.crosses : 0;
+    const ring = { x: r.x, z: r.z, feetY: r.feetY };
+    let minD = Infinity, dyAtMin = null, done = false;
+    const t0 = performance.now();
+    const finish = (flags) => {
+      if (done) return;
+      done = true;
+      keys.delete("KeyW");
+      resolve({ ...flags, minD, dyAtMin,
+        ms: Math.round(performance.now() - t0), realm: state.realm });
+    };
+    const tick = () => {
+      if (done) return;
+      const dx = state.pos.x - ring.x, dz = state.pos.z - ring.z;
+      const d = Math.hypot(dx, dz);
+      if (d < minD) { minD = d; dyAtMin = (state.pos.y - 1.01) - ring.feetY; }
+      const crossed = state.realm !== startRealm ||
+        (state.riftLink && state.riftLink.crosses > crosses0);
+      const folded = !state.rift && !crossed;
+      if (crossed || folded || state.dead || performance.now() - t0 > timeoutMs) {
+        finish({ crossed, folded, dead: !!state.dead });
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    keys.add("KeyW");
+    requestAnimationFrame(tick);
+    const backstop = setInterval(() => {
+      if (done) { clearInterval(backstop); return; }
+      tick();
+    }, 100);
+  });
+}
+function nfWalkFailLine(w, disc) {
+  if (w.dead) return "  FAIL  the fox went down mid-probe — no crossing measured.";
+  if (w.folded) return `  FAIL  the rift folded (leash) before any crossing — closest approach ${w.minD.toFixed(3)}.`;
+  return `  FAIL  no crossing in ${(w.ms / 1000).toFixed(1)}s — closest approach ${w.minD.toFixed(3)} against a trigger radius of ${Math.sqrt(NF_TRIGGER2).toFixed(3)} and a visible disc of ${disc.toFixed(3)}${w.minD < disc ? " — he passed through the visible portal and it did not take him" : ""}; |dy| at closest ${Math.abs(w.dyAtMin).toFixed(2)} against a gate of 2.4.`;
+}
+async function nfLegStraight() {
+  nfPrint("rift-straight: the bridge tune, walked dead-center — the control leg, the harness's own pattern.");
+  if (state.dead) { nfPrint("  NOT RUN  the fox is down.", "fail"); return "notrun"; }
+  const r = nfOpenBridgeRift();
+  if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
+  nfPrint(`  ring stands ahead at ${r.x.toFixed(1)}, ${r.z.toFixed(1)} · disc radius ${r.geo.disc.toFixed(3)} · ring feetY ${r.feetY.toFixed(2)}. walking…`);
+  const w = await nfWalkProbe(12000);
+  if (w.crossed) {
+    nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s; closest approach ${w.minD.toFixed(3)}.`, "pass");
+    return "pass";
+  }
+  nfPrint(nfWalkFailLine(w, r.geo.disc), "fail");
+  return "fail";
+}
+async function nfLegVeer(deg) {
+  nfPrint(`rift-veer: open the bridge rift, turn ${deg}°, walk — the approach a player actually makes.`);
+  if (state.dead) { nfPrint("  NOT RUN  the fox is down.", "fail"); return "notrun"; }
+  const r = nfOpenBridgeRift();
+  if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
+  const disc = r.geo.disc;
+  state.yaw += deg * Math.PI / 180;
+  nfPrint(`  veered ${deg}° (a ruler-straight line now misses the ring's center by ~${(3.4 * Math.sin(deg * Math.PI / 180)).toFixed(2)} blocks). walking…`);
+  const w = await nfWalkProbe(12000);
+  if (w.crossed) {
+    nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s; closest approach ${w.minD.toFixed(3)} of a ${disc.toFixed(3)} disc.`, "pass");
+    return "pass";
+  }
+  nfPrint(nfWalkFailLine(w, disc), "fail");
+  return "fail";
+}
+function nfFindSlope() {
+  const g0 = heightAt(state.realm, Math.floor(state.pos.x), Math.floor(state.pos.z));
+  let best = { yaw: state.yaw, rise: -Infinity, g0, gR: g0 };
+  for (let i = 0; i < 36; i++) {
+    const yaw = (i / 36) * Math.PI * 2;
+    const rx = state.pos.x - Math.sin(yaw) * 3.4;
+    const rz = state.pos.z - Math.cos(yaw) * 3.4;
+    const gR = heightAt(state.realm, Math.floor(rx), Math.floor(rz));
+    if (gR - g0 > best.rise) best = { yaw, rise: gR - g0, g0, gR };
+  }
+  return best;
+}
+async function nfLegSlope() {
+  nfPrint("rift-slope: the steepest rise within one rift's reach of where you stand, opened uphill, walked dead-center.");
+  if (state.dead) { nfPrint("  NOT RUN  the fox is down.", "fail"); return "notrun"; }
+  const spot = nfFindSlope();
+  nfPrint(`  steepest rise from here, measured off heightAt: ${spot.rise.toFixed(2)} blocks across the 3.4-block gap (ground ${spot.g0} → ${spot.gR}).`);
+  if (spot.rise < 2.4) {
+    nfPrint("  NOT RUN  no direction from here rises the 2.4 blocks the height gate cares about — stand on a hillside and run it again.", "dim");
+    return "notrun";
+  }
+  state.yaw = spot.yaw;
+  const r = nfOpenBridgeRift();
+  if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
+  nfPrint(`  ring feetY is ${r.feetY.toFixed(2)} — in this build the ring's height is anchored to the ground where the tune was played, while the ground at the ring itself is ${spot.gR}. walking…`);
+  const w = await nfWalkProbe(12000);
+  if (w.crossed) {
+    nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s up a ${spot.rise.toFixed(2)}-block rise; closest approach ${w.minD.toFixed(3)}, |dy| there ${Math.abs(w.dyAtMin).toFixed(2)}.`, "pass");
+    return "pass";
+  }
+  nfPrint(nfWalkFailLine(w, r.geo.disc), "fail");
+  nfPrint(`  the two gates, measured: distance ${w.minD.toFixed(3)} vs trigger ${Math.sqrt(NF_TRIGGER2).toFixed(3)} — ${w.minD < Math.sqrt(NF_TRIGGER2) ? "met" : "NOT met"} · height |dy| ${Math.abs(w.dyAtMin).toFixed(2)} vs 2.4 — ${Math.abs(w.dyAtMin) < 2.4 ? "met" : "NOT met"}.`, "dim");
+  return "fail";
+}
+async function nfRunAll() {
+  nfPrint("runall: every in-client check, in order. Every number below is measured in this client, just now.");
+  const results = [];
+  nfPrint("geometry:"); results.push(["geometry", nfCheckGeometry()]);
+  nfPrint("bridge:"); results.push(["bridge tune", nfCheckBridge()]);
+  results.push(["rift-straight", await nfLegStraight()]);
+  results.push(["rift-veer", await nfLegVeer(20)]);
+  results.push(["rift-slope", await nfLegSlope()]);
+  const p = results.filter((r) => r[1] === "pass").length;
+  const f = results.filter((r) => r[1] === "fail").length;
+  const n = results.filter((r) => r[1] === "notrun").length;
+  nfPrint(`runall: ${p} passed, ${f} failed, ${n} not run — ${results.map((r) => `${r[0]}: ${r[1]}`).join(" · ")}`, f ? "fail" : "pass");
+  return f ? "fail" : "pass";
+}
+const NF_COMMANDS = {
+  help: { usage: "help — this list", run: () => { for (const c of Object.values(NF_COMMANDS)) nfPrint(`  ${c.usage}`, "dim"); } },
+  where: { usage: "where — realm, position, scroll, facing", run: () => nfCmdWhere() },
+  gravity: { usage: "gravity — your orientation and the subspace value under you", run: () => nfCmdGravity() },
+  purse: { usage: "purse — flux, credits, tier, lifetime", run: () => nfCmdPurse() },
+  version: { usage: "version — this build's ship EE", run: () => nfCmdVersion() },
+  state: { usage: "state — where + gravity + purse", run: () => { nfCmdWhere(); nfCmdGravity(); nfCmdPurse(); } },
+  portal: { usage: "portal — the standing rift: link, geometry, view pixels", run: () => nfCmdPortal() },
+  geometry: { usage: "geometry — ring geometry vs the unit pin; the dead band, measured", run: () => nfCheckGeometry() },
+  bridge: { usage: "bridge — the bridge tune's target, resolved live", run: () => nfCheckBridge() },
+  "rift-straight": { usage: "rift-straight — open the bridge rift, walk dead-center (control)", probe: true, run: () => nfLegStraight() },
+  "rift-veer": { usage: "rift-veer [deg] — open, veer (default 20°), walk", probe: true, run: (args) => nfLegVeer(Math.min(45, Math.max(1, Number(args[0]) || 20))) },
+  "rift-slope": { usage: "rift-slope — open uphill on the steepest rise at hand, walk dead-center", probe: true, run: () => nfLegSlope() },
+  runall: { usage: "runall — geometry, bridge, and all three traversal legs", probe: true, run: () => nfRunAll() },
+  clear: { usage: "clear — empty the pane", run: () => { nfCon.out.innerHTML = ""; } },
+};
+async function nfConsoleRun(line) {
+  const trimmed = (line || "").trim();
+  if (!trimmed) return;
+  nfCon.history.push(trimmed);
+  nfCon.hIdx = nfCon.history.length;
+  nfPrint(`> ${trimmed}`, "cmd");
+  const [name, ...args] = trimmed.split(/\s+/);
+  const cmd = NF_COMMANDS[name.toLowerCase()];
+  if (!cmd) { nfPrint("no such command — help lists them.", "fail"); return; }
+  if (cmd.probe && nfCon.busy) { nfPrint("a probe is already walking — let it finish.", "fail"); return; }
+  if (cmd.probe) nfCon.busy = true;
+  try { await cmd.run(args); }
+  catch (err) { nfPrint(`  ERROR  ${err && err.message ? err.message : err}`, "fail"); }
+  finally { if (cmd.probe) nfCon.busy = false; }
+}
 
 // Demo instrumentation: a handle for headless playtests (and for
 // Will's own poking in devtools). Not part of the fiction.
@@ -4108,9 +5383,74 @@ window.NOVA_FOX3 = {
     state: () => narration.debugState(),
   },
   backendFlush: () => backendFlush(),
+  // demo10 handles: gravity in subspace — read what this fox knows
+  // of the gravity scroll, and feed a read-back line through the
+  // same reconcile path the flush uses (a playtest stands in for
+  // the chart answering: another fox's shift, read back, attunes
+  // this view — the ruling's other half).
+  gravityState: () => ({
+    dir: sub.gravityOf(state.realm, 0, 0),
+    known: gravityKnownRecords().length,
+    allowed: gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, todayStr()),
+  }),
+  gravityReadback: (line) => {
+    BACKEND.gravityRows.push(...parseGravityScroll(line));
+    reconcileGravity();
+  },
+  invertFx: () => ({
+    active: invertFxActive(performance.now()),
+    slow: INVERT_SLOW, ms: INVERT_FX_MS,
+  }),
+  // demo18 handle: the warp announcement — how often it has fired,
+  // whether it is on screen right now, and the words it throws.
+  warpText: () => ({
+    shown: warpShown,
+    active: state.warpT0 > 0 && performance.now() - state.warpT0 < WARP_MS,
+    text: WARP_TEXT, ms: WARP_MS,
+  }),
   loginUrl: () => loginUrl(),
   hasToken: () => !!gameToken(),
   saveJson: () => saveFileContents(),
+  // demo6 handles: player forms — standing, apply, the world.
+  formStanding: (text) => {
+    const s = formStanding(text);
+    return { bytes: s.bytes, cap: s.cap, refused: s.refused, leeway: s.leeway,
+      errors: s.parsed.errors,
+      frames: s.parsed.frames.map((f) => ({ type: f.type, coord: f.coord,
+        w: f.bounds ? f.bounds.w : null, h: f.bounds ? f.bounds.h : null,
+        need: f.bounds ? frameNeed(f) : null })) };
+  },
+  formApply: (text) => {
+    const r = applyForm(formState, text, Date.now());
+    if (r.ok) {
+      persistForm();
+      formPublish(text, formState.appliedAt);
+      formAnimT = 0; formFrameIdx = 0;
+      refreshFormSurfaces();
+    }
+    return { ok: r.ok, reason: r.reason || null };
+  },
+  formClear: () => {
+    clearForm(formState);
+    persistForm();
+    if (formSprite) formSprite.visible = false;
+    drawPortrait();
+    return true;
+  },
+  formState: () => JSON.parse(JSON.stringify(formState)),
+  formExamples: () => FORM_EXAMPLES,
+  formWorld: () => ({ worn: !!formState.text, frame: formFrameIdx,
+    spriteInScene: !!formSprite, spriteVisible: formSprite ? formSprite.visible : false }),
+  formBench: async (text) => {
+    const t0 = performance.now();
+    const s = formStanding(text);
+    const t1 = performance.now();
+    const fc = formCanvases(text);
+    if (fc) await whenFormReady(fc);
+    const t2 = performance.now();
+    return { bytes: s.bytes, refused: s.refused, frames: fc ? fc.frames.length : 0,
+      parseMs: +(t1 - t0).toFixed(2), rasterMs: fc ? +(t2 - t1).toFixed(2) : null };
+  },
   // demo4 handles: the economy — ledgers, entitlement, the record.
   ecoState: () => JSON.parse(JSON.stringify(eco)),
   ecoAccrue: (seconds) => {
@@ -4140,13 +5480,38 @@ window.NOVA_FOX3 = {
     mode: touch.mode,
   }),
   extrasState: () => state.extras,
+  // 2026-11-26 handle: the Shadow encounter and its strike hint.
+  encounterState: () => ({
+    guardian: state.guardianEncounter,
+    label: strikeBindingLabel(
+      state.scheme, document.body.classList.contains("touch")),
+  }),
   outboxState: () => ({
     queued: outbox.length, folded: outboxFolded.length, dropped: outboxDropped,
   }),
   dismissSplash,
+  trailState: () => ({ live: trail.live, fed: trail.fed, dropped: trail.dropped }),
   cycleBrush,
   setBrush: (i) => { state.brush = i; },
   toggleLamp,
+  // Fox Vision handles (demo11): the sense's state, and per-thing
+  // readings a test can take without trusting pixels.
+  toggleFoxVision,
+  foxVisionState: () => ({
+    on: state.foxVision, inHall: playerInHall(), active: foxVisionActive(),
+  }),
+  familiarSeen: (id) => {
+    const m = sub.monsters.find((mm) => mm.id === id);
+    return m ? familiarSeen(m) : false;
+  },
+  monsterLit: (id) => {
+    const mesh = monsterMeshes.get(id);
+    return mesh ? mesh.userData.visionLit === true : false;
+  },
+  monsterOpacity: (id) => {
+    const mesh = monsterMeshes.get(id);
+    return mesh ? (mesh.userData.opacity || 0) : 0;
+  },
   openIntroViewer, closeIntroViewer,
   introVideoReady: () => !!window.__INTRO_VIDEO,
   // feedback #27 handles: portal views + realm palettes
@@ -4204,4 +5569,15 @@ window.NOVA_FOX3 = {
   },
   surfaceY(x, z) { return heightAt(state.realm, x, z) + 1; },
 
+};
+// The test console's handle (2026-11-26): the same surface the
+// person at the keyboard gets — open it, run a line, read the pane.
+window.NOVA_FOX3.nfConsole = {
+  open: () => nfConsoleToggle(true),
+  close: () => nfConsoleToggle(false),
+  toggle: () => nfConsoleToggle(),
+  isOpen: () => nfCon.open,
+  busy: () => nfCon.busy,
+  run: (line) => nfConsoleRun(line),
+  text: () => nfCon.out.innerText,
 };

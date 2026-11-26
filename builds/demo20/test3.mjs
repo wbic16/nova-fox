@@ -9,6 +9,9 @@ import {
   BRUSHES, brushBlocks,
   REALMS, REALM_PALETTES, HOME_PALETTE, paletteFor,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
+  gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
+  TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
+  inTheHall, foxVisionToggle, foxVisionReveals, FAMILIAR_RANGE_CELLS,
 } from "./world.js";
 import {
   ECO_RATES, LANCE, newEconomyState, loadEconomyState, isGenerator,
@@ -29,13 +32,6 @@ import {
   formChartLine, formOffLine, parseFormChart,
   b64encodeUtf8, b64decodeUtf8,
 } from "./forms.js";
-import {
-  IDEA_TITLE_MAX, IDEA_BODY_MAX, IDEA_LIMITS,
-  validateIdea, makeIdeaId,
-  serializeIdea, parseIdeaLine, serializeStatus, parseStatusLine,
-  parseIdeas, parseIdeaScroll,
-  ideaB64Encode, ideaB64Decode,
-} from "./ideas.js";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -937,6 +933,121 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   }
 }
 
+// --- the loading trail (2026-11-26): the load panel's word trail -------------
+// The trail consumes the words of the boot's real reads — mocked
+// here as the gateway's select answers (board / purchase / ledger
+// scroll text) plus inscription-log lines — and weaves flavor
+// phrases through them. These checks pin the wiring contract: the
+// words shown come from the read stream fed in, phrases interleave
+// between read words, the feed drops rather than queues past its
+// cap, and nothing player-facing ties the trail to its source.
+{
+  // A mocked read stream, in the shapes the gateway actually
+  // answers: board rows, purchase claims, ledger lines, log lines.
+  const mockReads = [
+    "Zzqx|412|2026-11-26|1|1795720000000\nMiriam|388|2026-11-26|0|1795721000000",
+    "claim Zzqx gumroad 1795720000000\nclaim Miriam gift 1795722000000",
+    "gift-issued k7f2d9 Zzqx 100 1795723000000",
+    "the chart — the world is loaded; the dark is counted, not empty",
+    "Nova Prime 0,0 — a page of the chart opens (731 living cells)",
+  ];
+  const feed = new TrailFeed();
+  for (const t of mockReads) feed.feedText(t);
+  const shown = [];
+  let tok;
+  while ((tok = feed.next()) !== null) shown.push(tok);
+  const flavorShown = shown.filter((t) => TRAIL_FLAVOR.includes(t));
+  const wordsShown = shown.filter((t) => !TRAIL_FLAVOR.includes(t));
+  check("trail: words shown come from the read stream fed in",
+    wordsShown.includes("Zzqx") && wordsShown.includes("Miriam") &&
+    wordsShown.includes("gumroad") && wordsShown.includes("chart") &&
+    wordsShown.includes("living"),
+    `shown: ${wordsShown.slice(0, 12).join(" ")}`);
+  check("trail: nothing is shown that was never read or flavor",
+    wordsShown.every((w) => trailWordsFrom(mockReads.join("\n")).includes(w)));
+  check("trail: flavor phrases interleave the read words",
+    flavorShown.length >= 2 &&
+    shown.indexOf(flavorShown[0]) > 0 &&
+    shown.indexOf(flavorShown[0]) < shown.length - 1,
+    `flavor: ${flavorShown.join(" / ")}`);
+  check("trail: Will's named phrases are in the flavor register",
+    TRAIL_FLAVOR.includes("reticulating splines") &&
+    TRAIL_FLAVOR.includes("charging batteries"));
+  // The cap: a flood of reads drops words instead of queueing them.
+  const flood = new TrailFeed(40);
+  flood.feedText("word ".repeat(500));
+  check("trail: the feed drops past its cap rather than queueing",
+    flood.pending <= 40 && flood.dropped > 0 && flood.fed === 40,
+    `pending ${flood.pending}, dropped ${flood.dropped}, fed ${flood.fed}`);
+  // A stopped feed takes nothing in and shows nothing new.
+  const stopped = new TrailFeed();
+  stopped.stop();
+  check("trail: a stopped feed stays silent",
+    stopped.feedText("hello world") === 0 && stopped.next() === null);
+  // The tokenizer: punctuation and lone characters fall away,
+  // over-long tokens (hashes, keys) are clipped for display.
+  check("trail: the tokenizer keeps words, drops noise, clips the long",
+    JSON.stringify(trailWordsFrom("a bb, ccc! d | eeeeeeeeeeeeeeeeeeeeeeeeeeeeee")) ===
+    JSON.stringify(["bb", "ccc", "eeeeeeeeeeeeeeeeeeeeeeee"]));
+  // Never communicated: no flavor phrase names the source, and the
+  // load panel's own markup carries no word for it either.
+  check("trail: no flavor phrase names where the words come from",
+    TRAIL_FLAVOR.every((p) => !/subspace/i.test(p)));
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const splash = html.slice(html.indexOf('<div id="splash">'),
+    html.indexOf('<div id="stage">'));
+  check("trail: the trail line rides in the built load panel",
+    splash.includes('id="trail-line"') && html.includes("new TrailFeed()"));
+  check("trail: the load panel never names the trail's source",
+    !/subspace/i.test(splash));
+  check("trail: the read taps ride in the built file (log + selects)",
+    (html.match(/trailTap\(/g) || []).length >= 4 &&
+    (html.match(/trail\.feedText\(/g) || []).length >= 2,
+    `taps ${(html.match(/trailTap\(/g) || []).length}`);
+}
+// --- Fox Vision (demo11, Will 2026-11-26): the Hall sense -------------------
+// Usable only inside The Unexpected Hall; night vision of all
+// familiars within subspace range. The rules are world.js's; the
+// view composes them (the e2e walks the composed behavior).
+{
+  // The Hall is a room, not a footprint: the hill above it shares
+  // the footprint and is NOT inside.
+  check("fox vision: the hall floor is inside the Hall",
+    inTheHall(52.5, DUNGEON.floorY + 1.01, 35.5) === true);
+  check("fox vision: the hill above the Hall is not inside it",
+    inTheHall(52.5, heightAt("nova", 52, 35) + 1.01, 35.5) === false);
+  check("fox vision: outside the footprint is outside at any depth",
+    inTheHall(8.5, DUNGEON.floorY + 1.01, 8.5) === false);
+  check("fox vision: the void below the world is not inside",
+    inTheHall(52.5, -40, 35.5) === false);
+  // The toggle: opens only inside; always closes.
+  check("fox vision: the toggle opens inside the Hall",
+    foxVisionToggle(false, true) === true);
+  check("fox vision: the toggle cannot open outside the Hall",
+    foxVisionToggle(false, false) === false);
+  check("fox vision: the toggle always closes",
+    foxVisionToggle(true, true) === false && foxVisionToggle(true, false) === false);
+  // The reveal: range only, in every phase — the Keeper at its
+  // home cell, seen from the deep room's door.
+  const keeper = { alive: true, kind: "guardian", gx: DUNGEON.guardianCell.gx, gy: DUNGEON.guardianCell.gy, phase: 1 };
+  check("fox vision: a familiar in range is revealed in a dark phase",
+    foxVisionReveals(keeper, 26, 17) === true &&
+    foxVisionReveals({ ...keeper, phase: 2 }, 26, 17) === true);
+  check("fox vision: a familiar beyond subspace range stays dark",
+    foxVisionReveals({ ...keeper, gx: 220, gy: 220 }, 26, 17) === false);
+  check("fox vision: the dead are not revealed",
+    foxVisionReveals({ ...keeper, alive: false }, 26, 17) === false);
+  check("fox vision: its range is the world's haunt radius, one constant",
+    FAMILIAR_RANGE_CELLS === 48);
+  // The wiring rides in the built file: the key, the touch
+  // button, and the view's one seen-word.
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("fox vision: the N key and the touch button ride in the built file",
+    html.includes('case "KeyN": toggleFoxVision();') && html.includes('id="t-vision"'));
+  check("fox vision: strike and contact read the same seen-word as the view",
+    html.includes("!familiarSeen(m)") && html.includes("sub.monsterVisible(m) || visionReveals(m)"));
+}
+
 // --- the ship stamp (2026-11-26): the version is an epoch -------------------
 // Nova Fox versions derive from the Exocortical Epoch the build
 // shipped within. The stamp token lives in exactly one place in
@@ -953,8 +1064,167 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("versioning: the hover tip and its binding ride in the built file",
     html.includes('id="vertip"') && html.includes('$("ver-line1")') &&
     html.includes("ver-on"));
+  // The number standing (Will, 2026-11-26 14:56 CST): always show
+  // the EE number — it helps with play testing. #ee-line is in the
+  // title cluster, populated from the same stamp, and carries no
+  // .opt class, so the extras toggle can never tuck it away.
+  check("versioning: the standing EE line rides in the built file",
+    html.includes('<div id="ee-line"></div>') && html.includes("#ee-line {") &&
+    html.includes('id="titlerow"'));
+  check("versioning: the standing EE line is populated from the stamp",
+    html.includes('$("ee-line")') && html.includes("`EE ${SHIP_EE}`"));
+  check("versioning: the standing EE line is not gated by the extras toggle",
+    !/<div id="ee-line"[^>]*class="[^"]*\bopt\b/.test(html) &&
+    !html.includes('id="ee-line" class'));
 }
 
+// --- gravity in subspace (demo10): the scroll is the realm's down ---------
+// Will's ruling (2026-11-26): gravity is stored in subspace per
+// realm — a real change — and one shift per player per realm per
+// day. The mocked gateway below is a string with the gateway's two
+// verbs (insert appends a line; select returns the scroll); the
+// client flow under test is the game's own: judge the shift against
+// the known records, append the record, read back, attune.
+{
+  const DAY = "2026-11-26", NEXT = "2026-11-27";
+  // The record line round-trips through the parser untouched.
+  const line = gravityShiftLine("ashfall", -1, "fox-one", DAY, 1795730000000);
+  check("gravity: the shift line has the scroll's shape",
+    line === "grav|ashfall|-1|fox-one|2026-11-26|1795730000000", line);
+  const parsed = parseGravityScroll(line + "\n");
+  check("gravity: a shift line parses back to its record",
+    parsed.length === 1 && parsed[0].realmId === "ashfall" && parsed[0].dir === -1 &&
+    parsed[0].player === "fox-one" && parsed[0].day === DAY && parsed[0].ts === 1795730000000);
+  check("gravity: malformed lines are skipped, never misread",
+    parseGravityScroll("grav|nova|2|fox|2026-11-26|1\ngrav|nova|1|fox|26-11-2026|1\n" +
+      "board|nova|1|fox|2026-11-26|1\ngrav||1|fox|2026-11-26|1\n").length === 0 &&
+    parseGravityScroll("").length === 0 && parseGravityScroll(null).length === 0);
+
+  // The mocked gateway + the client flow, exactly as game3 runs it.
+  const chart = { scroll: "" };
+  const gwInsert = (l) => { chart.scroll += l + "\n"; };
+  const gwSelect = () => parseGravityScroll(chart.scroll);
+  const clientShift = (sub, realm, player, day, ts) => {
+    const known = gwSelect();
+    if (!gravityShiftAllowed(known, realm, player, day)) return "refused";
+    const dir = sub.flipGravity(realm, 0, 0);
+    gwInsert(gravityShiftLine(realm, dir, player, day, ts));
+    return "shifted";
+  };
+  const clientAttune = (sub) => {
+    for (const [realm, rec] of latestGravityByRealm(gwSelect()))
+      sub.applyRealmGravity(realm, rec.dir);
+  };
+
+  const subG = new Subspace();
+  check("gravity: a fresh realm's down is down",
+    subG.gravityOf("ashfall", 0, 0) === 1);
+  check("gravity: the first shift of the day is allowed and writes to the gateway",
+    clientShift(subG, "ashfall", "fox-one", DAY, 1000) === "shifted" &&
+    chart.scroll === "grav|ashfall|-1|fox-one|2026-11-26|1000\n", chart.scroll);
+  check("gravity: a second same-day shift by the same player in the same realm is refused",
+    clientShift(subG, "ashfall", "fox-one", DAY, 2000) === "refused" &&
+    parseGravityScroll(chart.scroll).length === 1);
+  check("gravity: another player may still shift the same realm the same day",
+    clientShift(subG, "ashfall", "fox-two", DAY, 3000) === "shifted");
+  check("gravity: the same player may shift a different realm the same day",
+    clientShift(subG, "nova", "fox-one", DAY, 4000) === "shifted");
+  check("gravity: the same player may shift the same realm on a different day",
+    clientShift(subG, "ashfall", "fox-one", NEXT, 5000) === "shifted");
+
+  // Read-back: a fresh view attunes to the scroll's word — the
+  // latest record per realm is its down, realms independent.
+  const subH = new Subspace();
+  const ashScroll = subH.getScroll("ashfall", 3, 3); // born before the word arrives
+  clientAttune(subH);
+  check("gravity: read-back applies the stored orientation (latest record wins)",
+    subH.gravityOf("ashfall", 0, 0) === -1 && subH.gravityOf("nova", 0, 0) === -1,
+    `ashfall ${subH.gravityOf("ashfall", 0, 0)}, nova ${subH.gravityOf("nova", 0, 0)}`);
+  check("gravity: a realm with no record keeps the default down",
+    subH.gravityOf("orchid", 0, 0) === 1);
+  check("gravity: attunement keeps the realm's existing scrolls in step",
+    ashScroll.gravDir === -1);
+  check("gravity: re-attuning to the same word reports no change",
+    subH.applyRealmGravity("ashfall", -1) === false &&
+    subH.applyRealmGravity("ashfall", 1) === true &&
+    subH.gravityOf("ashfall", 0, 0) === 1);
+  check("gravity: a local flip still turns the realm after attunement",
+    subH.flipGravity("ashfall", 0, 0) === -1 && subH.gravityOf("ashfall", 5, 5) === -1);
+
+  // The wooze (demo10): the degauss treatment rides the real
+  // inversion only — sound synthesized, screen fuzzy, half speed
+  // for five seconds — and a refused shift starts none of it.
+  const builtHtml = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("gravity: the degauss treatment rides in the built game (veil + synthesized sound)",
+    builtHtml.includes('id="degauss"') && builtHtml.includes("degauss()") &&
+    builtHtml.includes("updateInvertFx(now)"));
+  check("gravity: the inversion slows the player at half speed for five seconds",
+    builtHtml.includes("INVERT_SLOW = 0.5") && builtHtml.includes("INVERT_FX_MS = 5000") &&
+    builtHtml.includes("invertFxActive(performance.now()) ? INVERT_SLOW : 1"));
+  check("gravity: a refused shift starts no wooze (the gate returns before the effect)",
+    (() => {
+      const i = builtHtml.indexOf("function flipGravityHere()");
+      const seg = builtHtml.slice(i, i + 3000);
+      return seg.indexOf("gravityShiftAllowed") >= 0 &&
+        seg.indexOf("gravityShiftAllowed") < seg.indexOf("startInvertFx()") &&
+        seg.indexOf("return;") < seg.indexOf("startInvertFx()");
+    })());
+}
+
+// --- warp text (demo18): the inversion, announced -----------------------
+// Will (2026-11-26): "GRAVITY INVERSION!!" as warp text on the
+// announcement method — the intro card's presentation, the name at
+// 2-4x, the text itself warped. It fires on experienced inversions
+// (the fox's own shift; a read-back turn while standing in the
+// realm), never on a refusal, never on realm entry.
+{
+  const builtHtml = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const cssRule = (sel) => {
+    const i = builtHtml.indexOf(sel);
+    return i < 0 ? "" : builtHtml.slice(i, builtHtml.indexOf("}", i));
+  };
+  check("warp: the announcement rides in the built game, exact words on the card",
+    builtHtml.includes('id="warpcard"') &&
+    builtHtml.includes('id="warp-name">GRAVITY INVERSION!!<'));
+  check("warp: the name stands at 3x the announcement card's size (120px vs its 40px)",
+    cssRule("#warp-name").includes("120px") && cssRule("#intro-name").includes("40px"));
+  check("warp: the text itself warps (perspective swing + skew keyframes)",
+    builtHtml.includes("@keyframes warpin") && builtHtml.includes("rotateX") &&
+    builtHtml.includes("@keyframes warpname") && builtHtml.includes("skewX"));
+  check("warp: it lands with the inversion and clears inside the wooze (2600ms of 5000)",
+    builtHtml.includes("WARP_MS = 2600") && builtHtml.includes("INVERT_FX_MS = 5000"));
+  check("warp: a refused shift announces nothing (the gate returns before the announcement)",
+    (() => {
+      const i = builtHtml.indexOf("function flipGravityHere()");
+      const seg = builtHtml.slice(i, i + 3000);
+      const gate = seg.indexOf("gravityShiftAllowed"), ret = seg.indexOf("return;", gate);
+      const ann = seg.indexOf("showGravityWarp()");
+      return gate >= 0 && ret > gate && ann > ret;
+    })());
+  check("warp: the fox's own inversion announces beside the wooze",
+    (() => {
+      const i = builtHtml.indexOf("function flipGravityHere()");
+      const seg = builtHtml.slice(i, i + 3000);
+      return seg.indexOf("startInvertFx()") >= 0 &&
+        seg.indexOf("showGravityWarp()") > seg.indexOf("startInvertFx()");
+    })());
+  check("warp: a read-back turn announces from the reconcile seam, dwell-gated",
+    (() => {
+      const i = builtHtml.indexOf("function reconcileGravity()");
+      const seg = builtHtml.slice(i, i + 1600);
+      return seg.indexOf("applyRealmGravity") >= 0 &&
+        seg.indexOf("warpAnnounceOk(performance.now())") >= 0 &&
+        seg.indexOf("showGravityWarp()") > seg.indexOf("warpAnnounceOk(performance.now())");
+    })());
+  check("warp: entry stays quiet — entering a realm restarts the dwell",
+    (() => {
+      const i = builtHtml.indexOf("async function enterRealmGravity");
+      return i >= 0 &&
+        builtHtml.slice(i, i + 200).includes("state.realmSince = performance.now()");
+    })());
+  check("warp: Joy's flip beats are untouched by the announcement layer",
+    builtHtml.includes('playBeat(dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up")'));
+}
 // --- player forms (demo6): the phext a fox wears ------------------------------
 // Will's ruling (2026-11-26): a form is a small phext — frames as
 // scrolls in one coordinate neighborhood — inside 4 KB and a
@@ -1120,108 +1390,34 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
       const e = parseFormChart(chart).get("Wide");
       return e && e.refused === true; })());
 }
-
-// --- player ideas (demo8): the telling door's chart lines ----------------------
-// The door's line format (EE 953 design): IDEA and STATUS lines on
-// one append-only scroll, title/body base64-UTF-8 so player text
-// can hold anything, status resolved latest-wins with the shipped
-// state carrying its ship EE, and caps refused — never truncated.
+// --- the strike hint (2026-11-26) -------------------------------------------
+// While the encounter with the Shadow lasts, the strike binding
+// stands bulging at the view's edge. The label is a pure function
+// of the assignment — extracted from the game source and held to
+// account here — and the page ships the cap empty: no glyph is
+// lettered by hand anywhere.
 {
-  // serialize/parse round-trip, incl. unicode + pipes + newlines
-  const idea = {
-    id: "mtk7x9ab12", name: "fox-1234", ts: 1795400000000,
-    title: "a bridge of bells | over the dark",
-    body: "line one\nline two | with a pipe\nand a fox 🦊 and café accents — ünïcode",
-  };
-  const line = serializeIdea(idea);
-  check("idea: a telling serializes to one line, however wild its text",
-    typeof line === "string" && !line.includes("\n") && line.startsWith("IDEA|v1|"));
-  const back = parseIdeaLine(line);
-  check("idea: serialize/parse round-trips unicode, pipes, and newlines exactly",
-    back !== null && back.id === idea.id && back.name === idea.name && back.ts === idea.ts &&
-    back.title === idea.title && back.body === idea.body);
-  check("idea: the base64 helpers round-trip on their own",
-    ideaB64Decode(ideaB64Encode("🦊|✓\n")) === "🦊|✓\n");
-  check("idea: garbage lines parse to nothing, never to a telling",
-    parseIdeaLine("IDEA|v0|x") === null && parseIdeaLine("hello") === null &&
-    parseIdeaLine("") === null && parseStatusLine("STATUS|v1|x|bogus|1|-") === null);
-  // ids: submit-ts base36 + 4 random base36 chars, randomness passed in
-  check("idea: an id is the submit time in base36 plus 4 rolled chars",
-    makeIdeaId(1795400000000, () => 0) === (1795400000000).toString(36) + "0000" &&
-    makeIdeaId(1795400000000, () => 0.999) === (1795400000000).toString(36) + "zzzz" &&
-    makeIdeaId(123, "wxyz") === (123).toString(36) + "wxyz");
-  check("idea: different rolls give different ids for the same moment",
-    makeIdeaId(999, () => 0) !== makeIdeaId(999, () => 0.5));
-  // status resolution: latest STATUS wins; shipped carries its EE
-  const scroll = [
-    serializeIdea({ id: "a1", name: "fox-a", ts: 100, title: "first", body: "body one" }),
-    serializeIdea({ id: "b2", name: "fox-b", ts: 200, title: "second", body: "body two" }),
-    serializeStatus({ ideaId: "a1", status: "picked", ts: 300 }),
-    serializeStatus({ ideaId: "a1", status: "shipped", ts: 400, shipEE: 953 }),
-    serializeStatus({ ideaId: "b2", status: "picked", ts: 350 }),
-    serializeStatus({ ideaId: "b2", status: "submitted", ts: 360 }),
-    "a line that is neither kind",
-  ].join("\n");
-  const rows = parseIdeas(scroll);
-  check("idea: the scroll resolves both tellings, in arrival order",
-    rows.length === 2 && rows[0].id === "a1" && rows[1].id === "b2");
-  check("idea: the latest STATUS wins — a1 was picked, then shipped",
-    rows[0].status === "shipped" && rows[0].statusTs === 400);
-  check("idea: a shipped telling carries its ship EE",
-    rows[0].shipEE === 953);
-  check("idea: the latest STATUS wins even when it steps back — b2 is told again",
-    rows[1].status === "submitted" && rows[1].shipEE === null);
-  check("idea: a telling with no STATUS stands as told (submitted)",
-    (() => { const r = parseIdeaScroll(serializeIdea(
-      { id: "c3", name: "fox-c", ts: 5, title: "t", body: "b" }));
-      return r.length === 1 && r[0].status === "submitted" && r[0].shipEE === null; })());
-  check("idea: a STATUS for an unknown id invents no telling",
-    parseIdeas(serializeStatus({ ideaId: "zz", status: "picked", ts: 1 })).length === 0);
-  check("idea: the first IDEA line for an id is the idea; a second is ignored",
-    (() => { const two = [
-        serializeIdea({ id: "d4", name: "fox-d", ts: 1, title: "kept", body: "b" }),
-        serializeIdea({ id: "d4", name: "fox-e", ts: 2, title: "dropped", body: "b" }),
-      ].join("\n");
-      const r = parseIdeas(two);
-      return r.length === 1 && r[0].title === "kept"; })());
-  check("idea: a shipped STATUS without its EE cannot be written",
-    serializeStatus({ ideaId: "a1", status: "shipped", ts: 1 }) === null &&
-    parseStatusLine(serializeStatus({ ideaId: "a1", status: "picked", ts: 1 })).shipEE === null);
-  // caps: refused past the cap, never truncated silently
-  check("idea: the caps are the design's — title 80, body 1000",
-    IDEA_TITLE_MAX === 80 && IDEA_BODY_MAX === 1000 &&
-    IDEA_LIMITS.titleMax === 80 && IDEA_LIMITS.bodyMax === 1000);
-  check("idea: a telling at exactly the caps is accepted whole",
-    (() => { const t = "t".repeat(IDEA_TITLE_MAX), b = "b".repeat(IDEA_BODY_MAX);
-      const l = serializeIdea({ id: "e5", name: "fox-e", ts: 1, title: t, body: b });
-      const r = l && parseIdeaLine(l);
-      return !!r && r.title === t && r.body === b; })());
-  check("idea: one letter past the title cap is refused, not truncated",
-    serializeIdea({ id: "e5", name: "fox-e", ts: 1,
-      title: "t".repeat(IDEA_TITLE_MAX + 1), body: "b" }) === null &&
-    validateIdea("t".repeat(IDEA_TITLE_MAX + 1), "b").reason === "title-cap");
-  check("idea: one letter past the body cap is refused, not truncated",
-    serializeIdea({ id: "e5", name: "fox-e", ts: 1,
-      title: "t", body: "b".repeat(IDEA_BODY_MAX + 1) }) === null &&
-    validateIdea("t", "b".repeat(IDEA_BODY_MAX + 1)).reason === "body-cap");
-  check("idea: an empty title or telling is refused, plainly",
-    validateIdea("", "b").reason === "title-empty" &&
-    validateIdea("t", "  ").reason === "body-empty" &&
-    serializeIdea({ id: "e5", name: "fox-e", ts: 1, title: "", body: "b" }) === null);
-  check("idea: the cap counts letters, not bytes — a wide alphabet pays fairly",
-    validateIdea("🦊".repeat(IDEA_TITLE_MAX), "b").ok === true &&
-    validateIdea("🦊".repeat(IDEA_TITLE_MAX + 1), "b").ok === false);
-  // the queue line IS the chart line (demo14, BUILD return): the
-  // one line a submit queues is exactly what a later read-back
-  // resolves — one line in, one telling out, standing as told.
-  check("idea: one queued line resolves to exactly one read-back telling",
-    (() => { const l = serializeIdea(
-        { id: "f6", name: "fox-f", ts: 7, title: "queued", body: "waiting" });
-      const r = parseIdeas(l);
-      return r.length === 1 && r[0].id === "f6" &&
-        r[0].title === "queued" && r[0].status === "submitted"; })());
-  check("idea: an empty chart reads back as no tellings — the honest empty state",
-    parseIdeas("").length === 0 && parseIdeas("\n\n").length === 0);
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const fnSrc = game.match(/function strikeBindingLabel\(scheme, touch\) \{[\s\S]*?\n\}/);
+  check("strike hint: the binding label is a pure function of the assignment", !!fnSrc);
+  const label = fnSrc ? eval(`(${fnSrc[0]})`) : () => null;
+  check("strike hint: WASD assigns the strike to F",
+    label("WASD", false) === "F");
+  check("strike hint: AWEF assigns the strike to the click (F walks backward)",
+    label("AWEF", false) === "CLICK");
+  check("strike hint: touch assigns the strike to the strike button",
+    label("WASD", true) === "STRIKE" && label("AWEF", true) === "STRIKE");
+  check("strike hint: the cap rides in the built file, in the HUD's dress, and bulges",
+    html.includes('id="striker"') && html.includes("#striker-cap {") &&
+    html.includes("@keyframes strikerbulge"));
+  check("strike hint: the page ships the cap empty — the glyph comes from the assignment",
+    page.includes('<div id="striker-cap"></div>'));
+  check("strike hint: the encounter latches at the guardian's touch and is kept per frame",
+    game.includes('if (m.kind === "guardian") setGuardianEncounter(true);') &&
+    game.includes("updateGuardianEncounter();") &&
+    game.includes("GUARDIAN_LEASH"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

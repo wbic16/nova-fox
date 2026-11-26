@@ -259,6 +259,55 @@ export function inDungeon(x, z) {
   return x >= DUNGEON.x0 && x <= DUNGEON.x1 && z >= DUNGEON.z0 && z <= DUNGEON.z1;
 }
 
+// ---------- Fox Vision (Will, 2026-11-26) -------------------------------
+// "Introduce Fox Vision, usable when inside The Unexpected Hall —
+// it provides night vision of all familiars within subspace range."
+// Joy's barrow line sets it up: "Find the Shadow, strike at the
+// Heart. Your vision alone can fix it." Fox Vision is that vision.
+// Inside the Hall the fox's sight agrees with every familiar's
+// slice at once, out to the range at which subspace itself keeps
+// a familiar engaged with the fox — its haunt radius. (The words
+// "subspace range" live in these comments and the view's only;
+// nothing player-facing names the mechanism.)
+
+// The familiar's subspace range, in Life cells: the haunt radius
+// the physics tick hunts within (see tick()). One constant, two
+// readers — the hunt and the Vision can never drift apart.
+export const FAMILIAR_RANGE_CELLS = 48;
+
+// Inside The Unexpected Hall: within the footprint AND down in
+// the hall's own air. The hill above the hall shares the
+// footprint (its surface stands at 20-24, far above the ceiling
+// line) — standing on the hill is not inside; standing on the
+// hall floor is, and so is standing flipped against the ceiling's
+// underside, still below ceilY. The lower bound keeps the void
+// below the world (the safety-net fall) from counting as inside.
+// x, z are world positions; y is the fox's feet height.
+export function inTheHall(x, y, z) {
+  return inDungeon(Math.floor(x), Math.floor(z)) &&
+    y < DUNGEON.ceilY && y > DUNGEON.floorY - 2;
+}
+
+// The toggle rule, pure so the suite can pin it: Fox Vision can
+// only be switched ON inside the Hall. Switching off is always
+// allowed — a sense you cannot put down would be a trap. An ON
+// press outside the Hall is a quiet non-response: nothing changes.
+export function foxVisionToggle(on, insideHall) {
+  if (on) return false;
+  return !!insideHall;
+}
+
+// Does Fox Vision reveal this familiar to a fox standing at Life
+// cell (pcx, pcy)? Range only — phase is the whole point: the
+// Vision sees a familiar in EVERY phase, which is what "night
+// vision of all familiars" means. The dead are not revealed;
+// they are already only a scar and a memory.
+export function foxVisionReveals(m, pcx, pcy) {
+  if (!m || !m.alive) return false;
+  const dx = m.gx - pcx, dy = m.gy - pcy;
+  return dx * dx + dy * dy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS;
+}
+
 // ---------- things placed in the world: a weapon, three charms --------
 // Feedback #9: a real weapon beyond the bare strike, and powerups
 // with visible effects, placed so a first session meets both. The
@@ -712,9 +761,12 @@ export class Subspace {
     // safe to wander; the threat must be local.) Within its haunt
     // a monster steps toward the player; beyond it, the
     // monster drifts back to where it rose and rests there. The
-    // haunt radius is 48 cells (a scroll and a half): the unit
-    // suite convicts anything smaller — a monster a full scroll
-    // away is established to still be coming (press-in test).
+    // haunt radius is FAMILIAR_RANGE_CELLS (48 cells, a scroll and
+    // a half): the unit suite convicts anything smaller — a
+    // monster a full scroll away is established to still be coming
+    // (press-in test). Fox Vision reads the same constant: the
+    // range a familiar can hunt the fox over is the range the
+    // fox's Vision returns the gaze across.
     //
     // v5 (feedback #1): and things DO leave. A monster that has
     // rested at its rise-place, unwatched, for a long while sinks
@@ -734,7 +786,7 @@ export class Subspace {
       if (m.hx === undefined) { m.hx = m.gx; m.hy = m.gy; }
       const pcx = cellOfBlock(player.bx), pcy = cellOfBlock(player.bz);
       const ddx = pcx - m.gx, ddy = pcy - m.gy;
-      if (ddx * ddx + ddy * ddy <= 48 * 48) {
+      if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, pcx, pcy);
       } else if (m.gx !== m.hx || m.gy !== m.hy) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, m.hx, m.hy);
@@ -921,6 +973,21 @@ export class Subspace {
       `down is now ${next > 0 ? "down" : "up"} across the whole realm — the world remembers`);
     return next;
   }
+  // Attune this view to a gravity the SHARED chart declares (the
+  // gravity scroll, demo10): the realm's down as read back from
+  // subspace, applied without a flip's inscription — reading is not
+  // writing. Every scroll of the realm is kept in step, exactly as
+  // a flip keeps them. Returns true when the realm's down actually
+  // changed under this call.
+  applyRealmGravity(realmId, dir) {
+    const next = dir < 0 ? -1 : 1;
+    const changed = this.realmGravity.get(realmId) !== next;
+    this.realmGravity.set(realmId, next);
+    for (const s of this.scrolls.values()) {
+      if (s.realmId === realmId) s.gravDir = next;
+    }
+    return changed;
+  }
 
   // --- overrides (scars and other inscribed block edits) ----------------------
 
@@ -993,6 +1060,61 @@ export class Subspace {
       "a hat is granted, and written down: it stays");
     return true;
   }
+}
+
+// ---------- gravity on the shared chart (demo10) --------------------------
+// Will's ruling (2026-11-26): gravity is stored in subspace on a
+// per-realm basis — a real change, not a local flag — and a player
+// may shift a realm's gravity at most once per day per realm. The
+// store is one append-only scroll on the shared chart phext (the
+// gravity scroll): every shift is one line, and the realm's current
+// down is its LATEST line — the scroll is the realm's memory, held
+// in common by every fox. The shift lines double as the rate-limit
+// ledger: a line naming this realm, this player, this day is the
+// spent shift. Pure record logic lives here so the headless tests
+// exercise exactly what the game decides with.
+//
+// Line shape: grav|<realmId>|<dir>|<player>|<day>|<ts>
+//   dir: 1 (down is down) or -1 (down is up); day: YYYY-MM-DD local.
+
+export function gravityShiftLine(realmId, dir, player, day, ts) {
+  return `grav|${realmId}|${dir < 0 ? -1 : 1}|${player}|${day}|${ts}`;
+}
+
+export function parseGravityScroll(text) {
+  if (!text) return [];
+  const out = [];
+  for (const ln of String(text).split("\n")) {
+    const parts = ln.split("|");
+    if (parts.length !== 6 || parts[0] !== "grav") continue;
+    const [, realmId, dirRaw, player, day, tsRaw] = parts;
+    const dir = Number(dirRaw), ts = Number(tsRaw);
+    if (!realmId || !player || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    if (dir !== 1 && dir !== -1) continue;
+    if (!Number.isFinite(ts)) continue;
+    out.push({ realmId, dir, player, day, ts });
+  }
+  return out;
+}
+
+// The realm's current down, per the records: the last record for a
+// realm (in the order given) is its truth. Callers who merge
+// read-back rows with still-queued local records order the array
+// so the newest act stands last.
+export function latestGravityByRealm(records) {
+  const by = new Map();
+  for (const r of records || []) by.set(r.realmId, r);
+  return by;
+}
+
+// One shift per player per realm per day, judged against the
+// records — read-back and queued alike, so a shift still in the
+// outbox already counts as spent.
+export function gravityShiftAllowed(records, realmId, player, day) {
+  for (const r of records || []) {
+    if (r.realmId === realmId && r.player === player && r.day === day) return false;
+  }
+  return true;
 }
 
 // ---------- the brush: shaping at more than one size (feedback #4) --------
@@ -1420,4 +1542,100 @@ export function checkDaily(sub, realmId, sx, sy, dateStr) {
   sub.log("daily", `${realmById(realmId).name} ${sx},${sy}`,
     `the day's page (${dateStr}) is reached — tune ${d.chord.join("+")}`);
   return true;
+}
+
+// ---------- the loading trail -------------------------------------------
+// While the world loads, the load panel carries a quiet trail of
+// words. The trail is not a canned list: it consumes the words of
+// the reads the boot itself performs — the shared chart's scrolls as
+// the gateway answers them, and the local subspace's own inscription
+// log as generation writes it — tokenized as they arrive, so the
+// loading IS the reading and the trail shows its words. Between the
+// read words, classic loading-flavor phrases are woven in so the
+// whole stream reads as whimsical loading chatter. Nothing on any
+// player surface names or explains the trail; it is set dressing.
+// The feed is capped: when reads arrive faster than the trail can
+// show them, words are dropped, never queued — the trail must never
+// slow a load down.
+export const TRAIL_FLAVOR = [
+  "reticulating splines",
+  "charging batteries",
+  "greasing the gears",
+  "polishing the portals",
+  "counting backwards from infinity",
+  "untangling the cables",
+  "feeding the hamsters",
+  "sharpening the pencils",
+  "inflating the tires",
+  "brewing the coffee",
+  "sorting the mail",
+  "winding the clockwork",
+  "dusting the shelves",
+  "aligning the stars",
+  "tuning the instruments",
+  "oiling the hinges",
+  "stacking the crates",
+  "herding the electrons",
+  "shuffling the deck",
+  "tightening the bolts",
+  "waxing the moon",
+  "folding the laundry",
+  "priming the pump",
+  "sweeping the hangar",
+  "labeling the boxes",
+  "testing the echoes",
+  "raising the periscope",
+  "calibrating the compass",
+];
+// Words out of a read: split on anything that is not a word
+// character, keep words of two or more, clip the very long (hashes
+// and keys ride the chart too) at a readable length.
+export function trailWordsFrom(text) {
+  if (!text) return [];
+  const out = [];
+  for (const raw of String(text).split(/[^A-Za-z0-9'’-]+/)) {
+    if (raw.length < 2) continue;
+    out.push(raw.length > 24 ? raw.slice(0, 24) : raw);
+  }
+  return out;
+}
+export class TrailFeed {
+  constructor(cap = 220) {
+    this.q = []; // words waiting to be shown, oldest first
+    this.cap = cap;
+    this.live = true; // feeds land only while the load is live
+    this.fed = 0; // words taken in
+    this.dropped = 0; // words let go because the cap was full
+    this._sinceFlavor = 0; // read words shown since the last phrase
+    this._flavorIdx = 0; // phrases cycle, never in a short loop
+    this._gap = 6; // read words between phrases (wanders 5..9)
+  }
+  // Take in the words of one real read. Returns how many landed.
+  feedText(text) {
+    if (!this.live) return 0;
+    let n = 0;
+    for (const w of trailWordsFrom(text)) {
+      if (this.q.length >= this.cap) { this.dropped++; continue; }
+      this.q.push(w);
+      n++;
+    }
+    this.fed += n;
+    return n;
+  }
+  stop() { this.live = false; }
+  get pending() { return this.q.length; }
+  // The next thing the trail shows: a read word, or — every handful
+  // of read words — one flavor phrase, whole. Null when no read
+  // words are waiting: the trail never invents a stream of its own.
+  next() {
+    if (!this.q.length) return null;
+    if (this._sinceFlavor >= this._gap) {
+      this._sinceFlavor = 0;
+      const i = this._flavorIdx++;
+      this._gap = 5 + ((i * 7) % 5); // 5..9, wandering
+      return TRAIL_FLAVOR[i % TRAIL_FLAVOR.length];
+    }
+    this._sinceFlavor++;
+    return this.q.shift();
+  }
 }

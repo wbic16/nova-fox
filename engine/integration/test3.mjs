@@ -9,6 +9,9 @@ import {
   BRUSHES, brushBlocks,
   REALMS, REALM_PALETTES, HOME_PALETTE, paletteFor,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
+  gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
+  TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
+  inTheHall, foxVisionToggle, foxVisionReveals, FAMILIAR_RANGE_CELLS,
 } from "./world.js";
 import {
   ECO_RATES, LANCE, newEconomyState, loadEconomyState, isGenerator,
@@ -21,6 +24,14 @@ import {
   LADDER_RUNGS, LADDER_BEAT, rungById, ownsRung, buyRung, grantRung,
   ladderLampBonuses,
 } from "./economy.js";
+import {
+  FORM_LIMITS, FORM_EXAMPLES, FORM_EXAMPLE_MIXED,
+  formByteLength, parseForm, formStanding, frameIndexAt, frameNeed,
+  sanitizeSvg, svgNaturalSize,
+  newFormState, loadFormState, applyForm, clearForm,
+  formChartLine, formOffLine, parseFormChart,
+  b64encodeUtf8, b64decodeUtf8,
+} from "./forms.js";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -922,6 +933,121 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   }
 }
 
+// --- the loading trail (2026-11-26): the load panel's word trail -------------
+// The trail consumes the words of the boot's real reads — mocked
+// here as the gateway's select answers (board / purchase / ledger
+// scroll text) plus inscription-log lines — and weaves flavor
+// phrases through them. These checks pin the wiring contract: the
+// words shown come from the read stream fed in, phrases interleave
+// between read words, the feed drops rather than queues past its
+// cap, and nothing player-facing ties the trail to its source.
+{
+  // A mocked read stream, in the shapes the gateway actually
+  // answers: board rows, purchase claims, ledger lines, log lines.
+  const mockReads = [
+    "Zzqx|412|2026-11-26|1|1795720000000\nMiriam|388|2026-11-26|0|1795721000000",
+    "claim Zzqx gumroad 1795720000000\nclaim Miriam gift 1795722000000",
+    "gift-issued k7f2d9 Zzqx 100 1795723000000",
+    "the chart — the world is loaded; the dark is counted, not empty",
+    "Nova Prime 0,0 — a page of the chart opens (731 living cells)",
+  ];
+  const feed = new TrailFeed();
+  for (const t of mockReads) feed.feedText(t);
+  const shown = [];
+  let tok;
+  while ((tok = feed.next()) !== null) shown.push(tok);
+  const flavorShown = shown.filter((t) => TRAIL_FLAVOR.includes(t));
+  const wordsShown = shown.filter((t) => !TRAIL_FLAVOR.includes(t));
+  check("trail: words shown come from the read stream fed in",
+    wordsShown.includes("Zzqx") && wordsShown.includes("Miriam") &&
+    wordsShown.includes("gumroad") && wordsShown.includes("chart") &&
+    wordsShown.includes("living"),
+    `shown: ${wordsShown.slice(0, 12).join(" ")}`);
+  check("trail: nothing is shown that was never read or flavor",
+    wordsShown.every((w) => trailWordsFrom(mockReads.join("\n")).includes(w)));
+  check("trail: flavor phrases interleave the read words",
+    flavorShown.length >= 2 &&
+    shown.indexOf(flavorShown[0]) > 0 &&
+    shown.indexOf(flavorShown[0]) < shown.length - 1,
+    `flavor: ${flavorShown.join(" / ")}`);
+  check("trail: Will's named phrases are in the flavor register",
+    TRAIL_FLAVOR.includes("reticulating splines") &&
+    TRAIL_FLAVOR.includes("charging batteries"));
+  // The cap: a flood of reads drops words instead of queueing them.
+  const flood = new TrailFeed(40);
+  flood.feedText("word ".repeat(500));
+  check("trail: the feed drops past its cap rather than queueing",
+    flood.pending <= 40 && flood.dropped > 0 && flood.fed === 40,
+    `pending ${flood.pending}, dropped ${flood.dropped}, fed ${flood.fed}`);
+  // A stopped feed takes nothing in and shows nothing new.
+  const stopped = new TrailFeed();
+  stopped.stop();
+  check("trail: a stopped feed stays silent",
+    stopped.feedText("hello world") === 0 && stopped.next() === null);
+  // The tokenizer: punctuation and lone characters fall away,
+  // over-long tokens (hashes, keys) are clipped for display.
+  check("trail: the tokenizer keeps words, drops noise, clips the long",
+    JSON.stringify(trailWordsFrom("a bb, ccc! d | eeeeeeeeeeeeeeeeeeeeeeeeeeeeee")) ===
+    JSON.stringify(["bb", "ccc", "eeeeeeeeeeeeeeeeeeeeeeee"]));
+  // Never communicated: no flavor phrase names the source, and the
+  // load panel's own markup carries no word for it either.
+  check("trail: no flavor phrase names where the words come from",
+    TRAIL_FLAVOR.every((p) => !/subspace/i.test(p)));
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const splash = html.slice(html.indexOf('<div id="splash">'),
+    html.indexOf('<div id="stage">'));
+  check("trail: the trail line rides in the built load panel",
+    splash.includes('id="trail-line"') && html.includes("new TrailFeed()"));
+  check("trail: the load panel never names the trail's source",
+    !/subspace/i.test(splash));
+  check("trail: the read taps ride in the built file (log + selects)",
+    (html.match(/trailTap\(/g) || []).length >= 4 &&
+    (html.match(/trail\.feedText\(/g) || []).length >= 2,
+    `taps ${(html.match(/trailTap\(/g) || []).length}`);
+}
+// --- Fox Vision (demo11, Will 2026-11-26): the Hall sense -------------------
+// Usable only inside The Unexpected Hall; night vision of all
+// familiars within subspace range. The rules are world.js's; the
+// view composes them (the e2e walks the composed behavior).
+{
+  // The Hall is a room, not a footprint: the hill above it shares
+  // the footprint and is NOT inside.
+  check("fox vision: the hall floor is inside the Hall",
+    inTheHall(52.5, DUNGEON.floorY + 1.01, 35.5) === true);
+  check("fox vision: the hill above the Hall is not inside it",
+    inTheHall(52.5, heightAt("nova", 52, 35) + 1.01, 35.5) === false);
+  check("fox vision: outside the footprint is outside at any depth",
+    inTheHall(8.5, DUNGEON.floorY + 1.01, 8.5) === false);
+  check("fox vision: the void below the world is not inside",
+    inTheHall(52.5, -40, 35.5) === false);
+  // The toggle: opens only inside; always closes.
+  check("fox vision: the toggle opens inside the Hall",
+    foxVisionToggle(false, true) === true);
+  check("fox vision: the toggle cannot open outside the Hall",
+    foxVisionToggle(false, false) === false);
+  check("fox vision: the toggle always closes",
+    foxVisionToggle(true, true) === false && foxVisionToggle(true, false) === false);
+  // The reveal: range only, in every phase — the Keeper at its
+  // home cell, seen from the deep room's door.
+  const keeper = { alive: true, kind: "guardian", gx: DUNGEON.guardianCell.gx, gy: DUNGEON.guardianCell.gy, phase: 1 };
+  check("fox vision: a familiar in range is revealed in a dark phase",
+    foxVisionReveals(keeper, 26, 17) === true &&
+    foxVisionReveals({ ...keeper, phase: 2 }, 26, 17) === true);
+  check("fox vision: a familiar beyond subspace range stays dark",
+    foxVisionReveals({ ...keeper, gx: 220, gy: 220 }, 26, 17) === false);
+  check("fox vision: the dead are not revealed",
+    foxVisionReveals({ ...keeper, alive: false }, 26, 17) === false);
+  check("fox vision: its range is the world's haunt radius, one constant",
+    FAMILIAR_RANGE_CELLS === 48);
+  // The wiring rides in the built file: the key, the touch
+  // button, and the view's one seen-word.
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("fox vision: the N key and the touch button ride in the built file",
+    html.includes('case "KeyN": toggleFoxVision();') && html.includes('id="t-vision"'));
+  check("fox vision: strike and contact read the same seen-word as the view",
+    html.includes("!familiarSeen(m)") && html.includes("sub.monsterVisible(m) || visionReveals(m)"));
+}
+
 // --- the ship stamp (2026-11-26): the version is an epoch -------------------
 // Nova Fox versions derive from the Exocortical Epoch the build
 // shipped within. The stamp token lives in exactly one place in
@@ -950,6 +1076,348 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("versioning: the standing EE line is not gated by the extras toggle",
     !/<div id="ee-line"[^>]*class="[^"]*\bopt\b/.test(html) &&
     !html.includes('id="ee-line" class'));
+}
+
+// --- gravity in subspace (demo10): the scroll is the realm's down ---------
+// Will's ruling (2026-11-26): gravity is stored in subspace per
+// realm — a real change — and one shift per player per realm per
+// day. The mocked gateway below is a string with the gateway's two
+// verbs (insert appends a line; select returns the scroll); the
+// client flow under test is the game's own: judge the shift against
+// the known records, append the record, read back, attune.
+{
+  const DAY = "2026-11-26", NEXT = "2026-11-27";
+  // The record line round-trips through the parser untouched.
+  const line = gravityShiftLine("ashfall", -1, "fox-one", DAY, 1795730000000);
+  check("gravity: the shift line has the scroll's shape",
+    line === "grav|ashfall|-1|fox-one|2026-11-26|1795730000000", line);
+  const parsed = parseGravityScroll(line + "\n");
+  check("gravity: a shift line parses back to its record",
+    parsed.length === 1 && parsed[0].realmId === "ashfall" && parsed[0].dir === -1 &&
+    parsed[0].player === "fox-one" && parsed[0].day === DAY && parsed[0].ts === 1795730000000);
+  check("gravity: malformed lines are skipped, never misread",
+    parseGravityScroll("grav|nova|2|fox|2026-11-26|1\ngrav|nova|1|fox|26-11-2026|1\n" +
+      "board|nova|1|fox|2026-11-26|1\ngrav||1|fox|2026-11-26|1\n").length === 0 &&
+    parseGravityScroll("").length === 0 && parseGravityScroll(null).length === 0);
+
+  // The mocked gateway + the client flow, exactly as game3 runs it.
+  const chart = { scroll: "" };
+  const gwInsert = (l) => { chart.scroll += l + "\n"; };
+  const gwSelect = () => parseGravityScroll(chart.scroll);
+  const clientShift = (sub, realm, player, day, ts) => {
+    const known = gwSelect();
+    if (!gravityShiftAllowed(known, realm, player, day)) return "refused";
+    const dir = sub.flipGravity(realm, 0, 0);
+    gwInsert(gravityShiftLine(realm, dir, player, day, ts));
+    return "shifted";
+  };
+  const clientAttune = (sub) => {
+    for (const [realm, rec] of latestGravityByRealm(gwSelect()))
+      sub.applyRealmGravity(realm, rec.dir);
+  };
+
+  const subG = new Subspace();
+  check("gravity: a fresh realm's down is down",
+    subG.gravityOf("ashfall", 0, 0) === 1);
+  check("gravity: the first shift of the day is allowed and writes to the gateway",
+    clientShift(subG, "ashfall", "fox-one", DAY, 1000) === "shifted" &&
+    chart.scroll === "grav|ashfall|-1|fox-one|2026-11-26|1000\n", chart.scroll);
+  check("gravity: a second same-day shift by the same player in the same realm is refused",
+    clientShift(subG, "ashfall", "fox-one", DAY, 2000) === "refused" &&
+    parseGravityScroll(chart.scroll).length === 1);
+  check("gravity: another player may still shift the same realm the same day",
+    clientShift(subG, "ashfall", "fox-two", DAY, 3000) === "shifted");
+  check("gravity: the same player may shift a different realm the same day",
+    clientShift(subG, "nova", "fox-one", DAY, 4000) === "shifted");
+  check("gravity: the same player may shift the same realm on a different day",
+    clientShift(subG, "ashfall", "fox-one", NEXT, 5000) === "shifted");
+
+  // Read-back: a fresh view attunes to the scroll's word — the
+  // latest record per realm is its down, realms independent.
+  const subH = new Subspace();
+  const ashScroll = subH.getScroll("ashfall", 3, 3); // born before the word arrives
+  clientAttune(subH);
+  check("gravity: read-back applies the stored orientation (latest record wins)",
+    subH.gravityOf("ashfall", 0, 0) === -1 && subH.gravityOf("nova", 0, 0) === -1,
+    `ashfall ${subH.gravityOf("ashfall", 0, 0)}, nova ${subH.gravityOf("nova", 0, 0)}`);
+  check("gravity: a realm with no record keeps the default down",
+    subH.gravityOf("orchid", 0, 0) === 1);
+  check("gravity: attunement keeps the realm's existing scrolls in step",
+    ashScroll.gravDir === -1);
+  check("gravity: re-attuning to the same word reports no change",
+    subH.applyRealmGravity("ashfall", -1) === false &&
+    subH.applyRealmGravity("ashfall", 1) === true &&
+    subH.gravityOf("ashfall", 0, 0) === 1);
+  check("gravity: a local flip still turns the realm after attunement",
+    subH.flipGravity("ashfall", 0, 0) === -1 && subH.gravityOf("ashfall", 5, 5) === -1);
+
+  // The wooze (demo10): the degauss treatment rides the real
+  // inversion only — sound synthesized, screen fuzzy, half speed
+  // for five seconds — and a refused shift starts none of it.
+  const builtHtml = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("gravity: the degauss treatment rides in the built game (veil + synthesized sound)",
+    builtHtml.includes('id="degauss"') && builtHtml.includes("degauss()") &&
+    builtHtml.includes("updateInvertFx(now)"));
+  check("gravity: the inversion slows the player at half speed for five seconds",
+    builtHtml.includes("INVERT_SLOW = 0.5") && builtHtml.includes("INVERT_FX_MS = 5000") &&
+    builtHtml.includes("invertFxActive(performance.now()) ? INVERT_SLOW : 1"));
+  check("gravity: a refused shift starts no wooze (the gate returns before the effect)",
+    (() => {
+      const i = builtHtml.indexOf("function flipGravityHere()");
+      const seg = builtHtml.slice(i, i + 3000);
+      return seg.indexOf("gravityShiftAllowed") >= 0 &&
+        seg.indexOf("gravityShiftAllowed") < seg.indexOf("startInvertFx()") &&
+        seg.indexOf("return;") < seg.indexOf("startInvertFx()");
+    })());
+}
+
+// --- warp text (demo18): the inversion, announced -----------------------
+// Will (2026-11-26): "GRAVITY INVERSION!!" as warp text on the
+// announcement method — the intro card's presentation, the name at
+// 2-4x, the text itself warped. It fires on experienced inversions
+// (the fox's own shift; a read-back turn while standing in the
+// realm), never on a refusal, never on realm entry.
+{
+  const builtHtml = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const cssRule = (sel) => {
+    const i = builtHtml.indexOf(sel);
+    return i < 0 ? "" : builtHtml.slice(i, builtHtml.indexOf("}", i));
+  };
+  check("warp: the announcement rides in the built game, exact words on the card",
+    builtHtml.includes('id="warpcard"') &&
+    builtHtml.includes('id="warp-name">GRAVITY INVERSION!!<'));
+  check("warp: the name stands at 3x the announcement card's size (120px vs its 40px)",
+    cssRule("#warp-name").includes("120px") && cssRule("#intro-name").includes("40px"));
+  check("warp: the text itself warps (perspective swing + skew keyframes)",
+    builtHtml.includes("@keyframes warpin") && builtHtml.includes("rotateX") &&
+    builtHtml.includes("@keyframes warpname") && builtHtml.includes("skewX"));
+  check("warp: it lands with the inversion and clears inside the wooze (2600ms of 5000)",
+    builtHtml.includes("WARP_MS = 2600") && builtHtml.includes("INVERT_FX_MS = 5000"));
+  check("warp: a refused shift announces nothing (the gate returns before the announcement)",
+    (() => {
+      const i = builtHtml.indexOf("function flipGravityHere()");
+      const seg = builtHtml.slice(i, i + 3000);
+      const gate = seg.indexOf("gravityShiftAllowed"), ret = seg.indexOf("return;", gate);
+      const ann = seg.indexOf("showGravityWarp()");
+      return gate >= 0 && ret > gate && ann > ret;
+    })());
+  check("warp: the fox's own inversion announces beside the wooze",
+    (() => {
+      const i = builtHtml.indexOf("function flipGravityHere()");
+      const seg = builtHtml.slice(i, i + 3000);
+      return seg.indexOf("startInvertFx()") >= 0 &&
+        seg.indexOf("showGravityWarp()") > seg.indexOf("startInvertFx()");
+    })());
+  check("warp: a read-back turn announces from the reconcile seam, dwell-gated",
+    (() => {
+      const i = builtHtml.indexOf("function reconcileGravity()");
+      const seg = builtHtml.slice(i, i + 1600);
+      return seg.indexOf("applyRealmGravity") >= 0 &&
+        seg.indexOf("warpAnnounceOk(performance.now())") >= 0 &&
+        seg.indexOf("showGravityWarp()") > seg.indexOf("warpAnnounceOk(performance.now())");
+    })());
+  check("warp: entry stays quiet — entering a realm restarts the dwell",
+    (() => {
+      const i = builtHtml.indexOf("async function enterRealmGravity");
+      return i >= 0 &&
+        builtHtml.slice(i, i + 200).includes("state.realmSince = performance.now()");
+    })());
+  check("warp: Joy's flip beats are untouched by the announcement layer",
+    builtHtml.includes('playBeat(dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up")'));
+}
+// --- player forms (demo6): the phext a fox wears ------------------------------
+// Will's ruling (2026-11-26): a form is a small phext — frames as
+// scrolls in one coordinate neighborhood — inside 4 KB and a
+// player-sized box, with the leeway Will asked for built as
+// parameters: warn at the ruled lines, refuse only at the
+// shipped experimental ceilings. Form SVG is picture, never
+// program: the sanitizer tests below are the no-script rule.
+{
+  const L = FORM_LIMITS;
+  const padFormTo = (target) => {
+    const mk = (pad) => [
+      "1.1.1/1.1.1/1.1.1", "name: Pad", "step: 240", "",
+      "1.1.1/1.1.1/1.1.2", "type: svg",
+      `<svg viewBox="0 0 120 360" xmlns="http://www.w3.org/2000/svg"><!--${"x".repeat(pad)}--><rect x="10" y="10" width="20" height="20" fill="#fff"/></svg>`,
+    ].join("\n");
+    return mk(target - formByteLength(mk(0)));
+  };
+  // the cap counts bytes of phext, not characters
+  check("form: the byte meter counts UTF-8 bytes, not characters",
+    formByteLength("fox") === 3 && formByteLength("f🦊x") === 6);
+  check("form: a form at exactly the ruled 4 KB stands at the baseline",
+    formStanding(padFormTo(L.capBaselineBytes)).cap === "baseline");
+  check("form: past 4 KB but under the ceiling stands in the leeway, not refused",
+    (() => { const s = formStanding(padFormTo(L.capBaselineBytes + 100));
+      return s.cap === "leeway" && !s.refused && s.leeway; })());
+  check("form: past the ceiling is refused — the loader's hard stop",
+    formStanding(padFormTo(L.capCeilingBytes + 1)).refused === true);
+  check("form: applyForm refuses an over-ceiling form and names the cap",
+    (() => { const st = newFormState();
+      const r = applyForm(st, padFormTo(L.capCeilingBytes + 1), 1);
+      return !r.ok && r.reason === "cap" && st.text === null; })());
+  check("form: the loader drops an over-ceiling form from a save, silently whole",
+    loadFormState({ text: padFormTo(L.capCeilingBytes + 1) }).text === null);
+  // parsing: coordinates, order, the neighborhood
+  const shuffled = [
+    "1.1.1/1.1.1/1.1.1", "name: Order", "step: 100", "",
+    "1.1.1/1.1.1/1.1.4", "type: shapes", "circle 60 60 20 6", "",
+    "1.1.1/1.1.1/1.1.2", "type: shapes", "circle 60 60 10 6",
+  ].join("\n");
+  check("form: frames step in coordinate order, not in writing order",
+    (() => { const p = parseForm(shuffled);
+      return p.ok && p.frames.length === 2 &&
+        p.frames[0].coord === "1.1.1/1.1.1/1.1.2" && p.frames[1].coord === "1.1.1/1.1.1/1.1.4"; })());
+  check("form: the head's name and step are read, the step clamped to its range",
+    (() => { const p = parseForm(shuffled.replace("step: 100", "step: 99999"));
+      return p.name === "Order" && p.stepMs === L.stepMaxMs; })());
+  const stray = shuffled + "\n\n9.9.9/9.9.9/9.9.9\ntype: shapes\ncircle 1 1 1 1\n";
+  check("form: a scroll outside the neighborhood is set aside with a warning, bytes still counted",
+    (() => { const p = parseForm(stray);
+      return p.ok && p.frames.length === 2 && p.stray === 1 && p.warnings.length === 1; })());
+  check("form: no head scroll is a named parse failure",
+    !parseForm("1.1.1/1.1.1/1.1.2\ntype: shapes\ncircle 1 1 1 1\n").ok);
+  check("form: a form with no frames is a named parse failure",
+    !parseForm("1.1.1/1.1.1/1.1.1\nname: Bare\n").ok);
+  check("form: a frame that doesn't declare its type is a named parse failure",
+    (() => { const p = parseForm("1.1.1/1.1.1/1.1.1\nname: X\n\n1.1.1/1.1.1/1.1.2\ncircle 1 1 1 1\n");
+      return !p.ok && p.errors.some((e) => e.includes("type")); })());
+  check("form: an unknown template type is refused, never guessed at",
+    !parseForm("1.1.1/1.1.1/1.1.1\nname: X\n\n1.1.1/1.1.1/1.1.2\ntype: hologram\nboo\n").ok);
+  check("form: empty text is no form at all",
+    !parseForm("").ok && !parseForm("   \n").ok && !parseForm("hello").ok);
+  // fit: a property of the render, per frame
+  const svgFormOf = (vb) => [
+    "1.1.1/1.1.1/1.1.1", "name: Fit", "",
+    "1.1.1/1.1.1/1.1.2", "type: svg",
+    `<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="#fff"/></svg>`,
+  ].join("\n");
+  check("form: an svg frame drawn at the box fits the baseline exactly",
+    (() => { const s = formStanding(svgFormOf("0 0 120 360"));
+      return !s.refused && !s.leeway && frameNeed(s.parsed.frames[0]) === 1; })());
+  check("form: an svg frame past the box but inside the leeway wears a warning, not a refusal",
+    (() => { const s = formStanding(svgFormOf("0 0 150 360"));
+      return !s.refused && s.leeway && !s.fit.frames[0].fitsBaseline && s.fit.frames[0].fitsCeiling; })());
+  check("form: an oversize svg frame is refused at the leeway's edge",
+    (() => { const s = formStanding(svgFormOf("0 0 240 360"));
+      const st = newFormState(); const r = applyForm(st, svgFormOf("0 0 240 360"), 1);
+      return s.refused && !r.ok && r.reason === "fit" && st.text === null; })());
+  check("form: the loader drops an unfit form from a save",
+    loadFormState({ text: svgFormOf("0 0 240 360") }).text === null);
+  // the sanitizer: picture, never program
+  const evil = `<svg viewBox="0 0 120 360" onload="steal()"><script>steal()</` + `script>` +
+    `<circle r="5" onclick="steal()"/><a href="javascript:steal()"><rect width="9" height="9"/></a>` +
+    `<use href="https://elsewhere.example/x.svg#p"/><use href="#local"/><foreignObject><body>hi</body></foreignObject></svg>`;
+  check("form: a script-bearing svg is neutralized — no script, no handlers, no doors",
+    (() => { const s = sanitizeSvg(evil);
+      return !/<script/i.test(s) && !/onload|onclick/i.test(s) &&
+        !/javascript:/i.test(s) && !/elsewhere\.example/.test(s) &&
+        !/foreignObject/i.test(s) && s.includes('href="#local"') && s.includes("<circle"); })());
+  check("form: a sanitized script-bearing svg still parses and fits as a picture",
+    (() => { const text = ["1.1.1/1.1.1/1.1.1", "name: Evil", "",
+        "1.1.1/1.1.1/1.1.2", "type: svg", evil].join("\n");
+      const p = parseForm(text);
+      return p.ok && !/<script/i.test(p.frames[0].svg); })());
+  check("form: svg natural size reads width/height, else the viewBox, else the box",
+    svgNaturalSize('<svg width="40" height="90"></svg>').w === 40 &&
+    svgNaturalSize('<svg viewBox="0 0 24 48"></svg>').h === 48 &&
+    svgNaturalSize("<svg></svg>").w === L.boxW);
+  // per type: renders (compiles), fits, oversize refused
+  for (const [kind, text] of Object.entries(FORM_EXAMPLES)) {
+    const p = parseForm(text);
+    check(`form/${kind}: the worked example parses with frames of its type`,
+      p.ok && p.frames.length >= 2 && p.frames.every((f) => f.type === kind));
+    check(`form/${kind}: the worked example fits inside the ruled lines`,
+      (() => { const s = formStanding(text); return !s.refused && !s.leeway; })());
+  }
+  check("form/bitmap: a grid wider than the leeway is refused on fit, not on bytes",
+    (() => { const wide = ["1.1.1/1.1.1/1.1.1", "name: Wide", "",
+        "1.1.1/1.1.1/1.1.2", "type: bitmap", "3".repeat(24)].join("\n");
+      return formStanding(wide).refused; })());
+  check("form/bitmap: a row with a mark outside the palette is a named failure",
+    !parseForm(["1.1.1/1.1.1/1.1.1", "name: B", "",
+      "1.1.1/1.1.1/1.1.2", "type: bitmap", "33z33"].join("\n")).ok);
+  check("form/turtle: an unknown command is a named failure, not a silent skip",
+    !parseForm(["1.1.1/1.1.1/1.1.1", "name: T", "",
+      "1.1.1/1.1.1/1.1.2", "type: turtle", "TELEPORT 9"].join("\n")).ok);
+  check("form/turtle: a long walk that leaves the box is refused on fit",
+    (() => { const far = ["1.1.1/1.1.1/1.1.1", "name: Far", "",
+        "1.1.1/1.1.1/1.1.2", "type: turtle", "F 900"].join("\n");
+      return formStanding(far).refused; })());
+  check("form/shapes: a shape with no color is a named failure",
+    !parseForm(["1.1.1/1.1.1/1.1.1", "name: S", "",
+      "1.1.1/1.1.1/1.1.2", "type: shapes", "circle 60 60 20"].join("\n")).ok);
+  check("form: a head palette override recolors the palette the bitmap draws with",
+    (() => { const p = parseForm(["1.1.1/1.1.1/1.1.1", "name: P",
+        "palette: 6=#123456", "", "1.1.1/1.1.1/1.1.2", "type: bitmap", "6"].join("\n"));
+      return p.ok && p.palette[6] === "#123456"; })());
+  // mixed types walk as one animation
+  check("form: a mixed form (svg + bitmap + turtle) parses as one form",
+    (() => { const p = parseForm(FORM_EXAMPLE_MIXED);
+      return p.ok && p.frames.map((f) => f.type).join(",") === "svg,bitmap,turtle"; })());
+  check("form: the animation steps through the mixed frames in order and loops",
+    (() => { const p = parseForm(FORM_EXAMPLE_MIXED);
+      return [0, 250, 500, 750, 1000].map((t) => frameIndexAt(p, t)).join(",") === "0,1,2,0,1"; })());
+  // apply / persist round-trip
+  check("form: apply then load round-trips the worn phext exactly",
+    (() => { const st = newFormState();
+      const r = applyForm(st, FORM_EXAMPLES.bitmap, 42);
+      const back = loadFormState(JSON.parse(JSON.stringify(st)));
+      return r.ok && back.text === FORM_EXAMPLES.bitmap && back.appliedAt === 42; })());
+  check("form: malformed phext never applies and the state stays clean",
+    (() => { const st = newFormState();
+      const r = applyForm(st, "not a form at all", 1);
+      return !r.ok && r.reason === "parse" && st.text === null; })());
+  check("form: taking a form off clears the state whole",
+    (() => { const st = newFormState();
+      applyForm(st, FORM_EXAMPLES.svg, 7); clearForm(st);
+      return st.text === null && st.appliedAt === 0; })());
+  // the chart: a form is a fox's public shape
+  check("form: the chart line round-trips through the base64 of the phext",
+    b64decodeUtf8(b64encodeUtf8(FORM_EXAMPLES.turtle)) === FORM_EXAMPLES.turtle);
+  check("form: the chart's latest wearing wins, and formoff takes it off",
+    (() => { const chart = [formChartLine("Vex", FORM_EXAMPLES.bitmap, 10),
+        formChartLine("Vex", FORM_EXAMPLES.svg, 20)].join("\n");
+      const m1 = parseFormChart(chart);
+      const m2 = parseFormChart(chart + "\n" + formOffLine("Vex", 30));
+      return m1.get("Vex").text === FORM_EXAMPLES.svg && m2.get("Vex").text === null; })());
+  check("form: an over-ceiling form arriving over the chart is marked refused, never worn",
+    (() => { const chart = formChartLine("Big", padFormTo(L.capCeilingBytes + 5), 10);
+      const e = parseFormChart(chart).get("Big");
+      return e && e.refused === true; })());
+  check("form: an unfit form arriving over the chart is marked refused, never worn",
+    (() => { const chart = formChartLine("Wide", svgFormOf("0 0 999 360"), 10);
+      const e = parseFormChart(chart).get("Wide");
+      return e && e.refused === true; })());
+}
+// --- the strike hint (2026-11-26) -------------------------------------------
+// While the encounter with the Shadow lasts, the strike binding
+// stands bulging at the view's edge. The label is a pure function
+// of the assignment — extracted from the game source and held to
+// account here — and the page ships the cap empty: no glyph is
+// lettered by hand anywhere.
+{
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const fnSrc = game.match(/function strikeBindingLabel\(scheme, touch\) \{[\s\S]*?\n\}/);
+  check("strike hint: the binding label is a pure function of the assignment", !!fnSrc);
+  const label = fnSrc ? eval(`(${fnSrc[0]})`) : () => null;
+  check("strike hint: WASD assigns the strike to F",
+    label("WASD", false) === "F");
+  check("strike hint: AWEF assigns the strike to the click (F walks backward)",
+    label("AWEF", false) === "CLICK");
+  check("strike hint: touch assigns the strike to the strike button",
+    label("WASD", true) === "STRIKE" && label("AWEF", true) === "STRIKE");
+  check("strike hint: the cap rides in the built file, in the HUD's dress, and bulges",
+    html.includes('id="striker"') && html.includes("#striker-cap {") &&
+    html.includes("@keyframes strikerbulge"));
+  check("strike hint: the page ships the cap empty — the glyph comes from the assignment",
+    page.includes('<div id="striker-cap"></div>'));
+  check("strike hint: the encounter latches at the guardian's touch and is kept per frame",
+    game.includes('if (m.kind === "guardian") setGuardianEncounter(true);') &&
+    game.includes("updateGuardianEncounter();") &&
+    game.includes("GUARDIAN_LEASH"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

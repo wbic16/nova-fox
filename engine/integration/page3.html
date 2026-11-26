@@ -28,6 +28,13 @@
     inset: 0; pointer-events: none; opacity: 0; z-index: 8;
     background: radial-gradient(ellipse at center, rgba(190,240,255,0.95), rgba(0,150,255,0.55));
   }
+  #degauss {
+    inset: 0; pointer-events: none; opacity: 0; z-index: 9;
+    mix-blend-mode: screen;
+    background: linear-gradient(115deg,
+      rgba(255,0,80,0.55), rgba(255,180,0,0.55), rgba(0,255,140,0.55),
+      rgba(0,120,255,0.55), rgba(180,0,255,0.55), rgba(255,0,80,0.55));
+  }
   #hatbrim {
     left: 50%; top: -14px; transform: translateX(-50%);
     width: min(560px, 70vw); height: 34px; display: none; z-index: 6;
@@ -191,6 +198,34 @@
     font-family: Georgia, serif; font-size: 26px; font-weight: 700; color: #aee6ff;
     text-shadow: 0 2px 8px #000; opacity: 0; pointer-events: none; z-index: 9;
   }
+  /* The strike hint (2026-11-26): while the encounter with the
+     Shadow lasts, the strike binding stands at the lower right —
+     clear of the fox, the foe, and the crosshair — in the HUD's
+     own dress, swollen and swelling. It fades when the encounter
+     ends; there is nothing to dismiss. The cap ships empty: the
+     glyph is lettered from the binding as assigned, by the game. */
+  #striker {
+    right: 16px; bottom: 58px; z-index: 7; text-align: center;
+    pointer-events: none; display: none; opacity: 0;
+    transition: opacity 0.45s ease;
+  }
+  #striker.on { opacity: 1; }
+  #striker-cap {
+    display: inline-block; min-width: 62px; padding: 9px 13px;
+    background: rgba(0, 20, 44, 0.88); color: #eaf7ff;
+    border: 2px solid #00c8ff; border-radius: 10px;
+    font-size: 29px; font-weight: 700; line-height: 1.05;
+    box-shadow: 0 0 18px rgba(0, 200, 255, 0.45), inset 0 -4px 0 rgba(0, 0, 0, 0.35);
+    animation: strikerbulge 0.92s ease-in-out infinite;
+  }
+  @keyframes strikerbulge {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.17); }
+  }
+  #striker-word {
+    margin-top: 7px; font-size: 11px; letter-spacing: 0.28em;
+    text-transform: uppercase; color: #7fd8ff; text-shadow: 0 1px 4px #000;
+  }
   #dmgnum.pop { animation: dmgpop 0.9s ease-out forwards; }
   @keyframes dmgpop {
     0% { opacity: 0; transform: translate(-50%, -30%) scale(0.8); }
@@ -214,6 +249,39 @@
     82% { opacity: 1; }
     100% { opacity: 0; transform: translateX(-50%) scale(1.01); }
   }
+  /* Warp text (demo18): the intro card's announcement method at
+     scale — the same centered serif name between cyan rules, the
+     name at 3x the card's 40px (fluidly capped so the line never
+     clips on a narrow screen), and the card itself warped: swung
+     through perspective with a skew that rings down and settles,
+     the name counter-skewing inside it. */
+  #warpcard {
+    left: 50%; top: 32%; transform: translateX(-50%); display: none; z-index: 11;
+    text-align: center; pointer-events: none; width: min(1180px, 96vw);
+  }
+  #warpcard .rule { height: 3px; background: linear-gradient(90deg, transparent, #00d9ff, transparent); margin: 14px 0; }
+  #warp-name {
+    font-family: Georgia, serif; font-weight: 700; font-size: min(120px, 8.5vw); letter-spacing: 0.02em; color: #fff;
+    text-shadow: 0 4px 22px #000, 0 0 38px rgba(0, 217, 255, 0.55); white-space: nowrap;
+  }
+  #warpcard.show { animation: warpin 2.6s ease-out forwards; }
+  #warpcard.show #warp-name { animation: warpname 2.6s ease-out forwards; }
+  @keyframes warpin {
+    0% { opacity: 0; transform: translateX(-50%) perspective(620px) rotateX(42deg) skewX(-8deg) scale(0.84); }
+    9% { opacity: 1; transform: translateX(-50%) perspective(620px) rotateX(-10deg) skewX(3.5deg) scale(1.07); }
+    19% { transform: translateX(-50%) perspective(620px) rotateX(5deg) skewX(-2deg) scale(0.99); }
+    30% { transform: translateX(-50%) perspective(620px) rotateX(-2deg) skewX(0.8deg) scale(1.01); }
+    42% { transform: translateX(-50%) perspective(620px) rotateX(0deg) skewX(0deg) scale(1); }
+    82% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) perspective(620px) rotateX(0deg) skewX(0deg) scale(1.02); }
+  }
+  @keyframes warpname {
+    0% { transform: skewX(-14deg) scaleX(1.12); }
+    12% { transform: skewX(7deg) scaleX(0.97); }
+    24% { transform: skewX(-3.5deg) scaleX(1.01); }
+    38% { transform: skewX(1deg) scaleX(1); }
+    100% { transform: skewX(0deg) scaleX(1); }
+  }
   #board {
     left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9;
     width: min(560px, 94vw); display: none; max-height: 84vh; overflow-y: auto;
@@ -231,6 +299,38 @@
   #hand-amt { width: 70px; }
   #eco-note { color: #7e93bd; font-size: 12px; margin-top: 8px; }
   #gift-out { color: #ffd97a; font-size: 14px; letter-spacing: 0.06em; margin-top: 6px; word-break: break-all; }
+  /* The form editor (demo6): a surface inside the board, in the
+     board's own dress. The preview stage is the leeway stage —
+     the ruled box drawn solid inside it, the leeway's edge
+     dashed — so a player sees the lines they are inside of. */
+  #form-text {
+    width: 100%; min-height: 190px; resize: vertical;
+    background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 8px; font-size: 12px; line-height: 1.5;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  #form-meter { font-size: 12px; color: #7e93bd; margin-top: 4px; }
+  #form-meter.warn, #form-status.warn { color: #ffb84d; }
+  #form-meter.over, #form-status.over { color: #ff7a6b; }
+  #form-status { font-size: 12.5px; color: #a9bcdc; margin-top: 4px; line-height: 1.5; }
+  #form-note { color: #7e93bd; font-size: 12px; margin-top: 8px; }
+  .form-pages { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+  .form-pagebtn.sel { background: #00c8ff; color: #03121f; border-color: #00e5ff; }
+  #form-preview {
+    background: #050b16; border: 1px solid #2b3d5f; border-radius: 8px;
+    width: 150px; height: 450px; display: block;
+  }
+  .form-flex { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .form-side { flex: 1; min-width: 250px; }
+  #form-grid { display: grid; gap: 1px; margin-top: 8px; }
+  #form-grid .cell { width: 15px; height: 15px; border: 1px solid rgba(60,84,128,0.5); cursor: pointer; padding: 0; }
+  .form-pal { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+  .form-pal .swatch { width: 22px; height: 22px; border-radius: 5px; border: 1px solid #2b3d5f; cursor: pointer; padding: 0; }
+  .form-pal .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px #00c8ff; }
+  #form-type {
+    background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
   #splash {
     position: fixed; inset: 0; z-index: 40; background: #000000;
     display: flex; align-items: center; justify-content: center;
@@ -245,6 +345,12 @@
   }
   .splash-sub { color: #7fd8ff; letter-spacing: 0.32em; font-size: 13px; margin: 8px 0 22px; padding-left: 0.32em; }
   .splash-hint { color: #5f7194; font-size: 12px; margin-top: 14px; }
+  #trail-line {
+    color: #41618c; font-size: 11px; font-style: italic; letter-spacing: 0.1em;
+    font-family: Georgia, "Times New Roman", serif; margin-top: 10px;
+    min-height: 14px; white-space: nowrap; overflow: hidden;
+    transition: opacity 0.6s ease;
+  }
   #intro-viewer {
     left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 12;
     width: min(680px, 94vw); display: none;
@@ -252,6 +358,34 @@
   #intro-viewer h2 { margin: 0 0 4px; font-family: Georgia, serif; font-weight: normal; font-size: 22px; color: #fff; }
   #intro-viewer .sub { color: #93a7cc; font-size: 13px; margin-bottom: 10px; }
   #intro-video { width: 100%; border-radius: 8px; background: #000; display: block; }
+  /* The test console (2026-11-26): the game's own e2e checks,
+     moved into the client — Will: "build the e2e testing into
+     the game itself, give me a console I can work with." The
+     hudpanel dress; a monospace output pane because what it
+     prints is measurements, not fiction. Not in-fiction, like
+     the readout above. */
+  #nfconsole {
+    left: 14px; top: 110px; z-index: 11;
+    width: min(620px, 94vw); display: none;
+  }
+  #nfconsole h2 { margin: 0 0 2px; font-family: Georgia, serif; font-weight: normal; font-size: 17px; color: #fff; }
+  #nfconsole .sub { color: #93a7cc; font-size: 12px; margin-bottom: 8px; }
+  #nfconsole-out {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.55; color: #c9d8f2;
+    max-height: 38vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    border-top: 1px solid rgba(60, 84, 128, 0.4); padding-top: 6px;
+  }
+  #nfconsole-out .pass { color: #5fe8d8; }
+  #nfconsole-out .fail { color: #ff8f8f; }
+  #nfconsole-out .dim { color: #7e93bd; }
+  #nfconsole-out .cmd { color: #ffd97a; }
+  #nfconsole-row { display: flex; gap: 6px; margin-top: 8px; }
+  #nfconsole-input {
+    flex: 1; background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 7px 9px; font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
   /* Optional components (2026-11-26): the default view keeps only
      what play requires. Everything secondary — the key wall, the
      portrait, the standing realm title, the quest/score/sync
@@ -310,19 +444,27 @@
     <div class="splash-sub">NOVA FOX</div>
     <button class="act" id="splash-btn">begin</button>
     <div class="splash-hint">or click anywhere, or press any key — the panel steps aside</div>
+    <div id="trail-line"></div>
   </div>
 </div>
 <div id="stage"></div>
 <div class="overlay" id="crosshair">+</div>
 <div class="overlay" id="dmg"></div>
 <div class="overlay" id="flash"></div>
+<div class="overlay" id="degauss"></div>
 <div class="overlay" id="hatbrim"></div>
 <div class="overlay" id="wardline"></div>
 <div class="overlay" id="dmgnum"></div>
+<div class="overlay" id="striker"><div id="striker-cap"></div><div id="striker-word">strike</div></div>
 <div class="overlay" id="introcard">
   <div class="rule"></div>
   <div id="intro-name"></div>
   <div id="intro-epithet"></div>
+  <div class="rule"></div>
+</div>
+<div class="overlay" id="warpcard">
+  <div class="rule"></div>
+  <div id="warp-name">GRAVITY INVERSION!!</div>
   <div class="rule"></div>
 </div>
 
@@ -362,7 +504,7 @@
   <b>W A S D</b> walk (or <b>A W E F</b> — the keys button, bottom right) · <b>mouse</b> look (click the world first) · <b>Space</b> jump · <b>Shift</b> run<br>
   <b>1–9 0 −</b> and <b>Q W E R T Y U I O P [</b> the eleven notes — three together travel, repeats and all<br>
   <b>hold right mouse + draw</b> a triangle (bridge), circle (home), or diamond (far-off place) · <b>Shift + drag</b> the spectral flute<br>
-  <b>G</b> flip down · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>B</b> the board · <b>M</b> the map of realms · <b>L</b> your log<br>
+  <b>G</b> flip down · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>N</b> fox vision in the Hall · <b>B</b> the board · <b>M</b> the map of realms · <b>L</b> your log · <b>`</b> the test console<br>
   <span style="color:#5f7194">your marks can save to a map all foxes share — sign in from the board (B) to save there, or save a copy on this machine from the same panel; offline, your marks wait here</span>
 </div>
 
@@ -388,6 +530,7 @@
   <button class="ghost" id="btn-sound">sound: on</button>
   <button class="ghost" id="btn-extras">extras: off</button>
   <button class="ghost" id="btn-log">log (L)</button>
+  <button class="ghost" id="btn-console">console (`)</button>
 </div>
 
 <div id="touchui">
@@ -399,6 +542,7 @@
     <button class="tbtn" id="t-flip">flip</button>
     <button class="tbtn" id="t-run">run</button>
     <button class="tbtn" id="t-lamp">lamp</button>
+    <button class="tbtn" id="t-vision">vision</button>
     <button class="tbtn" id="t-draw">draw</button>
     <button class="tbtn" id="t-flute">flute</button>
     <button class="tbtn" id="t-brushdn">brush −</button>
@@ -447,6 +591,52 @@
   <h3>The ladder — power-ups for credits</h3>
   <div class="sub">Dozens of rungs toward a legend, bought once each and yours for good. This season's shelf is the white, grey, and green gear; the red and blue stand below, priced in the open, and come at Christmas with the dragon. Nothing here is the only way to do anything — every rung widens a verb you already have.</div>
   <div id="board-shop"></div>
+  <h3>Your form — a small phext you wear</h3>
+  <div class="sub">Your shape is yours to write: a little phext, one page a frame, and the frames walk its coordinates in order — that walk is the animation. A page can be svg, a bitmap, a turtle's walk, or plain shapes; pages may mix. The ruled lines are 4 KB of phext and the size of your own body; the build is generous past both, and says so where you stand. What you wear is written to the shared map, so the form is your public shape. Form pictures are pictures — nothing in a form ever runs.</div>
+  <div class="form-flex">
+    <div>
+      <canvas id="form-preview" width="360" height="1080"></canvas>
+      <div class="btnrow">
+        <button class="ghost" id="btn-form-play">pause</button>
+        <button class="ghost" id="btn-form-prev">‹ frame</button>
+        <button class="ghost" id="btn-form-next">frame ›</button>
+      </div>
+      <div id="form-frame-line" style="font-size:12px;color:#7e93bd"></div>
+    </div>
+    <div class="form-side">
+      <textarea id="form-text" spellcheck="false" autocomplete="off"></textarea>
+      <div id="form-meter"></div>
+      <div id="form-status"></div>
+      <div class="form-pages" id="form-pages"></div>
+      <div class="btnrow">
+        <span style="font-size:12.5px;color:#93a7cc">this page is</span>
+        <select id="form-type">
+          <option value="svg">svg</option>
+          <option value="bitmap">bitmap</option>
+          <option value="turtle">turtle</option>
+          <option value="shapes">shapes</option>
+        </select>
+        <button class="ghost" id="btn-form-addpage">add a page</button>
+      </div>
+      <div id="form-bitmap-tools" style="display:none">
+        <div class="form-pal" id="form-palette"></div>
+        <div id="form-grid"></div>
+      </div>
+      <div class="btnrow">
+        <button class="act" id="btn-form-apply">wear this form</button>
+        <button class="ghost" id="btn-form-clear">take it off</button>
+      </div>
+      <div class="btnrow">
+        <span style="font-size:12.5px;color:#93a7cc">start from</span>
+        <button class="ghost" data-form-example="svg">herald fox (svg)</button>
+        <button class="ghost" data-form-example="bitmap">ember kit (bitmap)</button>
+        <button class="ghost" data-form-example="turtle">little comet (turtle)</button>
+        <button class="ghost" data-form-example="shapes">circles (shapes)</button>
+      </div>
+      <div id="form-note"></div>
+    </div>
+  </div>
+  <div id="form-chart"></div>
   <h3>Saving your game</h3>
   <div class="sub" id="save-state">…</div>
   <div class="btnrow">
@@ -456,6 +646,16 @@
     <input type="file" id="file-load-local" accept="application/json,.json" style="display:none">
   </div>
   <div id="save-note" style="color:#7e93bd;font-size:12px;margin-top:8px"></div>
+</div>
+
+<div class="overlay hudpanel" id="nfconsole">
+  <h2>Test console</h2>
+  <div class="sub">The game's own checks, run in this client, against the world as it stands. <b>`</b> or Esc closes it. Type <b>help</b>.</div>
+  <div id="nfconsole-out"></div>
+  <div id="nfconsole-row">
+    <input type="text" id="nfconsole-input" placeholder="where · gravity · purse · rift-straight · rift-veer · rift-slope · runall" autocomplete="off" spellcheck="false">
+    <button class="ghost" id="nfconsole-close">close</button>
+  </div>
 </div>
 
 <div class="overlay hudpanel" id="realms">

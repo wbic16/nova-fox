@@ -96,8 +96,6 @@ parts = [
     economy,
     "// ===== player forms: the phext a fox wears (source: forms.js) =====",
     re.sub(r"^export ", "", read("forms.js"), flags=re.M),
-    "// ===== player ideas: the telling door's chart lines (source: ideas.js) =====",
-    re.sub(r"^export ", "", read("ideas.js"), flags=re.M),
     "// ===== game (source: game3.js) =====",
     read("game3.js"),
 ]
