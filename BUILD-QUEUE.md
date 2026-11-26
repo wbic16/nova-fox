@@ -45,3 +45,15 @@ planner, from the registry's free ranges, and the registry entry lands
 in the same commit as (or before) the first code that writes the
 coordinate. An unregistered write is a defect and blocks the merge that
 carries it. One owner per coordinate; coordinates are never reused.
+
+## Feature status — Will's standard (2026-11-26)
+
+A feature is not done when it is built. Its status in `docs/FEATURE-STATUS.md`
+advances only on live evidence: BUILT (tree + tests) → SHIPPED (markers in the
+shipped file) → LIVE-PLAYABLE (the core interaction exercised against
+https://fox.phext.io/ itself). Every ship event updates
+`docs/FEATURE-STATUS.md` in the same commit series, naming the probe or check
+that earned each grade. Grades: SHIPPED-LIVE-PLAYABLE /
+SHIPPED-LIVE-UNVERIFIED / BUILT-NOT-SHIPPED / IN-FLIGHT / FAILED. A feature
+whose live check fails is FAILED with the failure stated — silence is not a
+grade.
