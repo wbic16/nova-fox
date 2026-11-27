@@ -2,9 +2,11 @@
 
 **Will's standard (2026-11-26): "features aren't done until they actually ship and are playable live."**
 A feature's status advances only on live evidence. Every ship event updates this tracker in the same commit series, naming the probe or check that earned the grade.
-Grades: **SHIPPED-LIVE-PLAYABLE** / **SHIPPED-LIVE-UNVERIFIED** / **BUILT-NOT-SHIPPED** / **IN-FLIGHT** / **FAILED**.
+Grades: **SHIPPED-LIVE-PLAYABLE** / **SHIPPED-LIVE-UNVERIFIED** / **SHIPPED-STAGED** / **BUILT-NOT-SHIPPED** / **IN-FLIGHT** / **FAILED**.
 
 Last full audit: EE 976–978, 2026-11-26 — `docs/FEATURE-AUDIT.md`. Live build at audit: EE 974, sha256 `5fbe7106f5cba2ae46b6dc3b6ea996955a502887d415742b22821c94d166ab40` (live bytes hash-identical to `builds/demo20/index.html`).
+
+Everything ship: EE 987 — `builds/demo24`, sha256 `12d499546670d9a59fd47c3cd7de5786e93b30b8c4eb5d1281c7fc7fe07e3aef`, staged on awsbox at `~/fox-phext-launch/site/index.html` (hash-verified), awaiting Will's install. Full record: `reports/EVERYTHING-SHIP-REPORT.md`. SHIPPED-STAGED rows advance to live grades only after the playable verification pass on the installed build.
 
 | Feature | Tree | Status | Evidence / gap |
 |---|---|---|---|
@@ -18,12 +20,12 @@ Last full audit: EE 976–978, 2026-11-26 — `docs/FEATURE-AUDIT.md`. Live buil
 | Fox Vision | demo11 | SHIPPED-LIVE-UNVERIFIED | Live: N at spawn correctly refuses outside the Hall. Gap: Hall-interior reveal not driven live |
 | Strike hint | demo12 | SHIPPED-LIVE-UNVERIFIED | Markers live; no live probe short of the Shadow encounter |
 | In-game console | demo15 | SHIPPED-LIVE-PLAYABLE | Five commands answered live (version/where/purse/gravity/rift-straight); zero page errors |
-| Esc menu | demo13 | BUILT-NOT-SHIPPED | Unit 225/225, menu e2e 34/34; markers absent from shipped build |
-| Speedrun modes | demo16 | BUILT-NOT-SHIPPED | Unit 224/224, e2e 9/9; absent from shipped build |
-| Joy banter wiring | demo17 | BUILT-NOT-SHIPPED | Unit 249/249, e2e 123/10; absent from shipped build |
-| AWEF scheme preference | demo19 | BUILT-NOT-SHIPPED | Unit 229/229 (run by the EE 976 audit — **no builder report exists**); `nf.scheme` absent from shipped build |
-| Idea door (dev-loop Item #1) | demo21 | BUILT-NOT-SHIPPED | Unit 273/273; TEST failed twice (EE 955, EE 972). Blocker: `ideaCoord` must move 1.1.6 → 1.1.7 (scroll registry) before merge |
-| Narration script + Joy Voice 1 audio | demo22 | IN-FLIGHT | Wiring build in flight; live game still speaks the old dialog (`aperture shift` ×0 in live bytes) |
+| Esc menu | demo13 | SHIPPED-STAGED | Merged in demo24 (EE 987). Jenkins nova-fox-e2e #4: menu e2e 33/0 in the merged tree |
+| Speedrun modes | demo16 | SHIPPED-STAGED | Merged in demo24 (EE 987). Jenkins nova-fox-e2e #10 probe: arm / clock-start / race timer / abort legs pass |
+| Joy banter wiring | demo17 | SHIPPED-STAGED | Merged in demo24 (EE 987); the 10 recorded takes hooked as JOY-### (35 takes embedded). Jenkins #10 probe: line surfaces after the lesson, engine counts the play |
+| AWEF scheme preference | demo19 | SHIPPED-STAGED | Merged in demo24 (EE 987). Jenkins nova-fox-e2e #7: cdp_scheme_test 30/0 (one check amended to Joy's inscribed N-03 wording at merge) |
+| Idea door (dev-loop Item #1) | demo23 (rebase of demo21) | SHIPPED-STAGED | Merged in demo24 (EE 987) with `ideaCoord` at the registry coordinate 1.1.1/1.1.7/1.1.1. Jenkins #10 probe: full telling round trip passes (queue → exactly one insert → read-backs; STATUS picked/shipped). Its full-suite sections sit behind the harness-environment portal abort (baseline-attributed, #5/#6/#8) |
+| Narration script + Joy Voice 1 audio | demo22 | SHIPPED-STAGED | Merged first in demo24 (EE 987): 25 beats + both N-03 scheme variants embedded, silent beats takeless. Jenkins #6 covered-range legs + #10 capstone pass. The live-dialog check belongs to the playable pass |
 | Test client (tooling) | engine/testclient | BUILT-NOT-SHIPPED | Tooling, not a game feature; verified portal/gravity/vision on demo7/10/11 trees |
 
 ## Update protocol
