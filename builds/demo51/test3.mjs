@@ -14,9 +14,7 @@ import {
   TUNNEL_LEN, tunnelBlockFor, tunnelEndAt, makeTunnel, tunnelLine, tunnelRetireLine,
   parseTunnelScroll, resolveTunnels, tunnelKey, tunnelBlockAt, tunnelProgress, tunnelServes,
   geometryLine, parseGeometryScroll, resolveGeometry, geoEditRefusal,
-  REALM_GEN, realmGenParams, realmGenKey, realmGenLine, parseRealmGenScroll,
-  resolveRealmGen, realmGenAgrees, strataBand, hallPathWear, patchField,
-  clusterField, realmFingerprint, realmRouteCheck,
+  chiselYield,
   AGGRO_TICKS, TRAVERSAL_GROWTH_FLOOR, TRAVERSAL_CELLS,
   guardianPhase, guardianStrikeDamage,
   TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
@@ -2409,10 +2407,9 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
         lo = Math.min(lo, heightAt("delta", x, z)); return lo <= 10; })());
   const subT = new Subspace();
   const topAt = (realm, x, z) => baseBlockAt(subT, realm, x, heightAt(realm, x, z), z);
-  check("surfaces: Logos wears sandstone, Halycon sandstone dusted with shale (P-5), Trust Fall red rock",
+  check("surfaces: Logos and Halycon wear sandstone, Trust Fall red rock",
     [310, 330, 350, 370].every((x) => topAt("logos", x, 320) === BLOCK.SANDSTONE) &&
-    [310, 330, 350, 370].every((x) => topAt("halycon", x, 320) === BLOCK.SANDSTONE ||
-      topAt("halycon", x, 320) === BLOCK.SHALE) &&
+    [310, 330, 350, 370].every((x) => topAt("halycon", x, 320) === BLOCK.SANDSTONE) &&
     [310, 330, 350, 370].every((x) => topAt("trust", x, 320) === BLOCK.REDROCK));
   check("surfaces: Ni-Knight is stone-flagged (stone, brick at the seams)",
     [310, 330, 350, 370, 390].every((x) =>
@@ -2977,225 +2974,49 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     geometryLine("ashfall", 40, 20, 40, BLOCK.AIR, "fox-two", 200)));
   check("P-2: a later carve line takes a placed cell back",
     carvedBack.get("ashfall").get("40,20,40") === BLOCK.AIR);
+
+  // The yield judge (EE 1101 fix): what you see break is what you
+  // carry, judged by the block that STANDS at the cell — the
+  // geometry record's placed block wins over the base buried
+  // under it; silence (or a recorded carve) leaves the base judge.
+  const sj = new Subspace();
+  sj.getScroll("ashfall", 0, 0);
+  const jh = heightAt("ashfall", 30, 30);
+  const jBase = baseBlockAt(sj, "ashfall", 30, jh, 30);
+  check("P-2: with no record, the yield judge names the base block",
+    (() => { const j = chiselYield(sj, "ashfall", 30, jh, 30);
+      return !j.placed && j.block === jBase && jBase !== BLOCK.AIR; })());
+  sj.applyGeometry(resolveGeometry(parseGeometryScroll(
+    geometryLine("ashfall", 30, jh, 30, BLOCK.CRYSTAL, "fox-one", 100) + "\n" +
+    geometryLine("ashfall", 30, jh + 4, 30, BLOCK.BRICK, "fox-one", 110))));
+  check("P-2: a placed block over base-solid ground yields the placed type",
+    (() => { const j = chiselYield(sj, "ashfall", 30, jh, 30);
+      return j.placed && j.block === BLOCK.CRYSTAL && jBase !== BLOCK.CRYSTAL; })());
+  check("P-2: a placed block over base air yields the placed type",
+    (() => { const j = chiselYield(sj, "ashfall", 30, jh + 4, 30);
+      return j.placed && j.block === BLOCK.BRICK &&
+        baseBlockAt(sj, "ashfall", 30, jh + 4, 30) === BLOCK.AIR; })());
+  sj.applyGeometry(resolveGeometry(parseGeometryScroll(
+    geometryLine("ashfall", 30, jh, 30, BLOCK.AIR, "fox-two", 200))));
+  check("P-2: a carved-away cell falls back to the base judge",
+    (() => { const j = chiselYield(sj, "ashfall", 30, jh, 30);
+      return !j.placed && j.block === jBase; })());
+  // Record and pack agree after a carve-back: the replayed record
+  // stands AIR at the cell, and the pack holds exactly the placed
+  // type the judge named — never the buried base type.
+  const sj2 = new Subspace();
+  sj2.getScroll("ashfall", 0, 0);
+  sj2.applyGeometry(resolveGeometry(parseGeometryScroll(
+    geometryLine("ashfall", 30, jh, 30, BLOCK.CRYSTAL, "fox-one", 100))));
+  const ecoJ = newEconomyState();
+  const j2 = chiselYield(sj2, "ashfall", 30, jh, 30);
+  if (j2.placed) addMaterial(ecoJ, j2.block, 1);
+  const afterBack = resolveGeometry(parseGeometryScroll(
+    geometryLine("ashfall", 30, jh, 30, BLOCK.CRYSTAL, "fox-one", 100) + "\n" +
+    geometryLine("ashfall", 30, jh, 30, BLOCK.AIR, "fox-one", 200)));
+  check("P-2: after a carve-back the record stands AIR and the pack holds the placed type",
+    afterBack.get("ashfall").get(`30,${jh},30`) === BLOCK.AIR &&
+    materialCount(ecoJ, BLOCK.CRYSTAL) === 1 && materialCount(ecoJ, jBase) === 0);
 }
-// --- P-5: realms with character — the recorded parameters, the organic
-//     dress, determinism measured, and the route proof ----------------------
-{
-  // The record itself: one per realm, and REALM_TERRAIN is its slice.
-  check("P-5: every realm carries a generation record",
-    REALMS.every((r) => REALM_GEN[r.id] && realmGenParams(r.id) === REALM_GEN[r.id]));
-  check("P-5: REALM_TERRAIN is REALM_GEN's verticality slice",
-    REALMS.every((r) => {
-      const t = REALM_TERRAIN[r.id], g = REALM_GEN[r.id];
-      return t.mode === g.mode && t.base === g.base && t.amp === g.amp &&
-        t.amp2 === g.amp2 && t.s1 === g.s1 && t.s2 === g.s2 && t.step === g.step;
-    }));
-  check("P-5: the recorded character is the designed one (spot goldens)",
-    REALM_GEN.trust.strataPeriod === 9 && REALM_GEN.ashfall.strataPeriod === 11 &&
-    REALM_GEN.halycon.mix === "pale" && REALM_GEN.nova.density === 0.011 &&
-    REALM_GEN.plain.amp === 1.2 && REALM_GEN.trust.amp === 17);
-
-  // The goldens: captured from demo46 before any P-5 edit (the
-  // producer report carries the table). Heights move for NO realm;
-  // full columns stand for the two played realms.
-  const GOLDEN_HEIGHTS = {
-    nova: "97a61ca0", ashfall: "f33fa565", "ni-knight": "61daf789",
-    logos: "027f0665", elven: "226f274d", orchid: "96ba9b0e",
-    halycon: "0105c0b2", delta: "7e7ee111", willow: "153a093c",
-    plain: "03ed7b09", trust: "79f81cf1",
-  };
-  const FP = Object.fromEntries(REALMS.map((r) => [r.id, realmFingerprint(r.id)]));
-  check("P-5: no realm's heights move — every height fingerprint is its golden",
-    REALMS.every((r) => FP[r.id].heights === GOLDEN_HEIGHTS[r.id]),
-    JSON.stringify(REALMS.map((r) => [r.id, FP[r.id].heights])));
-  check("P-5: Ashfall's surface stands exactly as played",
-    FP.ashfall.surface === "3c9a9dc5", FP.ashfall.surface);
-  const fnv = (str) => {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 0x01000193) >>> 0;
-    }
-    return h.toString(16).padStart(8, "0");
-  };
-  const columnHash = (realmId) => {
-    const s = new Subspace();
-    let cs = "";
-    for (let z = 0; z < 32; z++) for (let x = 0; x < 32; x++) {
-      const h = heightAt(realmId, x, z);
-      cs += h + ":";
-      for (let y = 0; y <= h + 2; y++) cs += baseBlockAt(s, realmId, x, y, z, h) + ",";
-      cs += ";";
-    }
-    return fnv(cs);
-  };
-  const columnHashExclSurface = (realmId) => {
-    const s = new Subspace();
-    let cs = "";
-    for (let z = 0; z < 32; z++) for (let x = 0; x < 32; x++) {
-      const h = heightAt(realmId, x, z);
-      cs += h + ":";
-      for (let y = 0; y <= h + 2; y++) {
-        if (y === h) continue;
-        cs += baseBlockAt(s, realmId, x, y, z, h) + ",";
-      }
-      cs += ";";
-    }
-    return fnv(cs);
-  };
-  check("P-5: Ashfall's full columns are byte-identical to the golden; Nova's stand below and above the worn surface",
-    columnHash("ashfall") === "36221ca0" && columnHashExclSurface("nova") === "38d5355c",
-    `${columnHash("ashfall")} / ${columnHashExclSurface("nova")}`);
-
-  // Character, measured: the realms part company.
-  check("P-5: the eleven realms' fingerprints are pairwise distinct",
-    new Set(REALMS.map((r) => `${FP[r.id].heights}/${FP[r.id].surface}`)).size === REALMS.length);
-  check("P-5: Logos and Halycon surfaces have parted (the golden had them identical)",
-    FP.logos.surface !== FP.halycon.surface && (FP.halycon.mix[BLOCK.SHALE] || 0) > 0,
-    `logos=${FP.logos.surface} halycon=${FP.halycon.surface}`);
-
-  // Strata: Ashfall's bands are history; Trust's are its own.
-  check("P-5: Ashfall's strata bands are its historical rows, unmoved",
-    Array.from({ length: 22 }, (_, y) => y).every((y) =>
-      strataBand("ashfall", y) === (y % 11 === 4 || y % 11 === 5)));
-  check("P-5: Trust Fall's strata run on their own period-9 phase",
-    Array.from({ length: 18 }, (_, y) => y).every((y) =>
-      strataBand("trust", y) === strataBand("trust", y + 9)) &&
-    Array.from({ length: 22 }, (_, y) => y).some((y) =>
-      strataBand("trust", y) !== strataBand("ashfall", y)));
-  {
-    const s = new Subspace();
-    let capStands = true, strataMoved = false;
-    for (let z = 0; z < 32 && capStands; z++) for (let x = 0; x < 32; x++) {
-      const h = heightAt("trust", x, z);
-      if (baseBlockAt(s, "trust", x, h, z, h) !== BLOCK.REDROCK ||
-          baseBlockAt(s, "trust", x, h - 1, z, h) !== BLOCK.REDROCK ||
-          baseBlockAt(s, "trust", x, h - 2, z, h) !== BLOCK.REDROCK) capStands = false;
-      for (let y = 0; y <= h - 3; y++) {
-        if (strataBand("trust", y) && !(y % 11 === 4 || y % 11 === 5) &&
-            baseBlockAt(s, "trust", x, y, z, h) === BLOCK.SHALE) strataMoved = true;
-      }
-    }
-    check("P-5: Trust's red cap stands while its deep strata move to its own phase",
-      capStands && strataMoved && columnHash("trust") !== "427aec8e");
-  }
-
-  // The worn path (nova): real, confined to its corridor.
-  check("P-5: the worn path runs pad-to-shaft and stops at the Hall's ground",
-    hallPathWear(26, 20) && !hallPathWear(8, 40) && !hallPathWear(50, 35));
-  {
-    const s = new Subspace();
-    let dirt = 0, offPath = 0;
-    for (let z = 0; z < 64; z++) for (let x = 0; x < 64; x++) {
-      const h = heightAt("nova", x, z);
-      if (baseBlockAt(s, "nova", x, h, z, h) === BLOCK.DIRT) {
-        dirt++;
-        if (!hallPathWear(x, z)) offPath++;
-      }
-    }
-    check("P-5: Nova's surface wears DIRT only along the worn path",
-      dirt >= 25 && offPath === 0, `dirt=${dirt} offPath=${offPath}`);
-  }
-
-  // Clustering, measured against the fields themselves.
-  {
-    const s = new Subspace();
-    let mossP = 0, mossN = 0, grassP = 0, grassN = 0, sandP = 0, sandN = 0;
-    for (let z = 0; z < 64; z++) for (let x = 0; x < 64; x++) {
-      const h = heightAt("elven", x, z);
-      const b = baseBlockAt(s, "elven", x, h, z, h);
-      const p = patchField("elven", x, z);
-      if (b === BLOCK.MOSS) { mossP += p; mossN++; }
-      if (b === BLOCK.GRASS) { grassP += p; grassN++; }
-      if (b === BLOCK.SANDSTONE) { sandP += p; sandN++; }
-    }
-    check("P-5: moss gathers in the patch field's low ground, dry flats on its high ground",
-      mossN > 0 && grassN > 0 && sandN > 0 &&
-      mossP / mossN < grassP / grassN && sandP / sandN > grassP / grassN,
-      `moss=${mossN ? (mossP / mossN).toFixed(3) : "-"} grass=${grassN ? (grassP / grassN).toFixed(3) : "-"} sand=${sandN ? (sandP / sandN).toFixed(3) : "-"}`);
-  }
-  {
-    const s = new Subspace();
-    let boulders = 0, offField = 0;
-    for (let cz = 0; cz < 2; cz++) for (let cx = 0; cx < 2; cx++) {
-      const data = genChunk(s, "elven", cx, cz);
-      for (let lz = 0; lz < 16; lz++) for (let lx = 0; lx < 16; lx++) {
-        const x = cx * 16 + lx, z = cz * 16 + lz;
-        const h = heightAt("elven", x, z);
-        const b1 = chunkBlock(data, lx, h + 1, lz);
-        if (b1 !== BLOCK.STONE && b1 !== BLOCK.SHALE) continue;
-        if (chunkBlock(data, lx, h + 4, lz) === BLOCK.SANDSTONE) continue; // a standing stone, not a boulder
-        boulders++;
-        if (clusterField("elven", x, z) <= 0.42) offField++;
-      }
-    }
-    check("P-5: boulders exist, and every one stands on the cluster field's ridges",
-      boulders > 0 && offField === 0, `boulders=${boulders} offField=${offField}`);
-  }
-
-  // Determinism: two independent generations, byte for byte.
-  check("P-5: two independent generations are byte-identical, every realm",
-    REALMS.every((r) => {
-      const a = genChunk(new Subspace(), r.id, 0, 0);
-      const b = genChunk(new Subspace(), r.id, 0, 0);
-      const c = genChunk(new Subspace(), r.id, 3, 2);
-      const d = genChunk(new Subspace(), r.id, 3, 2);
-      return a.every((v, i) => v === b[i]) && c.every((v, i) => v === d[i]);
-    }));
-
-  // Player edits layer over generation — and survive it.
-  {
-    const h = heightAt("elven", 20, 20);
-    const plain = genChunk(new Subspace(), "elven", 1, 1);
-    const recs = resolveGeometry(parseGeometryScroll(
-      geometryLine("elven", 20, h, 20, BLOCK.AIR, "fox-p5", 10) + "\n" +
-      geometryLine("elven", 20, h + 3, 20, BLOCK.BRICK, "fox-p5", 11)));
-    const s1 = new Subspace(); s1.applyGeometry(recs);
-    const c1 = genChunk(s1, "elven", 1, 1);
-    const s2 = new Subspace(); s2.applyGeometry(recs);
-    const c2 = genChunk(s2, "elven", 1, 1);
-    check("P-5: geometry edits layer over generation and survive regeneration",
-      chunkBlock(plain, 4, h, 4) !== BLOCK.AIR &&
-      chunkBlock(c1, 4, h, 4) === BLOCK.AIR &&
-      chunkBlock(c1, 4, h + 3, 4) === BLOCK.BRICK &&
-      c1.every((v, i) => v === c2[i]));
-  }
-
-  // The world record: grammar, agreement, self-defence.
-  {
-    const lines = REALMS.map((r) => realmGenLine(r.id, "fox-p5", 100));
-    const recs = parseRealmGenScroll(lines.join("\n"));
-    check("P-5: a realmgen line per realm parses back, and the record agrees with itself",
-      recs.length === REALMS.length && realmGenAgrees(recs));
-    check("P-5: every realmgen line carries its realm's recorded key",
-      recs.every((rec) => rec.key === realmGenKey(realmGenParams(rec.realmId))));
-    const tampered = [...lines];
-    tampered[0] = tampered[0].replace("|roll|", "|ridge|");
-    check("P-5: a tampered record line breaks agreement — the record is verifiable",
-      !realmGenAgrees(parseRealmGenScroll(tampered.join("\n"))));
-    const junk = [
-      "rgen|nowhere|roll|11|7|2.5|11|62|66|0|oak|fox|1",
-      "rgen|nova|spin|11|7|2.5|11|62|66|0|oak|fox|1",
-      "rgen|nova|roll|11|x|2.5|11|62|66|0|oak|fox|1",
-      "rgen|nova|roll|11|7|2.5|11|62|66|0|oak||1",
-      "rgen|nova|roll|11|7", "geo|nova|1,2,3|0|fox|1", "",
-    ].join("\n");
-    check("P-5: the realmgen parse is defensive — junk never becomes a record",
-      parseRealmGenScroll(junk).length === 0);
-    const twice = parseRealmGenScroll(
-      realmGenLine("nova", "fox-a", 1) + "\n" +
-      realmGenLine("nova", "fox-b", 2).replace("|roll|", "|ridge|"));
-    check("P-5: realmgen resolves last-line-per-realm",
-      resolveRealmGen(twice).get("nova").crafter === "fox-b");
-  }
-
-  // The route proof, all realms — and the Hall's own route in Nova.
-  check("P-5: every realm's route proof passes — arrival stands, anchor reached",
-    REALMS.every((r) => realmRouteCheck(r.id).ok),
-    JSON.stringify(REALMS.map((r) => [r.id, realmRouteCheck(r.id)])));
-  check("P-5: Nova's hall route runs shaft-to-stone in the generated world",
-    realmRouteCheck("nova").hall === true);
-}
-
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

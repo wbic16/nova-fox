@@ -56200,6 +56200,24 @@ function resolveGeometry(records) {
 
 
 
+
+
+
+
+function chiselYield(sub, realmId, x, y, z) {
+  const gm = sub && sub.geo ? sub.geo.get(realmId) : undefined;
+  const gb = gm ? gm.get(`${x},${y},${z}`) : undefined;
+  if (gb !== undefined && gb !== BLOCK.AIR) return { block: gb, placed: true };
+  return { block: baseBlockAt(sub, realmId, x, y, z), placed: false };
+}
+
+
+
+
+
+
+
+
 function geoEditRefusal(realmId, x, y, z, block) {
   
   
@@ -63890,6 +63908,27 @@ function tryChisel() {
       
       const gRef = geoEditRefusal(state.realm, bx, by, bz, BLOCK.AIR);
       if (gRef) { if (!geoRefusal) geoRefusal = gRef; continue; }
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      const judge = chiselYield(sub, state.realm, bx, by, bz);
+      if (judge.placed && solidAt(bx, by, bz)) {
+        sub.setOverride(state.realm, bx, by, bz, BLOCK.AIR);
+        broke++; carved.push([bx, by, bz]);
+        if (addMaterial(eco, judge.block, 1)) {
+          yielded[judge.block] = (yielded[judge.block] || 0) + 1;
+        }
+        dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
+        continue;
+      }
       const baseB = baseBlockAt(sub, state.realm, bx, by, bz);
       const r = sub.chiselBlock(state.realm, bx, by, bz);
       if (r.ok) {
@@ -63900,20 +63939,6 @@ function tryChisel() {
         }
         else { shaped++; lastLevel = r.level; }
         dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
-      } else if (!r.ok && r.reason === "air") {
-        
-        
-        
-        
-        
-        const gb = sub.geo && sub.geo.get(state.realm)
-          ? sub.geo.get(state.realm).get(`${bx},${by},${bz}`) : undefined;
-        if (gb && gb !== BLOCK.AIR && solidAt(bx, by, bz)) {
-          sub.setOverride(state.realm, bx, by, bz, BLOCK.AIR);
-          broke++; carved.push([bx, by, bz]);
-          if (addMaterial(eco, gb, 1)) yielded[gb] = (yielded[gb] || 0) + 1;
-          dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
-        }
       } else if (!refusal && r.reason !== "air") {
         refusal = r.reason; // bedrock / deepstone / gone — named below
       }
