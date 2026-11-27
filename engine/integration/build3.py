@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -118,6 +119,113 @@ _game3 = read("game3.js")
 _m = re.search(r"NF_SHIP_EE:(\d+)", _game3)
 EE = os.environ.get("NF_EE") or (_m.group(1) if _m else "0")
 
+
+def strip_full_line_comments(src):
+    """Remove lines that are solely a // comment (leading whitespace
+    allowed). Every other byte is preserved. The tokenizer tracks
+    line/block comments, single/double strings, template literals
+    with ${ } nesting, and regex literals, so a // inside any of
+    them is never mistaken for a comment line. The program is
+    unchanged; only its commentary is left at home — the Lite
+    distribution's answer to the 1.9 MB hard cap (EE 1034)."""
+    out = []
+    i, n = 0, len(src)
+    state = "code"   # code | line | block | sq | dq | tpl | regex
+    tpl_stack = []   # brace depths of open ${ } interpolations
+    regex_class = False
+    prev_sig = ""    # last significant code char (regex heuristic)
+    line_start = True  # only whitespace since the last newline
+    drop_line = False  # the current // comment is a full-line one
+    while i < n:
+        c = src[i]
+        nxt = src[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if c == "/" and nxt == "/":
+                drop_line = line_start
+                state = "line"
+                if not drop_line:
+                    out.append(c); out.append(nxt)
+                i += 2
+                continue
+            if c == "/" and nxt == "*":
+                state = "block"; out.append(c); out.append(nxt); i += 2
+                line_start = False; continue
+            if c == "'":
+                state = "sq"; out.append(c); i += 1; line_start = False; continue
+            if c == '"':
+                state = "dq"; out.append(c); i += 1; line_start = False; continue
+            if c == "`":
+                state = "tpl"; out.append(c); i += 1; line_start = False; continue
+            if c == "/" and (prev_sig == "" or prev_sig in "(,=:[!&|?{};+-*%~^"):
+                state = "regex"; regex_class = False
+                out.append(c); i += 1; line_start = False; continue
+            if tpl_stack and c == "{":
+                tpl_stack[-1] += 1
+            elif tpl_stack and c == "}":
+                if tpl_stack[-1] == 0:
+                    tpl_stack.pop(); state = "tpl"
+                    out.append(c); i += 1; line_start = False; continue
+                tpl_stack[-1] -= 1
+            out.append(c)
+            if c == "\n":
+                line_start = True
+            elif c not in " \t\r":
+                line_start = False
+                prev_sig = c
+            i += 1
+            continue
+        if state == "line":
+            if c == "\n":
+                state = "code"
+                out.append(c); line_start = True; i += 1; continue
+            if not drop_line:
+                out.append(c)
+            i += 1
+            continue
+        if state == "block":
+            out.append(c)
+            if c == "*" and nxt == "/":
+                out.append(nxt); i += 2; state = "code"; line_start = False; continue
+            if c == "\n":
+                line_start = True
+            elif c not in " \t\r":
+                line_start = False
+            i += 1
+            continue
+        if state in ("sq", "dq"):
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(src[i + 1]); i += 2; continue
+            if (state == "sq" and c == "'") or (state == "dq" and c == '"'):
+                state = "code"; prev_sig = c
+            i += 1
+            continue
+        if state == "tpl":
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(src[i + 1]); i += 2; continue
+            if c == "`":
+                state = "code"; prev_sig = "`"
+            elif c == "$" and nxt == "{":
+                out.append(nxt); i += 2; tpl_stack.append(0); state = "code"; continue
+            i += 1
+            continue
+        if state == "regex":
+            if c == "\n":  # a regex cannot span lines: we misread a division
+                state = "code"; line_start = True; out.append(c); i += 1; continue
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(src[i + 1]); i += 2; continue
+            if c == "[":
+                regex_class = True
+            elif c == "]":
+                regex_class = False
+            elif c == "/" and not regex_class:
+                state = "code"; prev_sig = "/"
+            i += 1
+            continue
+    return "".join(out)
+
 lite_js = None
 if LITE:
     lite_files = dict(raw)
@@ -204,6 +312,18 @@ if LITE:
     )
     lite_module = module.replace(narration_js, lite_js).replace(intro_js, lite_intro)
     assert lite_module != module and "NF_LITE" in lite_module
+    # EE 1034: the Lite copy leaves its full-line // commentary at
+    # home (see strip_full_line_comments). Fail closed: the stripped
+    # module must still parse as a module, or there is no Lite.
+    _pre_strip = len(lite_module)
+    lite_module = strip_full_line_comments(lite_module)
+    _tmp = HERE / ".lite-module-check.mjs"
+    _tmp.write_text(lite_module, encoding="utf-8")
+    _chk = subprocess.run(["node", "--check", str(_tmp)],
+                          capture_output=True, text=True)
+    _tmp.unlink()
+    assert _chk.returncode == 0, f"lite module fails node --check after comment strip:\n{_chk.stderr[:800]}"
+    print(f"lite: comment strip freed {_pre_strip - len(lite_module)} bytes")
     lite_page = stamp(page.replace(module, lite_module))
     (HERE / "lite.html").write_text(lite_page, encoding="utf-8")
     print(f"lite.html (Lite): {len(lite_page)} bytes (module {len(lite_module)} bytes)")

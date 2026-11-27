@@ -22,6 +22,7 @@ fox scroll claims audited and managed by one planner."*
 | 1.1.1/1.1.5/1.1.1 | **Gravity** — one line per shift; a realm's latest line is its down (demo10) | `BACKEND.gravityCoord` | Game: queueEcoLine gravity lines (demo10, demo18) | select read-back at boot + flush (demo10 game3.js) | Append-only; latest line per realm wins | **Built** — in the merged ship tree |
 | 1.1.1/1.1.6/1.1.1 | **Player forms** — the shapes foxes wear (demo6) | `BACKEND.formCoord` | Game: queueEcoLine `form\|` / `formoff\|` lines | select read-back → `parseFormChart` (forms.js) | Append-only | **Staged** — coordinate applied in the merged ship tree (see Ratification) |
 | 1.1.1/1.1.7/1.1.1 | **Player ideas** — tellings at the idea door (demo8) | `BACKEND.ideaCoord` | Game: ideaOutbox (idea-door builds) | select read-back → `BACKEND.ideaRows`; dev-loop harvest | Append-only | **Allocated** (planner, this registry) — code adoption pending, see C2 note |
+| 1.1.1/1.1.8/1.1.1 | **Wormholes** — tunnels a player crafts between two realms; shared across all players, permanent (demo34, EE 1034 batch) | `BACKEND.tunnelCoord` | Game: ecoOutbox via queueEcoLine `tun\|` (craft) / `tunx\|` (retire) lines | select read-back → `parseTunnelScroll` / `resolveTunnels` (world.js) | Append-only; reads resolve the standing set — one tunnel per (crafter, realm-pair): a new craft between the same pair retires that crafter's old one (`tunx` written before the replacement `tun`) | **Built** — in the demo34 ship tree |
 
 ## Allocation rule
 
@@ -47,8 +48,8 @@ fox scroll claims audited and managed by one planner."*
 The established row is `1.1.1/1.1.N/1.1.1`, allocated sequentially:
 
 - N = 1 log · 2 board · 3 purchase · 4 economy · 5 gravity · 6 forms ·
-  7 ideas (allocated, unadopted)
-- **Next free: N = 8** — `1.1.1/1.1.8/1.1.1`, then 9, 10, … in order.
+  7 ideas (allocated, unadopted) · 8 wormholes (demo34)
+- **Next free: N = 9** — `1.1.1/1.1.9/1.1.1`, then 10, 11, … in order.
 - Allocate sequentially; do not skip numbers to "save" them, and do not
   squat a coordinate in code before its registry entry lands.
 
@@ -80,6 +81,12 @@ lands. Full evidence: SCROLL-AUDIT-REPORT (2026-11-26), collision C2.
 
 ## History
 
+- 2026-11-27 — Wormholes allocated `1.1.1/1.1.8/1.1.1` (EE 1034
+  feedback batch, demo34): crafted tunnels are shared subspace records
+  under gravity's append-only discipline — `tun|` crafts, `tunx|`
+  retires; replacement is per-crafter, per realm-pair (Will's ruling,
+  2026-11-27 00:58 CST). Registry entry lands in the same commit as
+  the first writer, per the allocation rule.
 - 2026-11-26 — Registry created by the Scroll Planner (audit of the full
   repo: every coordinate literal censused, every BACKEND block read,
   every writer/reader call site grepped). Base four verified single-owner

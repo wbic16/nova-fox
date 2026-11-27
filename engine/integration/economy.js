@@ -201,6 +201,18 @@ export function loadEconomyState(raw) {
 }
 export function isGenerator(eco) { return eco.entitlement.status === "paid"; }
 
+// EE 1034 item 5 — flight, gated exactly as Will ruled (2026-11-27
+// 00:53 CST): "flight is gated on being a paid member or having
+// killed the dragon". Paid = a redeemed key / paid entitlement
+// (isGenerator). The dragon path reads the world's dragonKilled
+// flag; the dragon is Beat 2 (Christmas), so nothing in normal
+// play sets it yet — that is correct, not a gap.
+export function flightUnlocked(eco, dragonKilled) {
+  if (eco && isGenerator(eco)) return { ok: true, via: "paid" };
+  if (dragonKilled) return { ok: true, via: "dragon" };
+  return { ok: false, via: null };
+}
+
 // ---------- accrual: the drip, the spew, the generation skill -----------------
 // Active play only — the glue decides what "active" means (tab
 // visible, recent input) and passes whole seconds. Fractions carry

@@ -333,23 +333,28 @@ export const ITEM_DEFS = {
     kind: "sword", name: "the Small Sword", weapon: true,
     range: 5.2, damage: 1,
     blurb: "a small sword, bright and ready — it reaches a little farther than your bare paw",
+    use: "A weapon. Swung, it hits for 1 at 5.2 blocks — two landed swings fell a dark thing.",
   },
   lance: {
     kind: "lance", name: "the Star Lance", weapon: true,
     range: 7.5, damage: 2,
     blurb: "it reaches farther and hits harder",
+    use: "A weapon. Swung, it hits for 2 at 7.5 blocks — one landed swing fells a dark thing.",
   },
   swift: {
     kind: "swift", name: "the Swift Charm", weapon: false,
     blurb: "your stride lengthens — the meadow goes by quicker",
+    use: "Worn, it works on its own — no key, no keeping: your stride is a third longer, everywhere.",
   },
   ward: {
     kind: "ward", name: "the Ward Charm", weapon: false,
     blurb: "it will turn one blow aside for you",
+    use: "Worn, it works on its own: the next blow that would land on you is turned aside, once.",
   },
   bright: {
     kind: "bright", name: "the Bright Charm", weapon: false,
     blurb: "the glimpses last longer; the dark gives up its shapes sooner",
+    use: "Worn, it works on its own: dark things hold their visible phase longer, so you see them coming.",
   },
 };
 // Where each item stands: {realmId, bx, bz} in block coords. The
@@ -588,6 +593,8 @@ export class Subspace {
     this._nextSpawnTick = 0; // EE 995: the random-rise clock (item 9)
     this.transitPocket = null; // EE 995: the wormhole's room (items 5+6) — retired EE 1023, nothing sets it
     this.riftLinks = new Map(); // EE 1023: standing rift links, registered by the view (item 1)
+    this.tunnels = new Map(); // EE 1034: standing wormholes, key -> record (the chart's resolved set)
+    this.dragonKilled = false; // EE 1034: flight's second gate (Beat 2 sets it; nothing here does yet)
     this.log("genesis", "the chart", "the world is loaded; the dark is counted, not empty");
   }
 
@@ -868,6 +875,14 @@ export class Subspace {
     // ever happens near the player: "unwatched" means the player
     // is in another realm or at least two scrolls away.
     const speed = this.monsterSpeed();
+    // EE 1034 (item 3): the fox's travel this tick, for intercepts.
+    if (player) {
+      const pvx = cellOfBlock(player.bx), pvy = cellOfBlock(player.bz);
+      this._playerVel = this._playerCell
+        ? { x: pvx - this._playerCell.x, y: pvy - this._playerCell.y }
+        : { x: 0, y: 0 };
+      this._playerCell = { x: pvx, y: pvy };
+    }
     for (const m of this.monsters) {
       if (!m.alive) continue;
       if (m.kind === "wisp") continue; // it waits where it was set; it is for learning on
@@ -891,8 +906,19 @@ export class Subspace {
       // EE 1023 (item 3): an aggroed thing hunts from ANY range —
       // the haunt radius is for the unprovoked — and steps faster.
       if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS || m.aggro) {
-        const steps = speed + (m.aggro ? 1 : 0);
-        for (let step = 0; step < steps; step++) this._monsterStep(m, pcx, pcy);
+        // EE 1034 (item 3): an engaged or aggroed thing INTERCEPTS —
+        // it aims at where the fox is going (his cell plus his last
+        // tick's travel), not only where he stands. A STALKER also
+        // runs while the fox is far (one step more beyond 6 cells),
+        // to arrive on the intercept line; close in, it walks.
+        let tx = pcx, ty = pcy;
+        if (m.engaged || m.aggro) {
+          const pv = this._playerVel || { x: 0, y: 0 };
+          tx += pv.x; ty += pv.y;
+        }
+        let steps = speed + (m.aggro ? 1 : 0);
+        if (m.role === "stalker" && ddx * ddx + ddy * ddy > 36) steps += 1;
+        for (let step = 0; step < steps; step++) this._monsterStep(m, tx, ty);
       } else if (m.gx !== m.hx || m.gy !== m.hy) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, m.hx, m.hy);
       }
@@ -968,14 +994,25 @@ export class Subspace {
   _monsterStep(m, pcx, pcy) {
     const dx = pcx - m.gx, dy = pcy - m.gy;
     if (dx === 0 && dy === 0) return;
+    const sx = Math.sign(dx), sy = Math.sign(dy);
+    // EE 1034 (item 3): the greedy axes first, then the diagonal
+    // (cutting the corner is cutting the fox off), then wall-slides
+    // — steps along the obstacle that do not give ground. A thing
+    // that used to freeze against a rise now works around it.
     const axes =
       Math.abs(dx) >= Math.abs(dy)
-        ? [{ x: Math.sign(dx), y: 0 }, { x: 0, y: Math.sign(dy) }]
-        : [{ x: 0, y: Math.sign(dy) }, { x: Math.sign(dx), y: 0 }];
+        ? [{ x: sx, y: 0 }, { x: 0, y: sy }]
+        : [{ x: 0, y: sy }, { x: sx, y: 0 }];
+    axes.push({ x: sx, y: sy }, { x: 0, y: -sy }, { x: -sx, y: 0 });
+    const dist = (x, y) => Math.abs(pcx - x) + Math.abs(pcy - y);
     const fromScroll = `${Math.floor(m.gx / LIFE_N)},${Math.floor(m.gy / LIFE_N)}`;
     for (const a of axes) {
       if (a.x === 0 && a.y === 0) continue;
       const nx = m.gx + a.x, ny = m.gy + a.y;
+      // Only the diagonal may hold its ground; every other step
+      // must close distance or keep it — never retreat.
+      const diagonal = a.x !== 0 && a.y !== 0;
+      if (!diagonal && dist(nx, ny) > dist(m.gx, m.gy)) continue;
       if (!this._monsterPassable(m, nx, ny)) continue;
       m.gx = nx;
       m.gy = ny;
@@ -1029,7 +1066,15 @@ export class Subspace {
       engaged: false, // EE 995: latched forever once it enters the fox's sphere
       phase: 1 + (kernels.hash(`phase|${this._monsterSeq}`) % 2),
       alive: true,
-      hp: kind === "guardian" ? 3 : kind === "wisp" ? 2 : 1,
+      // EE 1034 (item 3): a surface thing takes TWO hits now — a
+      // fight, not a swat. The Lance (damage 2) still fells it in
+      // one; the sword and the bare paw take two landed strikes.
+      hp: kind === "guardian" ? 3 : kind === "wisp" ? 2 : 2,
+      // EE 1034 (item 3): one surface thing in three is a STALKER —
+      // it runs to cut the fox off; the rest are hunters.
+      role: kind === "surface"
+        ? (kernels.hash(`role|${this._monsterSeq}`) % 3 === 0 ? "stalker" : "hunter")
+        : kind,
     };
     this.monsters.push(m);
     return m;
@@ -1081,6 +1126,18 @@ export class Subspace {
         m.aggro = true;
         m.aggroTicks = AGGRO_TICKS;
         if (!m.engaged) { m.engaged = true; m.phase = 0; }
+        // EE 1034 (item 3): the pack answers a blow. Surface things
+        // near a struck thing share its grudge — striking one of a
+        // group is striking the group.
+        for (const o of this.monsters) {
+          if (o === m || !o.alive || o.kind !== "surface" ||
+              o.realmId !== m.realmId) continue;
+          const pdx = o.gx - m.gx, pdy = o.gy - m.gy;
+          if (pdx * pdx + pdy * pdy > 64) continue;
+          o.aggro = true;
+          o.aggroTicks = Math.max(o.aggroTicks || 0, AGGRO_TICKS);
+          if (!o.engaged) { o.engaged = true; o.phase = 0; }
+        }
       }
       this.log("strike", realmById(m.realmId).name,
         `the ${m.kind === "guardian" ? "guardian" : "dark thing"} is struck and holds (${m.hp} left)`);
@@ -1175,6 +1232,31 @@ export class Subspace {
   }
   clearRiftLink(id) {
     this.riftLinks.delete(id);
+  }
+
+  // EE 1034 (item 5): the dragon flag. Beat 2's dragon, when it
+  // dies, sets this — and flight's gate opens for the slayer.
+  // Nothing in this build calls it in normal play; that absence is
+  // correct (the dragon is Christmas), and the setter is wal-logged
+  // like every world fact.
+  setDragonKilled(v) {
+    this.dragonKilled = !!v;
+    if (v) this.log("dragon", "the chart",
+      "the dragon is dead — flight's second gate stands open");
+  }
+
+  // EE 1034 (item 1): adopt the chart's resolved standing wormholes.
+  // Returns the keys whose presence or shape changed, so the view
+  // can rebuild exactly the chunks those tunnels touch.
+  applyTunnels(tunnels) {
+    const before = this.tunnels;
+    this.tunnels = new Map((tunnels || []).map((t) => [t.key, t]));
+    const changed = [];
+    for (const [k, t] of this.tunnels) {
+      if (!before.has(k) || before.get(k).ts !== t.ts) changed.push(k);
+    }
+    for (const k of before.keys()) if (!this.tunnels.has(k)) changed.push(k);
+    return changed;
   }
 
   chiselBlock(realmId, x, y, z) {
@@ -1277,6 +1359,158 @@ export function gravityShiftAllowed(records, realmId, player, day) {
     if (r.realmId === realmId && r.player === player && r.day === day) return false;
   }
   return true;
+}
+
+// ---------- wormhole tunnels (EE 1034, item 1) --------------------------------
+// Will (EE 1034): the tunnel mechanism was the right transit; it
+// "just lacked integration with the world's geometry" — and
+// (00:55) "the warp tunnel you build is permanent" — and (00:58)
+// "wormholes you craft are shared across all players - but if you
+// form a new wormhole between the same two realms, your old one
+// disappears."
+//
+// So a wormhole is a STRUCTURE and a RECORD. The record lives on
+// the shared chart (scroll 1.1.1/1.1.8/1.1.1, append-only, gravity's
+// discipline): craft lines and retirement lines, resolved on
+// read-back into the standing set — per crafter, per unordered
+// realm-pair, at most one stands; a new craft on the pair retires
+// the crafter's old one. The structure is a bore in the world
+// itself: genChunk stamps it (below) wherever a standing tunnel's
+// end runs — real blocks, cut through rises, floored over dips,
+// lined half in the home realm's stone and half in the far realm's,
+// with a crystal course every five blocks. The bore is straight
+// and axis-aligned: the block world is axis-aligned, and a curved
+// bore would need non-block geometry — the fakery this replaces.
+//
+// Line shapes:
+//   tun|<crafter>|<ts>|<endA>|<endB>
+//     an end: <realmId>,<mx>,<mz>,<dx>,<dz>,<floorY>,<gdir>
+//     (mx, mz): the mouth block; (dx, dz): the bore's unit axis,
+//     pointing INTO the tunnel; floorY: the gravity surface's top
+//     block at the mouth; gdir: down there (1 or -1).
+//   tunx|<crafter>|<realmA>|<realmB>|<ts>   (pair sorted)
+
+export const TUNNEL_LEN = 15; // blocks of bore from the mouth plane
+const TUNNEL_BLOCKS = {
+  ashfall: BLOCK.BASALT, trust: BLOCK.BASALT,
+  "ni-knight": BLOCK.BRICK, logos: BLOCK.SANDSTONE, halycon: BLOCK.SANDSTONE,
+};
+export function tunnelBlockFor(realmId) {
+  return TUNNEL_BLOCKS[realmId] ?? BLOCK.STONE;
+}
+export function tunnelKey(crafter, realmA, realmB) {
+  const [a, b] = [realmA, realmB].sort();
+  return `${crafter}|${a}|${b}`;
+}
+export function makeTunnel(crafter, endA, endB, ts) {
+  return { key: tunnelKey(crafter, endA.realmId, endB.realmId),
+    crafter, ends: { a: endA, b: endB }, ts };
+}
+export function tunnelEndAt(tunnel, realmId) {
+  if (tunnel.ends.a.realmId === realmId) return tunnel.ends.a;
+  if (tunnel.ends.b.realmId === realmId) return tunnel.ends.b;
+  return null;
+}
+export function tunnelOtherRealm(tunnel, realmId) {
+  return tunnel.ends.a.realmId === realmId
+    ? tunnel.ends.b.realmId : tunnel.ends.a.realmId;
+}
+// Does this wormhole serve a ring planted at (x, z) in realmId,
+// bound for otherRealm? The mouth within two blocks, the pair right.
+export function tunnelServes(tunnel, realmId, otherRealm, x, z) {
+  const e = tunnelEndAt(tunnel, realmId);
+  if (!e || tunnelOtherRealm(tunnel, realmId) !== otherRealm) return false;
+  const dx = e.mx + 0.5 - x, dz = e.mz + 0.5 - z;
+  return dx * dx + dz * dz <= 4.0001;
+}
+// A point's place in an end's bore: `along` blocks from the mouth
+// plane (negative outside, at the fox's back), `lat` the signed
+// offset from the centerline.
+export function tunnelProgress(end, x, z) {
+  const rx = x - (end.mx + 0.5), rz = z - (end.mz + 0.5);
+  return { along: rx * end.dx + rz * end.dz,
+    lat: rx * end.dz - rz * end.dx };
+}
+// The block a wormhole stamps at (x, y, z) — or null where it does
+// not reach. Interior is AIR; floor, cap, walls and the far end
+// wall are lining; a crystal course rings the bore every 5 blocks.
+export function tunnelBlockAt(tunnel, realmId, x, y, z) {
+  const end = tunnelEndAt(tunnel, realmId);
+  if (!end) return null;
+  const rx = x - end.mx, rz = z - end.mz;
+  const along = rx * end.dx + rz * end.dz;
+  if (along < 0 || along > TUNNEL_LEN) return null;
+  const lat = rx * end.dz - rz * end.dx;
+  if (lat < -2 || lat > 2) return null;
+  // Height against the gravity surface at the mouth: rel 0 is the
+  // surface block itself, rel grows AWAY from the surface (up into
+  // the air under normal gravity; down off the vault when inverted).
+  const rel = end.gdir > 0 ? y - end.floorY : end.floorY + 1 - y;
+  if (rel < 0 || rel > 5) return null;
+  const shell = rel === 0 || rel === 5 || lat === -2 || lat === 2 ||
+    along === TUNNEL_LEN;
+  if (!shell) return BLOCK.AIR;
+  if (along % 5 === 0) return BLOCK.CRYSTAL;
+  return tunnelBlockFor(along * 2 < TUNNEL_LEN
+    ? realmId : tunnelOtherRealm(tunnel, realmId));
+}
+
+export function tunnelLine(t) {
+  const e = (x) => [x.realmId, x.mx, x.mz, x.dx, x.dz, x.floorY, x.gdir].join(",");
+  return `tun|${t.crafter}|${t.ts}|${e(t.ends.a)}|${e(t.ends.b)}`;
+}
+export function tunnelRetireLine(crafter, realmA, realmB, ts) {
+  const [a, b] = [realmA, realmB].sort();
+  return `tunx|${crafter}|${a}|${b}|${ts}`;
+}
+function parseTunnelEnd(text) {
+  const p = String(text).split(",");
+  if (p.length !== 7) return null;
+  const [realmId, mx, mz, dx, dz, floorY, gdir] = p;
+  if (!REALMS.some((r) => r.id === realmId)) return null;
+  const n = [mx, mz, dx, dz, floorY, gdir].map(Number);
+  if (n.some((v) => !Number.isFinite(v))) return null;
+  const [imx, imz, idx, idz, ifloor, igdir] = n;
+  if ((Math.abs(idx) === 1) === (Math.abs(idz) === 1)) return null; // one axis only
+  if (igdir !== 1 && igdir !== -1) return null;
+  if (ifloor < 0 || ifloor >= WORLD_H) return null;
+  return { realmId, mx: Math.trunc(imx), mz: Math.trunc(imz),
+    dx: idx, dz: idz, floorY: Math.trunc(ifloor), gdir: igdir };
+}
+export function parseTunnelScroll(text) {
+  if (!text) return [];
+  const out = [];
+  for (const ln of String(text).split("\n")) {
+    const parts = ln.split("|");
+    if (parts[0] === "tun" && parts.length === 5) {
+      const [, crafter, tsRaw, ea, eb] = parts;
+      const ts = Number(tsRaw);
+      const a = parseTunnelEnd(ea), b = parseTunnelEnd(eb);
+      if (!crafter || !Number.isFinite(ts) || !a || !b) continue;
+      if (a.realmId === b.realmId) continue;
+      out.push({ kind: "tun", ts, tunnel: makeTunnel(crafter, a, b, ts) });
+    } else if (parts[0] === "tunx" && parts.length === 5) {
+      const [, crafter, ra, rb, tsRaw] = parts;
+      const ts = Number(tsRaw);
+      if (!crafter || !Number.isFinite(ts)) continue;
+      if (!REALMS.some((r) => r.id === ra) || !REALMS.some((r) => r.id === rb)) continue;
+      const [a, b] = [ra, rb].sort();
+      out.push({ kind: "tunx", ts, crafter, a, b });
+    }
+  }
+  return out;
+}
+// The standing set, resolved from the records in the order given
+// (callers order by ts, read-back last on ties, as gravity does):
+// a craft stands unless a LATER craft or retirement for the same
+// (crafter, pair) follows it.
+export function resolveTunnels(records) {
+  const by = new Map();
+  for (const r of records || []) {
+    if (r.kind === "tun") by.set(r.tunnel.key, r.tunnel);
+    else if (r.kind === "tunx") by.delete(`${r.crafter}|${r.a}|${r.b}`);
+  }
+  return [...by.values()];
 }
 
 // ---------- the brush: shaping at more than one size (feedback #4) --------
@@ -1685,6 +1919,33 @@ export function genChunk(sub, realmId, cx, cz) {
     }
   }
 
+  }
+
+  // EE 1034 (item 1): standing wormholes stamp their bores into
+  // the chunk — after base generation and Life features, before
+  // inscribed overrides (a carve inside a tunnel still wins: it
+  // was written later, by a hand).
+  if (sub.tunnels && sub.tunnels.size) {
+    for (const t of sub.tunnels.values()) {
+      const end = tunnelEndAt(t, realmId);
+      if (!end) continue;
+      // The bore's block footprint, generously bounded.
+      const bx1 = end.mx + end.dx * TUNNEL_LEN, bz1 = end.mz + end.dz * TUNNEL_LEN;
+      const minx = Math.min(end.mx, bx1) - 2, maxx = Math.max(end.mx, bx1) + 2;
+      const minz = Math.min(end.mz, bz1) - 2, maxz = Math.max(end.mz, bz1) + 2;
+      if (x0 + CHUNK - 1 < minx || x0 > maxx || z0 + CHUNK - 1 < minz || z0 > maxz) continue;
+      const y0 = end.gdir > 0 ? end.floorY : end.floorY - 5;
+      for (let lz = 0; lz < CHUNK; lz++) {
+        for (let lx = 0; lx < CHUNK; lx++) {
+          const x = x0 + lx, z = z0 + lz;
+          if (x < minx || x > maxx || z < minz || z > maxz) continue;
+          for (let y = y0; y <= y0 + 5; y++) {
+            const b = tunnelBlockAt(t, realmId, x, y, z);
+            if (b !== null) put(lx, y, lz, b);
+          }
+        }
+      }
+    }
   }
 
   // Inscribed overrides last: what was written, stays.

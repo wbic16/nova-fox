@@ -11,6 +11,8 @@ import {
   REALM_TERRAIN, deltaRiver, ITEM_SPOTS, ARRIVAL,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
   gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
+  TUNNEL_LEN, tunnelBlockFor, tunnelEndAt, makeTunnel, tunnelLine, tunnelRetireLine,
+  parseTunnelScroll, resolveTunnels, tunnelKey, tunnelBlockAt, tunnelProgress, tunnelServes,
   AGGRO_TICKS, TRAVERSAL_GROWTH_FLOOR, TRAVERSAL_CELLS,
   TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
   inTheHall, foxVisionToggle, foxVisionReveals, FAMILIAR_RANGE_CELLS,
@@ -25,6 +27,7 @@ import {
   verifyGumroadKey, applyGumroadVerification,
   purchaseClaimLine, parsePurchaseBoard, purchaseNumberFor,
   LADDER_RUNGS, LADDER_BEAT, rungById, ownsRung, buyRung, grantRung,
+  flightUnlocked,
   ladderLampBonuses,
 } from "./economy.js";
 import {
@@ -275,7 +278,9 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const m = s.spawnMonster("nova", 10, 10, "surface");
   const bx = 10 * 2 + 1, bz = 10 * 2 + 1;
   const by = heightAt("nova", bx, bz) + 1;
-  check("one strike edits a surface thing out", s.strikeMonster(m) === true && !m.alive);
+  check("EE 1034: a surface thing holds through one strike (hp 2)",
+    s.strikeMonster(m) === false && m.alive);
+  check("the second strike edits a surface thing out", s.strikeMonster(m) === true && !m.alive);
   check("scar override recorded", s.getOverride("nova", bx, by, bz) === BLOCK.SCAR);
   const chunk = genChunk(s, "nova", 1, 1);
   check("scar is in the regenerated chunk",
@@ -366,7 +371,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   s.pickupItem("lance");
   check("a pickup scores 40", totalScore(s) === 40);
   const m = s.spawnMonster("nova", 12, 12, "surface");
-  s.strikeMonster(m);
+  s.strikeMonster(m); s.strikeMonster(m); // EE 1034: surface hp 2
   check("a scar scores 50 (90 total)", totalScore(s) === 90);
   const d = DUNGEON.deepStone;
   s.checkQuest(d.x, d.y, d.z);
@@ -411,7 +416,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   s3.getScroll("nova", 0, 0);
   s3.monsters.length = 0;
   const m3 = s3.spawnMonster("nova", 12, 12, "surface");
-  s3.strikeMonster(m3);
+  s3.strikeMonster(m3); s3.strikeMonster(m3); // EE 1034: surface hp 2
   const bx = 12 * 2 + 1, bz = 12 * 2 + 1, by = heightAt("nova", bx, bz) + 1;
   for (let i = 0; i < 95; i++) s3.tick(near);
   check("the dead are reaped, but the scar stays written",
@@ -443,7 +448,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("the guardian keeps its hall — it cannot be carried",
     s.carryMonster(g, "ashfall", 40, 41) === false && g.realmId === "nova");
   const d = s.spawnMonster("nova", 14, 14, "surface");
-  s.strikeMonster(d);
+  s.strikeMonster(d); s.strikeMonster(d); // EE 1034: surface hp 2
   check("the dead cannot be carried",
     s.carryMonster(d, "ashfall", 40, 41) === false && d.realmId === "nova");
 }
@@ -2376,9 +2381,10 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     g.includes('state.weapon === "sword" ? ITEM_DEFS.sword : null'));
 
   // EE 1023 view-side pins (items 1, 3, 4, 5, 6, 7, 8).
-  check("the warp is real: the frame renders through the warp pass, streaks and all",
-    g.includes("function renderFrame(now, dt)") && g.includes("uWarp") &&
-    g.includes("buildStreaks()") && g.includes("WARP_TRANSIT_MS = 2600"));
+  check("EE 1034: the warp is gone — the frame renders straight, the tunnel is geometry",
+    g.includes("function renderFrame(now, dt)") && !g.includes("uWarp") &&
+    !g.includes("buildStreaks()") && !g.includes("WARP_TRANSIT_MS") &&
+    g.includes("tunnelCoord") && g.includes("ensureTunnelsForLink"));
   check("subspace accommodates the rift: the link registers at birth and clears at death",
     g.includes("sub.noteRiftLink(state.riftLink.id, a, b)") && g.includes("sub.clearRiftLink(state.riftLink.id)"));
   check("monsters turn red when attacked, and charm when nothing is wrong",
@@ -2494,6 +2500,174 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("layout: the small-screen corrections stand in page and build",
     page.includes("@media (max-width: 680px)") && html.includes("@media (max-width: 680px)") &&
     page.includes("#nfconsole { left: 6px; right: 6px; width: auto; top: 6px; z-index: 40; }"));
+}
+
+// --- EE 1034: wormhole tunnels — records, resolver, geometry --------------
+{
+  const endA = { realmId: "nova", mx: 20, mz: 8, dx: 1, dz: 0, floorY: 12, gdir: 1 };
+  const endB = { realmId: "ashfall", mx: 30, mz: 40, dx: 0, dz: -1, floorY: 9, gdir: 1 };
+  const t1 = makeTunnel("fox-one", endA, endB, 1000);
+  const parsed = parseTunnelScroll(tunnelLine(t1));
+  check("a craft line parses back to its tunnel",
+    parsed.length === 1 && parsed[0].kind === "tun" &&
+    parsed[0].tunnel.crafter === "fox-one" && parsed[0].tunnel.ends.a.mx === 20 &&
+    parsed[0].tunnel.ends.b.realmId === "ashfall" && parsed[0].ts === 1000);
+  const t2 = makeTunnel("fox-one", { ...endA, mx: 44 }, endB, 2000);
+  const t3 = makeTunnel("fox-two", endA, endB, 1500);
+  const records = [...parseTunnelScroll(tunnelLine(t1)),
+                   ...parseTunnelScroll(tunnelLine(t3)),
+                   ...parseTunnelScroll(tunnelLine(t2))];
+  const standing = resolveTunnels(records);
+  check("craft A->B twice: only the second stands for that crafter",
+    standing.filter((t) => t.crafter === "fox-one").length === 1 &&
+    standing.find((t) => t.crafter === "fox-one").ends.a.mx === 44);
+  check("another crafter's A->B stands alongside",
+    standing.some((t) => t.crafter === "fox-two" && t.ends.a.mx === 20));
+  const retired = resolveTunnels([...records,
+    ...parseTunnelScroll(tunnelRetireLine("fox-one", "nova", "ashfall", 3000))]);
+  check("a retirement record removes only the crafter's own tunnel",
+    retired.filter((t) => t.crafter === "fox-one").length === 0 &&
+    retired.some((t) => t.crafter === "fox-two"));
+  check("a standing tunnel serves a ring planted at its mouth",
+    standing.some((t) => t.crafter === "fox-two" && tunnelServes(t, "nova", "ashfall", 20.5, 8.5)));
+  check("no tunnel serves a ring far from every standing mouth",
+    !standing.some((t) => tunnelServes(t, "nova", "ashfall", 90.5, 90.5)));
+
+  // The bore in generation: real blocks, the home realm's lining.
+  const s = new Subspace();
+  s.getScroll("nova", 1, 0);
+  const changed = s.applyTunnels([t1]);
+  check("applyTunnels reports the new bore", changed.includes(t1.key));
+  check("applying the same standing set again changes nothing",
+    s.applyTunnels([t1]).length === 0);
+  const chunk = genChunk(s, "nova", 1, 0);
+  const at = (x, y, z) => chunkBlock(chunk, x - 16, y, z);
+  check("the bore's floor is lining, at the mouth's ground",
+    at(22, 12, 8) === BLOCK.STONE);
+  check("the bore's interior is air the fox walks",
+    at(22, 13, 8) === BLOCK.AIR && at(22, 14, 8) === BLOCK.AIR);
+  check("the bore's wall stands at its side", at(22, 13, 10) === BLOCK.STONE);
+  check("a crystal course rings the bore every five blocks",
+    at(25, 13, 10) === BLOCK.CRYSTAL);
+  check("past the bore's end the world is its own again",
+    tunnelBlockAt(t1, "nova", 20 + TUNNEL_LEN + 2, 13, 8) === null);
+  // Permanence: build -> record -> reload equivalence.
+  const scrollText = [...s.tunnels.values()].map(tunnelLine).join("\n");
+  const s2 = new Subspace();
+  s2.getScroll("nova", 1, 0);
+  s2.applyTunnels(resolveTunnels(parseTunnelScroll(scrollText)));
+  check("build -> record -> reload: the same tunnel stands",
+    s2.tunnels.size === 1 && [...s2.tunnels.values()][0].key === t1.key);
+  const prog = tunnelProgress(t1.ends.a, 20 + TUNNEL_LEN - 2 + 0.5, 8.5);
+  check("progress reads the walk: far along, on the line",
+    !!prog && prog.along === TUNNEL_LEN - 2 && prog.lat === 0);
+  // Inverted: the bore hangs from the vault (surface course at
+  // floorY + 1 — feet rest at feetY + 1 on either surface).
+  const tInv = makeTunnel("fox-one",
+    { realmId: "nova", mx: 20, mz: 8, dx: 1, dz: 0, floorY: 30, gdir: -1 }, endB, 5000);
+  check("an inverted bore's surface course rides the vault",
+    tunnelBlockAt(tInv, "nova", 22, 31, 8) === BLOCK.STONE);
+  check("an inverted bore's interior opens away from the vault",
+    tunnelBlockAt(tInv, "nova", 22, 30, 8) === BLOCK.AIR &&
+    tunnelBlockAt(tInv, "nova", 22, 29, 8) === BLOCK.AIR);
+}
+
+// --- EE 1034: monsters with intent -----------------------------------------
+{
+  const s = new Subspace();
+  s.getScroll("nova", 0, 0);
+  s.monsters.length = 0;
+  const m = s.spawnMonster("nova", 12, 12, "surface");
+  const pal = s.spawnMonster("nova", 15, 12, "surface");
+  check("EE 1034: a surface thing has hp 2", m.hp === 2);
+  check("the first strike wounds, wakes it, and calls the pack",
+    s.strikeMonster(m) === false && m.alive && m.engaged === true &&
+    pal.aggro === true);
+  check("the second strike kills", s.strikeMonster(m) === true && !m.alive);
+
+  // Roles: some surface things rise as stalkers.
+  const sR = new Subspace();
+  sR.getScroll("nova", 0, 0); sR.getScroll("nova", 1, 0);
+  sR.monsters.length = 0;
+  let stalker = null, hunter = null;
+  for (let i = 0; i < 24 && !(stalker && hunter); i++) {
+    const c = sR.spawnMonster("nova", 4 + (i % 12), 4 + Math.floor(i / 12), "surface");
+    if (c.role === "stalker" && !stalker) stalker = c;
+    if (c.role !== "stalker" && !hunter) hunter = c;
+  }
+  check("some surface things rise as stalkers", !!stalker && !!hunter);
+  // A stalker beyond 6 cells closes one step more than a hunter.
+  const place = (c, gx, gy) => { c.gx = gx; c.gy = gy; c.hx = gx; c.hy = gy; c.aggro = false; c.engaged = false; };
+  place(stalker, 14, 10); place(hunter, 14, 14);
+  sR.monsters = [stalker, hunter];
+  sR.tick({ realmId: "nova", bx: 49, bz: 29 }); // the fox at cell (24, 14)... stalker's row first
+  check("a stalker beyond reach closes two cells at a step",
+    stalker.gx === 16, `gx=${stalker.gx}`);
+  const sH = new Subspace();
+  sH.getScroll("nova", 0, 0); sH.getScroll("nova", 1, 0);
+  sH.monsters.length = 0;
+  const h2 = sH.spawnMonster("nova", 14, 14, "surface");
+  h2.role = "hunter"; h2.aggro = false; h2.engaged = false;
+  sH.tick({ realmId: "nova", bx: 49, bz: 29 });
+  check("a hunter at the same distance closes one",
+    h2.gx === 15, `gx=${h2.gx}`);
+
+  // Intercept: an aggroed thing runs to where the fox is GOING —
+  // it overshoots the fox's current cell toward his next one.
+  const mk = (lastCell) => {
+    const sx = new Subspace();
+    sx.getScroll("nova", 0, 0); sx.getScroll("nova", 1, 0);
+    sx.monsters.length = 0;
+    const h = sx.spawnMonster("nova", 20, 10, "surface");
+    h.aggro = true; h.aggroTicks = 9999;
+    sx._playerCell = { x: lastCell, y: 10 };
+    sx.tick({ realmId: "nova", bx: 43, bz: 21 }); // the fox at cell (21, 10)
+    return h.gx;
+  };
+  check("a running fox is intercepted: the hunter overshoots his cell",
+    mk(19) === 22, `gx=${mk(19)}`);
+  check("a standing fox is simply reached",
+    mk(21) === 21, `gx=${mk(21)}`);
+}
+
+// --- EE 1034: the flight gate ------------------------------------------------
+{
+  const free = newEconomyState();
+  const paid = newEconomyState();
+  paid.entitlement.status = "paid";
+  check("flight: a free fox is refused", flightUnlocked(free, false).ok === false);
+  check("flight: a paid fox flies, via paid", flightUnlocked(paid, false).via === "paid");
+  check("flight: a dragon-slayer flies, via dragon", flightUnlocked(free, true).via === "dragon");
+  check("flight: paid names it when both are true", flightUnlocked(paid, true).via === "paid");
+  const s = new Subspace();
+  check("the dragon flag starts unraised", s.dragonKilled === false);
+  s.setDragonKilled(true);
+  check("raising the dragon flag is written in the log",
+    s.dragonKilled === true && s.wal.some((w) => w.op === "dragon"));
+}
+
+// --- EE 1034: item purpose + view-side wiring ----------------------------------
+{
+  for (const kind of ["sword", "lance", "swift", "bright", "ward"]) {
+    check(`item purpose: the ${kind} carries a use line`,
+      typeof ITEM_DEFS[kind].use === "string" && ITEM_DEFS[kind].use.length > 10);
+  }
+  check("the sword's use names the swing and its two-swing kill", ITEM_DEFS.sword.use.includes("Swung") && ITEM_DEFS.sword.use.includes("two landed swings"));
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  check("the view composes the how from live bindings",
+    game.includes("function itemUseLine(def)") && game.includes("keyName(BIND.equip)"));
+  check("the field guide stands in the board",
+    game.includes("renderFieldGuide()") && page.includes('id="board-guide"'));
+  check("the purse stands in the page and minting is seen",
+    page.includes('id="purse"') && game.includes("coinFloater") && game.includes("pursefill"));
+  check("battle cues are wired from the sfx kit",
+    game.includes("battleIn()") && game.includes("battleDrone") && game.includes("function battleStep(now)"));
+  check("flight is a remappable binding, default H",
+    game.includes('{ id: "fly", label: "Fly", def: "KeyH" }'));
+  check("the tunnel transit is walked, and the warp is gone",
+    game.includes("tunnelProgress") && game.includes("ensureTunnelsForLink") &&
+    !game.includes("buildWarpPass") && !game.includes("uWarp"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

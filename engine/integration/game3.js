@@ -20,7 +20,7 @@
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:1037";
+const NF_SHIP_EE = "NF_SHIP_EE:1046";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -55,8 +55,9 @@ const state = {
   invertFxOn: false, // the degauss treatment is on screen right now
   guideStep: 0,
   guideDone: false,
-  transit: null, // the rift crossing in progress, or null (EE 1023: a warp, in the world itself)
+  transit: null, // the rift crossing in progress, or null (EE 1034: a tunnel walk, in the world itself)
   // v3 state
+  flying: false, // EE 1034 (item 5): flight — gated by flightUnlocked (paid, or the dragon)
   weapon: null, // null = bare strike; "lance" = the Star Lance
   ownsSword: false, // EE 1023 (item 5): picked up, whether or not in hand
   ownsLance: false,
@@ -259,7 +260,7 @@ const sfx = {
   // one (a pickup's two-note lift, the day's tune played back as a
   // melody when its page is claimed, the quest's fanfare). Music
   // only: the old no-sound-effects note stands for everything else.
-  stats: { melodies: 0, contactNoises: 0 },
+  stats: { melodies: 0, contactNoises: 0, battleIns: 0, battleOuts: 0 },
   melody(notes, { gap = 150 } = {}) {
     if (!this.ctx || this.muted) return;
     this.stats.melodies++;
@@ -277,6 +278,49 @@ const sfx = {
     this.stats.contactNoises++;
     this.noise({ peak: 0.34, decay: 0.22, freq: 240, type: "lowpass" });
     this.noise({ peak: 0.16, decay: 0.1, freq: 900 });
+  },
+  // EE 1034 (item 3): the battle cues — quiet, from this same
+  // kit. In: two low tones, close together. Out: one soft
+  // falling tone. Underneath, while combat lasts: two detuned
+  // sines at the edge of hearing.
+  battleIn() {
+    if (!this.ctx || this.muted) return;
+    this.stats.battleIns++;
+    this.tone(98, { type: "sine", peak: 0.12, decay: 0.5 });
+    this.tone(147, { type: "sine", peak: 0.08, decay: 0.6, delay: 0.09 });
+  },
+  battleOut() {
+    if (!this.ctx || this.muted) return;
+    this.stats.battleOuts++;
+    this.tone(147, { type: "sine", peak: 0.07, decay: 0.5, slide: -49 });
+  },
+  droneNodes: null,
+  battleDrone(on) {
+    if (!this.ctx) return;
+    if (on && !this.droneNodes) {
+      try {
+        const g = this.ctx.createGain();
+        g.gain.value = 0;
+        g.gain.linearRampToValueAtTime(0.03, this.ctx.currentTime + 0.8);
+        const o1 = this.ctx.createOscillator(); o1.type = "sine"; o1.frequency.value = 55;
+        const o2 = this.ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = 55.4;
+        o1.connect(g); o2.connect(g); g.connect(this.master);
+        o1.start(); o2.start();
+        this.droneNodes = { g, o1, o2 };
+      } catch (e) { /* no drone; the edge cues still speak */ }
+    } else if (!on && this.droneNodes) {
+      const dn = this.droneNodes; this.droneNodes = null;
+      try {
+        dn.g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.4);
+        dn.o1.stop(this.ctx.currentTime + 0.5); dn.o2.stop(this.ctx.currentTime + 0.5);
+      } catch (e) { /* already silent */ }
+    }
+  },
+  coinChime() {
+    // EE 1034 (item 4): a whole credit landing — one soft high
+    // tone, deliberately quieter than any fanfare.
+    this.tone(880, { type: "sine", peak: 0.09, decay: 0.5 });
+    this.tone(1318, { type: "sine", peak: 0.05, decay: 0.6, delay: 0.07 });
   },
 };
 
@@ -1014,6 +1058,7 @@ const BINDING_ACTIONS = [
   { id: "realms", label: "Map of realms", def: "KeyM" },
   { id: "log", label: "Log", def: "KeyL" },
   { id: "equip", label: "Equip weapon", def: "KeyZ" },
+  { id: "fly", label: "Fly", def: "KeyH" }, // EE 1034 (item 5): H is no note key and no scheme key
 ];
 const BIND = (() => {
   const stored = LS.get("nova-phox-bindings", {});
@@ -1109,6 +1154,7 @@ const BACKEND = {
   gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: one line per shift; a realm's latest line is its down (demo10)
   formCoord: "1.1.1/1.1.6/1.1.1", // the forms scroll: the shapes foxes wear (demo6; coordinate reassigned at integration — demo6 and demo10 both claimed 1.1.1/1.1.5/1.1.1; gravity kept it, forms moved to 1.1.6)
   ideaCoord: "1.1.1/1.1.7/1.1.1", // the ideas scroll: tellings at the door (demo8; coordinate allocated 1.1.7 by the scroll registry, EE 974 — forms keep 1.1.6)
+  tunnelCoord: "1.1.1/1.1.8/1.1.1", // the tunnel scroll: wormholes foxes craft, shared, permanent until the crafter replaces one between the same pair (EE 1034; allocated 1.1.8 by the scroll registry)
   online: false,
   probed: false,
   boardRows: [], // rows actually read back from the shared chart
@@ -1117,6 +1163,7 @@ const BACKEND = {
   gravityRows: [], // gravity records actually read back from the shared chart
   formRows: null, // forms actually read back, by fox name (null = not yet)
   ideaRows: [], // ideas actually read back, resolved to their current state
+  tunnelRows: [], // wormhole records actually read back from the shared chart
   lastPostedScore: LS.get("nova-phox-posted", -1),
 };
 // ---------- login, for saving (Will, 2026-11-22 18:05) ----------------------
@@ -1403,6 +1450,15 @@ async function backendFlush() {
     } catch (e) { /* gravity keeps its last honest state */ }
     try {
       const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.tunnelCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        BACKEND.tunnelRows = parseTunnelScroll(await r.text());
+        reconcileTunnels();
+      }
+    } catch (e) { /* tunnels keep their last honest state */ }
+    try {
+      const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.formCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.formRows = parseFormChart(await r.text());
@@ -1536,6 +1592,98 @@ async function enterRealmGravity(realmId) {
       if (state.realm === realmId) reconcileGravity();
     }
   } catch (e) { /* the chart keeps its last honest state; entry already attuned from what is known */ }
+}
+
+// ---------- wormholes on the shared chart (EE 1034, item 1) -------
+// Will (2026-11-27 00:55 + 00:58 CST): "the warp tunnel you build
+// is permanent" — "wormholes you craft are shared across all
+// players - but if you form a new wormhole between the same two
+// realms, your old one disappears." The tunnel scroll is the
+// record of truth, append-only, reconciled on read-back exactly
+// the way gravity reconciles (demo10's discipline): this fox's
+// own queued crafts count from the moment they are made; the
+// scroll wins its own ties once they land.
+function tunnelKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.tunnelCoord) continue;
+    for (const r of parseTunnelScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...BACKEND.tunnelRows, ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+
+// Attune the local mirror to the standing set: new bores are
+// stamped into the world, retired ones regenerated away. Only
+// chunks in the current realm are rebuilt here — the far end's
+// bore stamps when its realm next generates.
+function reconcileTunnels() {
+  const standing = resolveTunnels(tunnelKnownRecords());
+  const changed = sub.applyTunnels(standing);
+  if (!changed.length) return;
+  for (const t of standing) {
+    if (!changed.includes(t.key)) continue;
+    for (const e of [t.ends.a, t.ends.b]) {
+      if (e.realmId !== state.realm) continue;
+      markScrollChunksDirty(state.realm, scrollOfBlock(e.mx), scrollOfBlock(e.mz));
+      markScrollChunksDirty(state.realm,
+        scrollOfBlock(e.mx + e.dx * TUNNEL_LEN), scrollOfBlock(e.mz + e.dz * TUNNEL_LEN));
+      const x0 = Math.min(e.mx, e.mx + e.dx * TUNNEL_LEN), x1 = Math.max(e.mx, e.mx + e.dx * TUNNEL_LEN);
+      const z0 = Math.min(e.mz, e.mz + e.dz * TUNNEL_LEN), z1 = Math.max(e.mz, e.mz + e.dz * TUNNEL_LEN);
+      for (let cx = Math.floor(x0 / CHUNK); cx <= Math.floor(x1 / CHUNK); cx++)
+        for (let cz = Math.floor(z0 / CHUNK); cz <= Math.floor(z1 / CHUNK); cz++)
+          regenerateChunk(cx, cz);
+    }
+  }
+  const link = state.riftLink;
+  if (link && !link.tunnel) {
+    link.tunnel = standing.find((t) =>
+      tunnelServes(t, link.a.realmId, link.b.realmId, link.a.x, link.a.z) ||
+      tunnelServes(t, link.b.realmId, link.a.realmId, link.b.x, link.b.z)) || null;
+  }
+}
+
+// One end of a rift link, as a tunnel end spec: the ring's own
+// cell, the walk direction snapped to its axis (the direction
+// from the landing toward the ring — the way the fox walks in),
+// the ring's ground (riftEnd's feetY: feet rest at feetY + 1 on
+// either surface), and the realm's down at the mouth.
+function tunnelEndSpec(end) {
+  const rawX = end.x - end.landX, rawZ = end.z - end.landZ;
+  const dx = Math.abs(rawX) >= Math.abs(rawZ) ? (Math.sign(rawX) || 1) : 0;
+  const dz = dx === 0 ? (Math.sign(rawZ) || 1) : 0;
+  return {
+    realmId: end.realmId, mx: Math.floor(end.x), mz: Math.floor(end.z),
+    dx, dz, floorY: end.feetY,
+    gdir: sub.gravityOf(end.realmId, scrollOfBlock(end.x), scrollOfBlock(end.z)),
+  };
+}
+
+// Serve-or-craft for a freshly opened link: a standing wormhole
+// (any fox's) whose mouth stands at either of this link's ends
+// serves it. Otherwise this fox crafts one — retiring his own
+// older wormhole between the same pair first (its record is
+// queued BEFORE the new craft, one tick older, so the resolver
+// reads the replacement in order).
+function ensureTunnelsForLink(link) {
+  const a = tunnelEndSpec(link.a), b = tunnelEndSpec(link.b);
+  const standing = resolveTunnels(tunnelKnownRecords());
+  const served = standing.find((t) =>
+    tunnelServes(t, a.realmId, b.realmId, link.a.x, link.a.z) ||
+    tunnelServes(t, b.realmId, a.realmId, link.b.x, link.b.z)) || null;
+  if (served) { link.tunnel = served; return served; }
+  const ts = Date.now();
+  const old = standing.find((t) => t.crafter === playerName &&
+    ((t.ends.a.realmId === a.realmId && t.ends.b.realmId === b.realmId) ||
+     (t.ends.a.realmId === b.realmId && t.ends.b.realmId === a.realmId)));
+  if (old) queueEcoLine(BACKEND.tunnelCoord, tunnelRetireLine(playerName, a.realmId, b.realmId, ts));
+  const tun = makeTunnel(playerName, a, b, ts + (old ? 1 : 0));
+  queueEcoLine(BACKEND.tunnelCoord, tunnelLine(tun));
+  persistEcoOutbox();
+  link.tunnel = tun;
+  reconcileTunnels(); // the bore is stamped at once; the chart catches up
+  return tun;
 }
 
 function updateSyncLabel() {
@@ -1797,7 +1945,6 @@ function initThree() {
   swoosh.position.set(0.18, -0.12, -0.7);
   swoosh.visible = false;
   camera.add(swoosh);
-  buildWarpPass(); // EE 1023 (item 1): the warp pass + hyperspace streaks
   // EE 1023 (item 5): the held Small Sword — the world item's own
   // construction, carried by the camera; it shows only mid-swing.
   swordView = new THREE.Group();
@@ -2015,10 +2162,6 @@ function onResize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  if (warpRT) { // EE 1023: the warp's canvas follows the stage
-    const db = renderer.getDrawingBufferSize(new THREE.Vector2());
-    warpRT.setSize(Math.max(2, db.x), Math.max(2, db.y));
-  }
 }
 
 // ---------- chunk store: generate, mesh, rebuild ---------------------------
@@ -2726,12 +2869,23 @@ function syncItemMeshes(now) {
       sfx.powerup(); // EE 995 (item 10): a found powerup SOUNDS...
       showPowerup(def.name); // ...and is announced, center-screen
       sfx.melody([5, 9], { gap: 90 }); // v5: a pickup's two-note lift (#13)
-      toast(`${def.name} is yours — ${def.blurb}.`, 7000);
+      toast(`${def.name} is yours — ${def.blurb}. ${itemUseLine(def)}`, 9000);
       syncHud();
       syncReadout();
     }
   }
 }
+// EE 1034 (item 2): what a thing is FOR, in the fox's own
+// terms — the def's use line (world.js ITEM_DEFS), with the
+// how composed from the bindings the fox actually holds, so
+// a remapped key is the key the sentence names.
+function itemUseLine(def) {
+  if (!def || !def.use) return "";
+  let u = def.use;
+  if (def.weapon) u += ` In hand it strikes with ${keyName(BIND.strike)}; swap what the hand holds with ${keyName(BIND.equip)}.`;
+  return u;
+}
+
 function applyItemEffect(def) {
   if (def.kind === "lance") { state.ownsLance = true; state.weapon = "lance"; }
   // The Small Sword fills an empty hand; it never takes the
@@ -2885,10 +3039,20 @@ function updatePlayer(dt) {
   } else if (hSpeed > speed) {
     state.vel.x *= speed / hSpeed; state.vel.z *= speed / hSpeed;
   }
-  // Gravity — the scroll's word, not the view's.
-  state.vel.y -= 23 * state.gravDir * dt;
-  if (state.vel.y > 26) state.vel.y = 26;
-  if (state.vel.y < -26) state.vel.y = -26;
+  // Gravity — the scroll's word, not the view's. In flight
+  // (EE 1034, item 5) the gravity term is replaced: hold the
+  // jump key to rise AWAY from the gravity surface (in an
+  // inverted realm, rising is toward the ground's far side —
+  // vel.y follows gravDir), release it to hover. Collision is
+  // the same moveAxis machinery either way.
+  if (state.flying) {
+    const target = (keys.has(BIND.jump) ? 5.5 : 0) * state.gravDir;
+    state.vel.y += (target - state.vel.y) * Math.min(1, dt * 8);
+  } else {
+    state.vel.y -= 23 * state.gravDir * dt;
+    if (state.vel.y > 26) state.vel.y = 26;
+    if (state.vel.y < -26) state.vel.y = -26;
+  }
   const wasGround = state.onGround;
   const prevVy = state.vel.y;
   const hitX = moveHorizontal("x", state.vel.x * dt);
@@ -3031,6 +3195,7 @@ function hurtPlayer(amount, fromPos, why) {
     state.vel.y += 3.5 * state.gravDir;
   }
   if (state.hp <= 0) {
+    state.flying = false;
     state.dead = true;
     playBeat("BEAT-death");
     sub.log("return", realmName(state.realm),
@@ -3116,6 +3281,7 @@ function checkMonsterContact() {
     const p = monsterWorldPos(m);
     const dx = state.pos.x - p.x, dz = state.pos.z - p.z;
     const dy = (state.pos.y + 0.9) - (p.y + 0.9);
+    if (dx * dx + dz * dz >= 1.5 || Math.abs(dy) >= 2.1) contactDwell.delete(m.id);
     if (dx * dx + dz * dz < 1.5 && Math.abs(dy) < 2.1) {
       const before = state.hp;
       if (m.kind === "wisp") return; // the training thing cannot hurt you
@@ -3124,6 +3290,14 @@ function checkMonsterContact() {
       // and the strike hint stands for as long as the encounter
       // lasts (updateGuardianEncounter keeps its end).
       if (m.kind === "guardian") setGuardianEncounter(true);
+      // EE 1034 (item 3): the telegraph — a touch must dwell
+      // ~0.35 s before it can land. A fox who keeps moving is
+      // grazed, not hit; a fox who stands in it is reached.
+      // (The guardian encounter above has already begun at the
+      // touch itself — the hint stands while the blow gathers.)
+      const dwellSince = contactDwell.get(m.id);
+      if (dwellSince === undefined) { contactDwell.set(m.id, performance.now()); continue; }
+      if (performance.now() - dwellSince < 350) continue;
       hurtPlayer(2, p, m.kind === "guardian"
         ? "The guardian reaches you. Strike it back — click, or F."
         : null);
@@ -3132,7 +3306,7 @@ function checkMonsterContact() {
       // not camp on the fox and re-trigger every frame.
       const away = { x: Math.sign(m.gx - cellOfBlock(Math.floor(state.pos.x))) || 1,
                      y: Math.sign(m.gy - cellOfBlock(Math.floor(state.pos.z))) || 0 };
-      for (let i = 0; i < 3; i++) sub._monsterStepBack(m, away);
+      sub._monsterStepBack(m, away); // EE 1034 (item 3): one step back, not three — the pressure stays on
       if (state.hp < before) {
         // The spoken line is for a hit that LANDS. (Playtest 1 /
         // Will, 2026-11-22: the beat used to fire on every contact
@@ -3152,6 +3326,36 @@ function checkMonsterContact() {
       }
     }
   }
+}
+
+// EE 1034 (item 3): contact must DWELL before it can land —
+// the telegraph a fox can read and step out of. First-touch
+// times by monster id; an entry dies the frame the touch does.
+const contactDwell = new Map();
+
+// EE 1034 (item 3): battle mode, heard. Combat is a surface
+// thing or the guardian engaged with the fox — aggroed, or
+// hunting its grudge — within 12 blocks, in this realm. The
+// edges cue (in: two low tones; out: a soft fall) and a quiet
+// detuned drone rides underneath while it lasts. All from
+// the existing sfx kit; no new assets.
+let battleOn = false;
+function battleStep(now) {
+  const px = Math.floor(state.pos.x), pz = Math.floor(state.pos.z);
+  let on = false;
+  if (!state.dead) {
+    for (const m of sub.monsters) {
+      if (!m.alive || m.realmId !== state.realm || m.kind === "wisp") continue;
+      if (!m.engaged && !m.aggro) continue;
+      const p = monsterWorldPos(m);
+      const dx = p.x - state.pos.x, dz = p.z - state.pos.z;
+      if (dx * dx + dz * dz <= 144) { on = true; break; }
+    }
+  }
+  if (on === battleOn) return;
+  battleOn = on;
+  if (on) { sfx.battleIn(); sfx.battleDrone(true); }
+  else { sfx.battleOut(); sfx.battleDrone(false); }
 }
 
 function showSwing() {
@@ -3186,6 +3390,32 @@ function equipWeapon() {
   state.weapon = next;
   toast(next === "sword" ? "You take the Small Sword in hand."
     : "You take the Star Lance in hand.", 1800);
+}
+
+// EE 1034 (item 5): flight, gated exactly as Will ruled
+// (2026-11-27 00:53 CST): "flight is gated on being a paid
+// member or having killed the dragon". The predicate is
+// economy.js flightUnlocked; the dragon flag is the world's
+// (sub.dragonKilled — Beat 2 sets it in play; nothing does
+// yet, and that is correct). A locked fox who asks is told
+// plainly what flight belongs to.
+function toggleFlight() {
+  if (state.dead || state.transit) return;
+  if (state.flying) {
+    state.flying = false;
+    toast("You settle back to the ground's word.", 1600);
+    return;
+  }
+  const gate = flightUnlocked(eco, sub.dragonKilled);
+  if (!gate.ok) {
+    sfx.tone(120, { type: "sine", peak: 0.12, decay: 0.3, slide: -40 });
+    toast("Flight is not yours yet — it belongs to those who have bought the game, and to whoever kills the dragon.", 4200);
+    return;
+  }
+  state.flying = true;
+  toast(gate.via === "dragon"
+    ? "The dragon is dead, and the sky is yours. Hold jump to rise; release to hover."
+    : "Your key bought the sky too. Hold jump to rise; release to hover.", 3200);
 }
 
 function tryStrike() {
@@ -3596,6 +3826,7 @@ function renderPortalView(now, force = false) {
 }
 
 function closeRift() {
+  if (state.transit) endTransit();
   if (state.rift) {
     scene.remove(state.rift.mesh);
     state.rift = null;
@@ -3720,6 +3951,7 @@ function openRift(target) {
     state.yaw, undefined, true);
   state.riftLink = { id: ++riftSeq, target, a, b, crosses: 0 };
   sub.noteRiftLink(state.riftLink.id, a, b); // EE 1023 (item 1): subspace accommodates the rift
+  ensureTunnelsForLink(state.riftLink); // EE 1034 (item 1): a standing wormhole serves this link, or this fox crafts one — permanently, and shared
   showRiftEnd("a");
   sfx.portal();
   toast(target.type === "realm"
@@ -3794,27 +4026,31 @@ function crossThroughRift(carriedPre) {
   showRiftEnd(fromEnd === "a" ? "b" : "a");
 }
 
-// ---------- walking through the rift (EE 1023, item 1) ----------------------
-// Will (EE 995): "it should be a warp/wormhole implemented as a
-// cylinder that curves spacetime around it" — and (EE 1023):
-// "transitionary portals ... need to be completely integrated
-// with the world - more hyperspace effects and screen warpings -
-// no sprite fakery - actually change the nature of subspace and
-// the game world to accommodate the rifts."
+// ---------- walking through the rift (EE 1034, item 1) ---------------------
+// Will (EE 1034): demo31's in-place warp "feels forced/fake — the
+// tunnel mechanism in a prior build was better, but just lacked
+// integration with the world's geometry"; "the warp tunnel you
+// build is permanent"; "wormholes you craft are shared across all
+// players — but if you form a new wormhole between the same two
+// realms, your old one disappears."
 //
-// The EE 995 pocket-scroll passage is GONE. Stepping into the
-// ring now starts a WARP TRANSIT where the fox stands: over ~2.6 s
-// the rendered world itself warps (the post pass below), hyperspace
-// streaks rush through the scene, the field of view stretches —
-// and at the envelope's peak the crossing executes through
-// crossThroughRift, the same arrival every crossing has always
-// taken (carried monsters, the far ring at the fox's back, the
-// arrival beats). Step back out of the disc before the peak and
-// the crossing is unmade. The rift's link is registered in
-// subspace for as long as it stands (openRift/closeRift), so the
-// far end's world stays alive in the tick: subspace accommodates
-// the rift, and the world bends around it (the standing shimmer
-// in renderFrame).
+// So the transit is a TUNNEL again — but no detached pocket page.
+// When a rift opens, a wormhole is crafted (or a standing one
+// found) between its ends and inscribed on the tunnel scroll
+// (1.1.1/1.1.8/1.1.1 — subspace, shared, append-only, gravity's
+// discipline). genChunk stamps the bore into the world itself: a
+// real passage of blocks, lined half with the home realm's stone
+// and half with the destination's, standing in the world whether
+// or not anyone is crossing. The fox steps into the ring and
+// WALKS the bore; near its far end the crossing executes through
+// crossThroughRift — the same arrival every crossing has always
+// taken — and he steps out of the far ring with the far bore at
+// his back. Walking back out the way he came unmakes the
+// crossing, and nothing else does: no timer, no grip, no screen
+// warp. The far disc and a drift of motes dress the bore's far
+// end — a view, honestly a view, of where the walk leads.
+// Named limit: the bore is straight and axis-aligned, because a
+// curved passage cannot be honest blocks in this engine.
 
 function beginTransit() {
   if (state.transit || !state.rift || !state.riftLink) return;
@@ -3822,57 +4058,134 @@ function beginTransit() {
   const fromEnd = r.end;
   const other = link[fromEnd === "a" ? "b" : "a"];
   const carried = computeCarried(r);
-  // Which side the fox came in by — the threshold it can still
-  // back out of (transitStep). At the rim it is where the fox
-  // stands; dead-center, it is the side at the fox's back.
-  const ex = state.pos.x - r.x, ez = state.pos.z - r.z;
-  const ed = Math.hypot(ex, ez);
-  const entryDir = ed > 0.5 ? { x: ex / ed, z: ez / ed }
-    : { x: Math.sin(state.yaw), z: Math.cos(state.yaw) };
-  state.transit = { link, fromEnd, other, carried, entryDir, t0: performance.now(), crossed: false };
+  const tunnel = link.tunnel || ensureTunnelsForLink(link);
+  state.flying = false; // the tunnel is walked, not flown
+  state.transit = { link, fromEnd, other, carried, tunnel, t0: performance.now(), crossed: false };
+  buildTransitMeshes(state.transit);
   flashPortal();
   sfx.portal();
   sub.log("transit", `${realmName(state.realm)} — the walk through begins`,
-    "the world warps around the ring; the crossing is the warp's peak");
+    "the tunnel stands in the world; the crossing waits at its far end");
+}
+
+// The bore's dressing: the far disc — the ring's own live view,
+// standing at the passage's end, visible the whole walk — and a
+// slow drift of motes, the tunnel's weather. Dressing only: the
+// passage itself is blocks.
+function buildTransitMeshes(T) {
+  disposeTransitMeshes();
+  const tun = T.tunnel;
+  if (!tun) return;
+  const end = tunnelEndAt(tun, state.realm);
+  if (!end) return;
+  const group = new THREE.Group();
+  const fx = end.mx + end.dx * (TUNNEL_LEN - 1) + 0.5;
+  const fz = end.mz + end.dz * (TUNNEL_LEN - 1) + 0.5;
+  const fy = end.floorY + 1 + 1.65 * end.gdir;
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(1.7, 24),
+    state.rift && state.rift.viewOk && portalRT
+      ? new THREE.MeshBasicMaterial({ map: portalRT.texture, side: THREE.DoubleSide })
+      : new THREE.MeshBasicMaterial({
+          color: RIFT_TINT[T.other.realmId] ?? 0x0e4d8f,
+          transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+  disc.position.set(fx, fy, fz);
+  disc.lookAt(end.mx + 0.5, fy, end.mz + 0.5);
+  group.add(disc);
+  const N = 90;
+  const pos = new Float32Array(N * 3);
+  const seeds = [];
+  for (let i = 0; i < N; i++) {
+    seeds.push({
+      a: (kernels.hash(`tunmote|${i}|a`) % 1000) / 1000,
+      b: (kernels.hash(`tunmote|${i}|b`) % 1000) / 1000,
+      c: (kernels.hash(`tunmote|${i}|c`) % 1000) / 1000,
+      sp: 0.5 + (kernels.hash(`tunmote|${i}|d`) % 60) / 100,
+    });
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const motes = new THREE.Points(geo, new THREE.PointsMaterial({
+    color: 0xbfe9ff, size: 0.14, transparent: true, opacity: 0.75, depthWrite: false,
+  }));
+  motes.frustumCulled = false;
+  group.add(motes);
+  scene.add(group);
+  T.meshes = group;
+  T.motes = motes;
+  T.moteSeeds = seeds;
+  T.moteEnd = end;
+  stepTransitMotes(T, performance.now());
+}
+
+function stepTransitMotes(T, now) {
+  if (!T.motes || !T.moteEnd) return;
+  const end = T.moteEnd;
+  const pos = T.motes.geometry.attributes.position;
+  for (let i = 0; i < T.moteSeeds.length; i++) {
+    const sd = T.moteSeeds[i];
+    const along = ((sd.a + now * 0.000012 * sd.sp) % 1) * (TUNNEL_LEN - 2) + 0.5;
+    const wob = now * 0.0004 * sd.sp + sd.b * 6.283;
+    const lat = Math.sin(wob) * 1.1;
+    const up = 0.6 + sd.c * 2.2 + Math.cos(wob * 0.7) * 0.3;
+    pos.setXYZ(i,
+      end.mx + 0.5 + end.dx * along + (end.dz !== 0 ? lat : 0),
+      end.floorY + 1 + up * end.gdir,
+      end.mz + 0.5 + end.dz * along + (end.dx !== 0 ? lat : 0));
+  }
+  pos.needsUpdate = true;
 }
 
 function transitStep(now, dt) {
   const T = state.transit;
   if (!T) return;
   if (state.dead) { endTransit(); return; }
-  const p = (now - T.t0) / WARP_TRANSIT_MS;
-  if (!T.crossed) {
-    const r = state.rift;
-    if (!r || !state.riftLink) { endTransit(); return; }
-    // The threshold and the grip: back out the way you came,
-    // before the peak, and the crossing is unmade — but push on
-    // through, or veer, and the wormhole HOLDS its traveler at
-    // the rim until the peak. Walking through the rift is the
-    // game's own verb; the warp does not let go of what it has
-    // taken hold of. (Gate evidence, EE 1023: a plain disc-exit
-    // abort unmade every walk-through crossing.)
-    const dx = state.pos.x - r.x, dz = state.pos.z - r.z;
-    const d2 = dx * dx + dz * dz, R = r.geo.disc;
-    if (d2 > R * R) {
-      const d = Math.sqrt(d2);
-      const backOut = (dx * T.entryDir.x + dz * T.entryDir.z) / d;
-      if (backOut > 0.55 && d2 > R * R * 1.44) {
-        endTransit();
-        toast("The rift lets go — the crossing unmade.", 2200);
-        return;
-      }
-      state.pos.x = r.x + (dx / d) * R * 0.98;
-      state.pos.z = r.z + (dz / d) * R * 0.98;
-    }
-    if (p >= 0.5) {
-      T.crossed = true;
-      crossThroughRift(T.carried); // the arrival is the crossing's own
-    }
+  const r = state.rift;
+  if (!r || !state.riftLink) { endTransit(); return; }
+  r.mesh.rotation.z += dt * 0.7;
+  if (r.viewOk) renderPortalView(now);
+  stepTransitMotes(T, now);
+  if (T.crossed) return;
+  const tun = T.tunnel;
+  if (!tun) {
+    // No tunnel could be crafted or found (its record could not
+    // be composed): the ring alone remains, and crossing at its
+    // disc is the honest remainder — never a faked passage.
+    T.crossed = true;
+    crossThroughRift(T.carried);
+    endTransit();
+    return;
   }
-  if (p >= 1) endTransit();
+  const end = tunnelEndAt(tun, state.realm);
+  if (!end) { endTransit(); return; }
+  const p = tunnelProgress(end, state.pos.x, state.pos.z);
+  if (p.along >= TUNNEL_LEN - 3) {
+    T.crossed = true;
+    crossThroughRift(T.carried); // the arrival is the crossing's own
+    endTransit();
+    return;
+  }
+  if (p.along < -2 || Math.abs(p.lat) > 3) {
+    // Walked back out, or strayed out of the bore's line: the
+    // crossing is unmade by the fox's own feet. The ring disarms,
+    // so stepping back in is a fresh decision, not a hair trigger.
+    endTransit();
+    if (state.rift) state.rift.armed = false;
+    toast("You step back out of the tunnel — the crossing unmade.", 2200);
+  }
+}
+
+function disposeTransitMeshes() {
+  const T = state.transit;
+  if (T && T.meshes) {
+    scene.remove(T.meshes);
+    T.meshes = null;
+    T.motes = null;
+  }
 }
 
 function endTransit() {
+  disposeTransitMeshes();
   state.transit = null;
 }
 
@@ -4476,6 +4789,21 @@ function drawPortrait() {
     g.fillRect(22, 16, 28, 5); // band
   }
 }
+// EE 1034 (item 4): purse pulse memory — module-level so the
+// 5-second sync and the event syncs agree on what "changed" is.
+let pursePulseKey = "";
+let pursePaidToastShown = false;
+
+function coinFloater(text) {
+  const layer = $("coinfloat");
+  if (!layer) return;
+  const el = document.createElement("div");
+  el.className = "coinfloat";
+  el.textContent = text;
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 2100);
+}
+
 function syncHud() {
   // Hearts AND numbers: hit points, unmistakable.
   const heartsEl = $("hearts");
@@ -4499,6 +4827,9 @@ function syncHud() {
   $("scoreline").textContent = `score ${totalScore(sub)} · best ${Math.max(standings.best, totalScore(sub))}`;
   const inv = [];
   if (state.weapon === "lance") inv.push("the Star Lance");
+  if (state.weapon === "sword") inv.push("the Small Sword");
+  if (state.ownsSword && state.weapon !== "sword") inv.push("Small Sword (carried)");
+  if (state.ownsLance && state.weapon !== "lance") inv.push("Star Lance (carried)");
   if (state.charms.swift) inv.push("Swift Charm");
   if (state.charms.bright) inv.push("Bright Charm");
   if (state.charms.ward) inv.push(state.wardCharge > 0 ? "Ward Charm (ready)" : "Ward Charm (spent)");
@@ -4514,6 +4845,32 @@ function syncHud() {
   const rungsHeld = Object.keys(eco.ladder).length;
   if (rungsHeld) inv.push(`${rungsHeld} ladder rung${rungsHeld === 1 ? "" : "s"}`);
   $("invline").textContent = inv.length ? "carrying: " + inv.join(" · ") : "";
+  // EE 1034 (item 4): the purse — its own HUD element, always
+  // on screen: the balances, the road to the next whole coin,
+  // and a generator's standing, named. It pulses when the
+  // numbers move, and clicking it opens the board — the
+  // ladder shop where credits are spent.
+  const purseEl = $("purse");
+  if (purseEl) {
+    const gen = isGenerator(eco);
+    const frac = gen ? eco.frac.credit : eco.frac.drip;
+    const key = `${eco.tokens}|${eco.credits}|${gen ? 1 : 0}`;
+    purseEl.innerHTML =
+      `<span class="pursecoins">${eco.tokens} flux · ${eco.credits} credit${eco.credits === 1 ? "" : "s"}</span>` +
+      (gen ? `<span class="pursechip">${eco.entitlement.purchaseNumber ? `Generator № ${eco.entitlement.purchaseNumber}` : "Generator"} · paid in full</span>` : "") +
+      `<span class="pursetrack"><span class="pursefill" style="width:${Math.round(Math.min(1, frac) * 100)}%"></span></span>` +
+      `<span class="pursehnt">${keyName(BIND.board)} — the board: the ladder shop</span>`;
+    if (key !== pursePulseKey) {
+      pursePulseKey = key;
+      purseEl.classList.remove("pulse");
+      void purseEl.offsetWidth;
+      purseEl.classList.add("pulse");
+    }
+    if (gen && !pursePaidToastShown) {
+      pursePaidToastShown = true;
+      toast("Paid in full — you are a generator. Your purse fills as you play: flux for everyone, credits from your spew.", 5000);
+    }
+  }
   recordStandings();
   $("questline").textContent = sub.questDone
     ? "The Deep Stone — reached. The hat is yours."
@@ -4586,8 +4943,38 @@ function renderBoard() {
     `<span class="realmstatus">${d.mine.daily ? "place of the day found ✓" : "place of the day not found yet"} · best ${standings.best} pts</span></div>`;
   $("board-note").textContent = globalNote;
   renderEco();
+  renderFieldGuide();
   renderFormPanel();
   renderSaveState();
+}
+
+// EE 1034 (item 2): the field guide — every ownable thing,
+// what it is for, and whether it is yours, on the board
+// beside the shop that sells the rest. Weapons and charms
+// from ITEM_DEFS; the ladder's rungs with their own effect
+// text (the same words the shop rows carry).
+function renderFieldGuide() {
+  const el = document.getElementById("board-guide");
+  if (!el) return;
+  const owned = {
+    sword: state.ownsSword, lance: state.ownsLance,
+    swift: state.charms.swift, bright: state.charms.bright, ward: state.charms.ward,
+  };
+  let html = "";
+  for (const kind of ["sword", "lance", "swift", "bright", "ward"]) {
+    const def = ITEM_DEFS[kind];
+    if (!def) continue;
+    html += `<div class="realmrow ${owned[kind] ? "here" : ""}"><span class="realmname2">${def.name}</span>` +
+      `<span class="realmstatus">${itemUseLine(def)}</span>` +
+      `<span class="realmstatus">${owned[kind] ? "yours" : "out in the world"}</span></div>`;
+  }
+  for (const r of LADDER_RUNGS) {
+    const held = ownsRung(eco, r.id);
+    html += `<div class="realmrow ${held ? "here" : ""}"><span class="realmname2">${r.name}</span>` +
+      `<span class="realmstatus">${r.effect}</span>` +
+      `<span class="realmstatus">${held ? "yours" : `${r.price} credits — the ladder shop, below`}</span></div>`;
+  }
+  el.innerHTML = html;
 }
 
 // ---------- the purse panel: record, entitlement, faucets ----------------------
@@ -6217,6 +6604,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.code === BIND.equip) { equipWeapon(); return; }
+  if (e.code === BIND.fly) { toggleFlight(); return; }
   switch (e.code) {
     case "Escape":
       if (state.introOpen) closeIntroViewer(); else toggleMenu();
@@ -6287,6 +6675,7 @@ $("btn-login-save").addEventListener("click", () => {
 });
 $("btn-save-local").addEventListener("click", () => downloadLocalSave());
 $("btn-redeem").addEventListener("click", () => redeemKeyFromField());
+$("purse").addEventListener("click", () => toggleBoard()); // EE 1034 (item 4): the purse opens the board
 $("btn-buy-gift").addEventListener("click", () => buyGiftFromPanel());
 $("btn-convert").addEventListener("click", () => convertFromPanel());
 $("btn-handdown").addEventListener("click", () => handdownFromPanel());
@@ -6669,6 +7058,7 @@ function animate() {
       : "🛡 safe here — nothing can hurt you at Arrival";
   }
   checkMonsterContact();
+  battleStep(now); // EE 1034 (item 3): the battle cues ride the frame
   updateGuardianEncounter();
   // The quest: reaching the stone is checked against the subspace.
   if (!sub.questDone) {
@@ -6725,152 +7115,14 @@ function animate() {
   renderFrame(now, dt);
 }
 
-// ---------- the warp (EE 1023, item 1) ---------------------------------------
-// The transit's visible half, and the standing rift's: the scene
-// renders into a target and a fullscreen pass warps it — swirl
-// and pinch around the ring's projected position, chromatic
-// fringing, a breath of the far realm's color — with the warp's
-// strength driven by the transit envelope (and, faintly, by
-// standing near a live rift: the world bends around the door at
-// all times). Hyperspace streaks ride the camera through the
-// warp, and the field of view punches 74 -> 90 -> 74.
-const WARP_TRANSIT_MS = 2600;
-let warpRT = null, warpScene = null, warpCam = null, warpMat = null;
-let warpLevelNow = 0; // the envelope's current strength (the e2e handle reads it)
-let streaks = null, streakData = null;
+// ---------- the frame (EE 1034, item 1) ------------------------------
+// The EE 1023 warp pass is GONE (Will: it felt forced/fake).
+// The scene renders straight to the canvas; the tunnel the fox
+// walks is geometry in the world and needs no screen effect.
+let warpLevelNow = 0; // the warp's old strength handle: honestly zero now
 
-function buildWarpPass() {
-  const db = renderer.getDrawingBufferSize(new THREE.Vector2());
-  warpRT = new THREE.WebGLRenderTarget(Math.max(2, db.x), Math.max(2, db.y));
-  warpScene = new THREE.Scene();
-  warpCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  warpMat = new THREE.ShaderMaterial({
-    uniforms: {
-      tDiffuse: { value: warpRT.texture },
-      uWarp: { value: 0 },
-      uTime: { value: 0 },
-      uTint: { value: new THREE.Color(0x0e4d8f) },
-      uCenter: { value: new THREE.Vector2(0.5, 0.5) },
-      uAspect: { value: 1 },
-    },
-    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
-    fragmentShader: [
-      "uniform sampler2D tDiffuse; uniform float uWarp; uniform float uTime;",
-      "uniform vec3 uTint; uniform vec2 uCenter; uniform float uAspect;",
-      "varying vec2 vUv;",
-      "void main(){",
-      "  vec2 c = vUv - uCenter; c.x *= uAspect;",
-      "  float r = length(c);",
-      "  float ang = uWarp * (0.9 * exp(-r * 1.35) + 0.10 * sin(uTime * 1.7 + r * 16.0));",
-      "  float ca = cos(ang), sa = sin(ang);",
-      "  c = mat2(ca, -sa, sa, ca) * c;",
-      "  c *= 1.0 - uWarp * 0.20 * (1.0 - smoothstep(0.0, 1.1, r));",
-      "  vec2 uv = uCenter + vec2(c.x / uAspect, c.y);",
-      "  vec2 ab = (r > 1e-4 ? c / r : vec2(0.0)) * uWarp * 0.010 * r;",
-      "  vec3 col;",
-      "  col.r = texture2D(tDiffuse, uv + ab).r;",
-      "  col.g = texture2D(tDiffuse, uv).g;",
-      "  col.b = texture2D(tDiffuse, uv - ab).b;",
-      "  col = mix(col, uTint, uWarp * 0.16 * max(0.0, 1.0 - r * 0.7));",
-      "  col *= 1.0 - uWarp * 0.22 * r * r;",
-      "  gl_FragColor = vec4(col, 1.0);",
-      "}",
-    ].join("\n"),
-    depthTest: false, depthWrite: false,
-  });
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), warpMat);
-  quad.frustumCulled = false;
-  warpScene.add(quad);
-  buildStreaks();
-}
-
-function buildStreaks() {
-  const N = 420;
-  const pos = new Float32Array(N * 6);
-  streakData = [];
-  for (let i = 0; i < N; i++) {
-    const a = (kernels.hash(`streak|${i}|a`) % 628) / 100;
-    const rad = 0.4 + (kernels.hash(`streak|${i}|b`) % 300) / 100;
-    streakData.push({
-      x: Math.cos(a) * rad, y: Math.sin(a) * rad,
-      z: -2 - (kernels.hash(`streak|${i}|c`) % 2600) / 100,
-      sp: 0.7 + (kernels.hash(`streak|${i}|d`) % 60) / 100,
-    });
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  streaks = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
-    color: 0xbfe9ff, transparent: true, opacity: 0, depthWrite: false,
-  }));
-  streaks.frustumCulled = false;
-  streaks.visible = false;
-  camera.add(streaks);
-}
-
-function stepStreaks(dt, warp) {
-  if (!streaks) return;
-  const on = warp > 0.02;
-  streaks.visible = on;
-  if (!on) return;
-  streaks.material.opacity = Math.min(0.85, warp * 1.1);
-  const pos = streaks.geometry.attributes.position;
-  const stretch = 0.3 + warp * 2.6;
-  for (let i = 0; i < streakData.length; i++) {
-    const s = streakData[i];
-    s.z += dt * (4 + warp * 26) * s.sp;
-    if (s.z > -0.4) s.z = -28;
-    pos.setXYZ(i * 2, s.x, s.y, s.z);
-    pos.setXYZ(i * 2 + 1, s.x, s.y, s.z - stretch * s.sp);
-  }
-  pos.needsUpdate = true;
-}
-
-function warpEnvelope(now) {
-  const T = state.transit;
-  if (!T) return 0;
-  const p = Math.min(1, Math.max(0, (now - T.t0) / WARP_TRANSIT_MS));
-  return Math.sin(Math.PI * Math.pow(p, 0.9));
-}
-
-const _warpV = new THREE.Vector3();
 function renderFrame(now, dt) {
-  let warp = warpEnvelope(now);
-  let cx = 0.5, cy = 0.5;
-  const ring = state.rift;
-  if (ring && warpMat) {
-    _warpV.set(ring.x, ring.feetY + 1.7, ring.z).project(camera);
-    if (_warpV.z < 1) { cx = _warpV.x * 0.5 + 0.5; cy = _warpV.y * 0.5 + 0.5; }
-    if (state.transit && state.transit.other) {
-      warpMat.uniforms.uTint.value.setHex(RIFT_TINT[state.transit.other.realmId] ?? 0x0e4d8f);
-    } else if (ring.target) {
-      warpMat.uniforms.uTint.value.setHex(RIFT_TINT[ring.target.realmId] ?? 0x0e4d8f);
-    }
-  }
-  if (!state.transit && ring) {
-    // A standing rift bends the picture around it, a little, always.
-    const d = Math.hypot(state.pos.x - ring.x, state.pos.z - ring.z);
-    if (d < RIFT_RANGE && _warpV.z < 1) {
-      warp = Math.max(warp,
-        0.05 + 0.075 * (1 - d / RIFT_RANGE) + 0.012 * Math.sin(now / 300));
-    }
-  }
-  warpLevelNow = warp;
-  const targetFov = 74 + warp * 16;
-  if (Math.abs(camera.fov - targetFov) > 0.05) {
-    camera.fov = targetFov;
-    camera.updateProjectionMatrix();
-  }
-  stepStreaks(dt, warp);
-  if (warp <= 0.004 || !warpRT) { renderer.render(scene, camera); return; }
-  warpMat.uniforms.uWarp.value = warp;
-  warpMat.uniforms.uTime.value = now / 1000;
-  warpMat.uniforms.uCenter.value.set(cx, cy);
-  const size = renderer.getSize(new THREE.Vector2());
-  warpMat.uniforms.uAspect.value = size.y ? size.x / size.y : 1;
-  renderer.setRenderTarget(warpRT);
   renderer.render(scene, camera);
-  renderer.setRenderTarget(null);
-  renderer.render(warpScene, warpCam);
 }
 
 // ---------- subspace physics tick -------------------------------------------------------------
@@ -6924,6 +7176,13 @@ function ecoTick() {
   if (document.hidden || now - lastActiveAt > 30000 || elapsed <= 0) return;
   const minted = accrue(eco, elapsed);
   if (minted.tokensMinted || minted.tokensSpewed || minted.creditsMinted) persistEco();
+  // EE 1034 (item 4): minting is SEEN as it happens — a floater
+  // for each whole coin that lands, and a soft chime when a
+  // whole credit does. (Rates untouched: ruled values.)
+  if (minted.tokensMinted) coinFloater(`+${minted.tokensMinted} flux`);
+  if (minted.tokensSpewed) coinFloater(`+${minted.tokensSpewed} flux spewed for the world`);
+  if (minted.creditsMinted) { coinFloater(`+${minted.creditsMinted} credit${minted.creditsMinted === 1 ? "" : "s"}`); sfx.coinChime(); }
+  if (minted.tokensMinted || minted.tokensSpewed || minted.creditsMinted) syncHud();
   // The ladder's one grant: the Deep Stone quest gives the hat in
   // the world (sub.hatGranted); the ladder writes it down so it
   // stays — in the save and its copies, like everything owned.
@@ -7643,7 +7902,7 @@ $("sr-connect").addEventListener("click", () => {
 // Demo instrumentation: a handle for headless playtests (and for
 // Will's own poking in devtools). Not part of the fiction.
 window.NOVA_FOX3 = {
-  state, sub, kernels, BACKEND, playerName, standings,
+  state, sub, kernels, BACKEND, playerName, standings, eco,
   speedrun: {
     arm: () => speedrunArm(),
     abort: () => speedrunAbort(),
@@ -7668,6 +7927,14 @@ window.NOVA_FOX3 = {
   inTransit: () => !!state.transit,
   foxPos: () => ({ x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }),
   equipState: () => ({ weapon: state.weapon, ownsSword: state.ownsSword, ownsLance: state.ownsLance }),
+  // EE 1034 handles: flight, battle, tunnels, the dragon flag.
+  flightState: () => ({ flying: state.flying, gate: flightUnlocked(eco, sub.dragonKilled), dragonKilled: sub.dragonKilled }),
+  setDragonKilled: (v) => { sub.setDragonKilled(!!v); return sub.dragonKilled; },
+  battleState: () => ({ on: battleOn, ins: sfx.stats.battleIns, outs: sfx.stats.battleOuts, ctx: !!sfx.ctx, cstate: sfx.ctx ? sfx.ctx.state : "none" }),
+  tunnelsState: () => ({ standing: sub.tunnels.size, known: tunnelKnownRecords().length,
+    link: state.riftLink ? (state.riftLink.tunnel ? state.riftLink.tunnel.key : null) : null }),
+  ecoState: () => ({ tokens: eco.tokens, credits: eco.credits, frac: { ...eco.frac }, generator: isGenerator(eco) }),
+  ecoAccrue: (seconds) => accrue(eco, seconds),
   waypoint: () => ({ beacon: !!(hallBeacon && hallBeacon.visible),
     hud: (() => { const el = $("waypoint"); return el ? el.style.display : "none"; })() }),
   isWarded, classifyStroke, boardData, scoreNow: () => totalScore(sub),

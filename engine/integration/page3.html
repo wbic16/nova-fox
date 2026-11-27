@@ -220,6 +220,17 @@
   #help b { color: #c8d6f2; }
   #scoreline { font-size: 13px; color: #7fd8ff; margin-top: 4px; }
   #invline { font-size: 12px; color: #5fe8d8; margin-top: 2px; max-width: 260px; }
+  /* EE 1034 (item 4): the purse — coins on their own line, always visible. */
+  #purse { margin-top: 6px; max-width: 260px; cursor: pointer; font-size: 13px; color: #ffd97a; }
+  #purse .pursechip { display: block; font-size: 11px; color: #9fe8ff; margin-top: 1px; }
+  #purse .pursetrack { display: block; height: 3px; background: rgba(255,217,122,.18); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  #purse .pursefill { display: block; height: 100%; background: #ffd97a; border-radius: 2px; transition: width .6s ease; }
+  #purse .pursehnt { display: block; font-size: 10px; color: #5f7194; margin-top: 2px; }
+  #purse.pulse { animation: pursepulse .7s ease; }
+  @keyframes pursepulse { 0% { transform: scale(1); } 30% { transform: scale(1.06); } 100% { transform: scale(1); } }
+  #coinfloat { position: relative; max-width: 260px; }
+  .coinfloat { position: absolute; right: 0; top: 0; font-size: 13px; color: #ffd97a; pointer-events: none; animation: coinrise 2s ease-out forwards; }
+  @keyframes coinrise { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
   #syncline { font-size: 11.5px; color: #7e93bd; margin-top: 6px; max-width: 260px; }
   #wardline {
     left: 50%; top: 74px; transform: translateX(-50%); display: none;
@@ -664,6 +675,8 @@
   <div id="questline" class="opt">The Deep Stone waits in the barrow, east of Arrival.</div>
   <div id="scoreline" class="opt">score 0</div>
   <div id="invline"></div>
+  <div id="purse" title="your purse — click for the board and the ladder shop"></div>
+  <div id="coinfloat"></div>
   <div id="syncline" class="opt"></div>
 </div>
 
@@ -680,7 +693,7 @@
   <b>W A S D</b> walk (or <b>A W E F</b> — the keys button, bottom right) · <b>mouse</b> look (click the world first) · <b>Space</b> jump · <b>Shift</b> run<br>
   <b>1–9 0 −</b> and <b>Q W E R T Y U I O P [</b> the eleven notes — three together travel, repeats and all<br>
   <b>hold right mouse + draw</b> a triangle (bridge), circle (home), or diamond (far-off place) · <b>Shift + drag</b> the spectral flute<br>
-  <b>G</b> flip down · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>N</b> fox vision in the Hall · <b>B</b> the board · <b>I</b> the telling door · <b>M</b> the map of realms · <b>L</b> your log · <b>`</b> the test console<br>
+  <b>G</b> flip down · <b>H</b> fly (the bought, and dragon-slayers) · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>N</b> fox vision in the Hall · <b>B</b> the board · <b>I</b> the telling door · <b>M</b> the map of realms · <b>L</b> your log · <b>`</b> the test console<br>
   <span style="color:#5f7194">your marks can save to a map all foxes share — sign in from the board (B) to save there, or save a copy on this machine from the same panel; offline, your marks wait here</span>
 </div>
 
@@ -769,6 +782,9 @@
   <div id="eco-note"></div>
   <h3>The ladder — power-ups for credits</h3>
   <div class="sub">Dozens of rungs toward a legend, bought once each and yours for good. This season's shelf is the white, grey, and green gear; the red and blue stand below, priced in the open, and come at Christmas with the dragon. Nothing here is the only way to do anything — every rung widens a verb you already have.</div>
+  <h3>The field guide — what things are for</h3>
+  <div class="sub">Every thing you can hold, what it does, and how you use it — the weapons and charms out in the world, and the ladder's rungs below.</div>
+  <div id="board-guide"></div>
   <div id="board-shop"></div>
   <h3>Your form — a small phext you wear</h3>
   <div class="sub">Your shape is yours to write: a little phext, one page a frame, and the frames walk its coordinates in order — that walk is the animation. A page can be svg, a bitmap, a turtle's walk, or plain shapes; pages may mix. The ruled lines are 4 KB of phext and the size of your own body; the build is generous past both, and says so where you stand. What you wear is written to the shared map, so the form is your public shape. Form pictures are pictures — nothing in a form ever runs.</div>
