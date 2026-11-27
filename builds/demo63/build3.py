@@ -315,10 +315,10 @@ parts = [
     re.sub(r"^export ", "", read("ideas.js"), flags=re.M),
     "// ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====",
     re.sub(r"^export ", "", read("gdial.js"), flags=re.M),
-    "// ===== the ship log: recent builds, as shipped (data: SHIPLOG.md baked; helpers: shiplog.js) =====",
-    shiplog_js + re.sub(r"^export ", "", read("shiplog.js"), flags=re.M),
     "// ===== the feedback door: to the wiki, with the stamp (source: feedback.js) =====",
     re.sub(r"^export ", "", read("feedback.js"), flags=re.M),
+    "// ===== the ship log: recent builds, as shipped (data: SHIPLOG.md baked; helpers: shiplog.js) =====",
+    shiplog_js + re.sub(r"^export ", "", read("shiplog.js"), flags=re.M),
     "// ===== multiplayer presence: echolocation, strength in numbers, the healing pulse (source: mp.js) =====",
     re.sub(r"^export ", "", read("mp.js"), flags=re.M),
     "// ===== game (source: game3.js) =====",
@@ -371,7 +371,7 @@ if LITE:
         "per-part strip assembly differs from the whole-module strip"
     PART_NAMES = ["three", "wasm-core", "narration", "intro", "world",
                   "economy", "solver", "forms", "speedrun", "banter",
-                  "scheme", "ideas", "gdial", "shiplog", "feedback", "mp", "game"]
+                  "scheme", "ideas", "gdial", "feedback", "shiplog", "mp", "game"]
     module_coords = []
     module_names = {}
     _ci = 0

@@ -249,6 +249,9 @@
   #purse .pursechip { display: block; font-size: 11px; color: #9fe8ff; margin-top: 1px; }
   #purse .pursetrack { display: block; height: 3px; background: rgba(255,217,122,.18); border-radius: 2px; margin-top: 4px; overflow: hidden; }
   #purse .pursefill { display: block; height: 100%; background: #ffd97a; border-radius: 2px; transition: width .6s ease; }
+  #together { display: none; margin-top: 4px; font-size: 12.5px; color: #ffc2d1; }
+  #pulsecd { display: none; margin-top: 4px; max-width: 120px; height: 3px; background: rgba(255,194,209,.18); border-radius: 2px; overflow: hidden; }
+  #pulsefill { display: block; height: 100%; width: 100%; background: #ffc2d1; border-radius: 2px; }
   #purse .pursehnt { display: block; font-size: 10px; color: #5f7194; margin-top: 2px; }
   #purse.pulse { animation: pursepulse .7s ease; }
   /* EE 1037 (item 4): the fight skills' line, under the purse —
@@ -720,6 +723,8 @@
   <div id="scoreline" class="opt">score 0</div>
   <div id="invline"></div>
   <div id="purse" title="your purse — click for the board and the ladder shop"></div>
+  <div id="together" title="strength in numbers — the foxes near you lift your strike"></div>
+  <div id="pulsecd" title="your echolocation pulse — it finds your friends, and heals them"><span id="pulsefill"></span></div>
   <div id="skills"></div>
   <div id="coinfloat"></div>
   <div id="syncline" class="opt"></div>
@@ -1002,6 +1007,7 @@
     <button class="menuitem" id="menu-newgame">Start a New Game</button>
     <button class="menuitem" id="menu-unstick">Return to this realm's Arrival <span class="st">unstick</span></button>
     <button class="menuitem" id="menu-lan">Open to LAN <span class="st" id="menu-lan-state">closed</span></button>
+    <button class="menuitem" id="menu-mp">Multiplayer <span class="st" id="menu-mp-state">on</span></button>
     <button class="menuitem" id="menu-savephext">Save the world to .phext</button>
     <button class="menuitem" id="menu-merge">Merge the local game to fox.phext.io <span class="st" id="menu-merge-state"></span></button>
     <button class="menuitem" id="menu-keys">Key bindings</button>
@@ -61884,6 +61890,29 @@ function joyMorseCue(deck, now, ctx) {
   return { kind: "quiet", text: "", speak: false };
 }
 
+// ===== the feedback door: to the wiki, with the stamp (source: feedback.js) =====
+// ---------- the feedback door (build 42, W-2) ------------------------------
+// One action from inside the game to the Nova Wiki's feedback page:
+// the player tells us what the build did, in their own words, and
+// the build's ship epoch rides along so the note lands on the build
+// that was actually played. The game glue (game3.js) owns the
+// window; this module is pure — no DOM, no storage, no clock —
+// exactly like ideas.js / gdial.js, and tests drive it directly.
+//
+// The wiki's home is Will's call and not yet named: the URL below
+// is a working default on the game's own domain, held in ONE named
+// constant so the ship leg can point the door at the real wiki
+// with a one-line change. UNCONFIRMED default (W-2 MR).
+
+const WIKI_FEEDBACK_URL = "https://fox.phext.io/wiki/feedback";
+
+// The door's URL for a build: the wiki page, the source marked as
+// the game, and the build's ship epoch — the artifact's own stamp,
+// read at runtime by the glue, never a literal here.
+function feedbackUrl(shipEe) {
+  return WIKI_FEEDBACK_URL + "?from=game&ee=" + shipEe;
+}
+
 // ===== the ship log: recent builds, as shipped (data: SHIPLOG.md baked; helpers: shiplog.js) =====
 const SHIP_LOG = [{"ee": 0, "name": "build 42", "note": "The sell-ready build: mutable geometry and digging with a point, monsters that search, fight skills tier two, realms with character, the Solver, the gravity dial."}, {"ee": 1081, "name": "demo41", "note": "The roadmap panel stands in the game: what is on the way, and what already landed with its epoch on it."}, {"ee": 1073, "name": "demo35", "note": "The EE 1037 batch: the Heart drawn as a heart; the Shadow behind the Heart's gate, six hits and real phases; dash, charged strike, and ward; Joy's fight lines re-recorded."}, {"ee": 1046, "name": "demo34", "note": "The EE 1034 batch: wormhole tunnels bored through the world's own geometry, permanent and shared by every fox; item uses written plainly; monsters hunt in packs; the purse shows your coins; flight for paid foxes and dragon-slayers."}, {"ee": 1037, "name": "demo32", "note": "Two downloads from one build: the Full build, and the nimble Lite under its cap, its assets riding by manifest."}, {"ee": 1034, "name": "demo31", "note": "The EE 1023 batch: rift transit woven into the world itself; monsters aggro and flash red; opening lines at 1.4x; the sword equips and shows on the swing; waypoints to the hall; single-click carve."}, {"ee": 1032, "name": "demo30", "note": "The phone fix: gravity made reversible under the ruling, the console closable on touch, phone controls repaired."}, {"ee": 1023, "name": "demo29", "note": "The EE 995 batch: the intro plays once; realms take their own colours of the rainbow; the portal panel and the walk-through wormhole; Joy rides visible as the aperture wisp; the Small Sword at spawn."}];
 // ---------- the ship log: recent builds, as shipped (W-5) ----------
@@ -61934,27 +61963,337 @@ function shipLogLine(row, currentEE) {
   return `${head} · ${row.name} · ${row.note}`;
 }
 
-// ===== the feedback door: to the wiki, with the stamp (source: feedback.js) =====
-// ---------- the feedback door (build 42, W-2) ------------------------------
-// One action from inside the game to the Nova Wiki's feedback page:
-// the player tells us what the build did, in their own words, and
-// the build's ship epoch rides along so the note lands on the build
-// that was actually played. The game glue (game3.js) owns the
-// window; this module is pure — no DOM, no storage, no clock —
-// exactly like ideas.js / gdial.js, and tests drive it directly.
+// ===== multiplayer presence: echolocation, strength in numbers, the healing pulse (source: mp.js) =====
+// ---------- multiplayer presence: echolocation over websockets (MP-1) ------
+// Will (EE ~1151): "multiplayer on launch day if we can make it happen
+// with echolocation and web sockets." And EE ~1153: "players get
+// stronger together." And EE ~1154: "echolocation heals your friends."
+// And EE ~1157: "every device on your local Wi-Fi makes you stronger" —
+// household foxes (same connection egress, as the relay sees it)
+// count as together and heal at any distance, even across realms.
 //
-// The wiki's home is Will's call and not yet named: the URL below
-// is a working default on the game's own domain, held in ONE named
-// constant so the ship leg can point the door at the real wiki
-// with a one-line change. UNCONFIRMED default (W-2 MR).
+// The shape: a fox ANNOUNCES itself to its realm's room at the
+// gateway and LISTENS — the answer is the echo: the room's roster,
+// then a relay of every fox's state as it moves. Presence is
+// discovered the way echolocation discovers a room: send a signal,
+// hear what answers. This file is the pure half — the wire codec,
+// the roster, the interpolation, and the two gifts co-presence
+// carries:
+//
+//   STRENGTH IN NUMBERS — each OTHER fox within MP_TOGETHER_RADIUS
+//   cells lifts the fox's strike by MP_BONUS_PER_FOX, capped at five
+//   foxes (+50%): you and five is the raid-group shape. Solo is
+//   never penalized; the bonus only ever adds.
+//
+//   THE PULSE HEALS — a fox's echolocation pulse restores every
+//   OTHER fox in the radius by MP_PULSE_HEAL (one heart-step: the
+//   heart bar steps at 2 hp, hp 20 is ten hearts). The pulsing fox
+//   never heals itself; your ping heals your friends, theirs heals
+//   you. A per-source cooldown is judged on the RECEIVING side as
+//   well as the sending side, so the heal rate is bounded no matter
+//   what a client sends.
+//
+// The count is of FOXES, not humans — when the raid layer lands,
+// agents standing in the room count toward togetherness exactly as
+// players do, because the room cannot tell them apart and should
+// not try.
+//
+// Honesty class (v1, named): positions are client-reported; the
+// server is a relay, not an authority. Each receiving client is
+// authoritative over its OWN fox — its own damage bonus, its own
+// healing — computed here from the room state it was given. The
+// game glue (game3.js) owns the socket, the meshes, and the HUD;
+// tests drive these functions directly, the way they drive
+// world.js and gdial.js.
 
-const WIKI_FEEDBACK_URL = "https://fox.phext.io/wiki/feedback";
+const MP_TOGETHER_RADIUS = 12; // cells, horizontal (state.pos units)
+const MP_BONUS_PER_FOX = 0.10; // +10% strike per nearby fox
+const MP_BONUS_MAX_FOXES = 5; // five nearby foxes = the full bonus
+const MP_BONUS_CAP = 0.50;
+const MP_PULSE_HEAL = 2; // one heart-step (hearts step at 2 hp)
+const MP_PULSE_COOLDOWN_MS = 10000; // per source, both sides judge it
+const MP_MAX_REMOTES = 40; // the raid size: 8 foxes x 5, or 40 and you
+const MP_STATE_MS = 100; // state rides at ~10 Hz
+const MP_RENDER_DELAY_MS = 100; // interpolation looks this far back
+const MP_STALE_MS = 3000; // a silent fox stops counting and fades
+const MP_LS_KEY = "nova-phox-mp";
 
-// The door's URL for a build: the wiki page, the source marked as
-// the game, and the build's ship epoch — the artifact's own stamp,
-// read at runtime by the glue, never a literal here.
-function feedbackUrl(shipEe) {
-  return WIKI_FEEDBACK_URL + "?from=game&ee=" + shipEe;
+// ---------- the wire codec ---------------------------------------------------
+// One JSON object per websocket text frame. t names the kind:
+//   hello  c->s  {t, token, realm}        the announce
+//   welcome s->c {t, id, roster:[...]}    the echo: who is here
+//   join   s->c  {t, id, name}            a fox enters the room
+//   part   s->c  {t, id}                  a fox leaves the room
+//   room   c->s  {t, realm}               the fox changed realms
+//   s      both  {t, seq, p:[x,y,z], h, a}  state, relayed by the room
+//   pulse  both  {t, p:[x,y,z]}           the echolocation pulse
+//   ping/pong    heartbeat, both ways
+// The server stamps id (and name, on join/pulse) from the login
+// token; a client never speaks for another fox.
+
+function mpIsNum(n) { return typeof n === "number" && Number.isFinite(n); }
+function mpIsPos(p) {
+  return Array.isArray(p) && p.length === 3 && p.every(mpIsNum);
+}
+function mpIsRealm(r) {
+  return typeof r === "string" && /^[a-z0-9][a-z0-9-]{0,31}$/.test(r);
+}
+
+function mpEncodeHello(token, realm) {
+  return JSON.stringify({ t: "hello", token: String(token || ""), realm });
+}
+function mpEncodeState(seq, p, h, a) {
+  return JSON.stringify({ t: "s", seq, p, h, a: a || "" });
+}
+function mpEncodePulse(p) {
+  return JSON.stringify({ t: "pulse", p });
+}
+function mpEncodeRoom(realm) {
+  return JSON.stringify({ t: "room", realm });
+}
+function mpEncodePing() {
+  return JSON.stringify({ t: "ping" });
+}
+
+// Parse one frame. Returns a judged object, or null for anything
+// malformed — a bad frame is dropped, never trusted, never fatal.
+function mpDecode(text) {
+  let m;
+  try { m = JSON.parse(text); } catch (e) { return null; }
+  if (!m || typeof m !== "object" || typeof m.t !== "string") return null;
+  switch (m.t) {
+    case "hello":
+      if (typeof m.token !== "string" || !m.token || !mpIsRealm(m.realm)) return null;
+      return { t: "hello", token: m.token, realm: m.realm };
+    case "welcome":
+      if (typeof m.id !== "string" || !Array.isArray(m.roster)) return null;
+      return { t: "welcome", id: m.id,
+               roster: m.roster.filter((r) => r && typeof r.id === "string") };
+    case "join":
+      if (typeof m.id !== "string") return null;
+      return { t: "join", id: m.id, name: String(m.name || m.id) };
+    case "part":
+      if (typeof m.id !== "string") return null;
+      return { t: "part", id: m.id };
+    case "house":
+      if (!Array.isArray(m.roster)) return null;
+      return { t: "house",
+               roster: m.roster.filter((r) => r && typeof r.id === "string") };
+    case "room":
+      if (!mpIsRealm(m.realm)) return null;
+      return { t: "room", realm: m.realm };
+    case "s":
+      if (!mpIsPos(m.p) || !mpIsNum(m.h)) return null;
+      return { t: "s", id: typeof m.id === "string" ? m.id : null,
+               seq: mpIsNum(m.seq) ? m.seq : 0, p: m.p, h: m.h,
+               a: typeof m.a === "string" ? m.a : "" };
+    case "pulse":
+      if (!mpIsPos(m.p)) return null;
+      return { t: "pulse", id: typeof m.id === "string" ? m.id : null,
+               name: String(m.name || ""), p: m.p };
+    case "ping": return { t: "ping" };
+    case "pong": return { t: "pong" };
+    case "full": return { t: "full" };
+    default: return null;
+  }
+}
+
+// ---------- the roster -------------------------------------------------------
+// id -> { id, name, samples: [{at, p, h, a}], lastSeen }
+// Samples are the fox's relayed states, newest last, a short tail —
+// enough to interpolate between, never a history.
+
+function mpNewRoster() { return new Map(); }
+
+function mpEntry(roster, id, name) {
+  let e = roster.get(id);
+  if (!e) {
+    e = { id, name: name || id, samples: [], lastSeen: 0 };
+    roster.set(id, e);
+  }
+  if (name) e.name = name;
+  return e;
+}
+
+// Apply one judged message to the roster. Returns the events the
+// glue acts on: {joined:[ids], parted:[ids]} (pulses are judged by
+// mpPulseJudge at the glue, against the fox's own state — the
+// roster only remembers who is here and where they stand).
+function mpRosterApply(roster, msg, selfId, now) {
+  const ev = { joined: [], parted: [] };
+  if (!msg) return ev;
+  if (msg.t === "welcome") {
+    roster.clear();
+    for (const r of msg.roster) {
+      if (r.id === selfId) continue;
+      const e = mpEntry(roster, r.id, r.name);
+      if (mpIsPos(r.p)) {
+        e.samples.push({ at: now, p: r.p, h: mpIsNum(r.h) ? r.h : 0, a: "" });
+        e.lastSeen = now;
+      }
+    }
+    ev.joined = [...roster.keys()];
+    return ev;
+  }
+  if (msg.t === "join") {
+    if (msg.id !== selfId && !roster.has(msg.id)) {
+      mpEntry(roster, msg.id, msg.name);
+      ev.joined.push(msg.id);
+    }
+    return ev;
+  }
+  if (msg.t === "part") {
+    if (roster.delete(msg.id)) ev.parted.push(msg.id);
+    return ev;
+  }
+  if (msg.t === "s" && msg.id && msg.id !== selfId) {
+    // The roster is the ROOM: a state seats nobody. A fox outside
+    // the room — a household fox standing in another realm, whose
+    // state the relay also carries — is the household's business
+    // (mpHouseNote), never a ghost in this realm's roster.
+    const e = roster.get(msg.id);
+    if (!e) return ev;
+    e.samples.push({ at: now, p: msg.p, h: msg.h, a: msg.a });
+    if (e.samples.length > 4) e.samples.splice(0, e.samples.length - 4);
+    e.lastSeen = now;
+    return ev;
+  }
+  return ev;
+}
+
+// ---------- the household ------------------------------------------------------
+// id -> { id, name, realm, lastSeen }
+// The relay's co-location signal, carried: foxes whose connections
+// arrive from the same egress (one household's Wi-Fi, one login's
+// agent seats) are household, across realms. The server is the
+// authority on membership — a "house" message replaces the set —
+// and relayed state keeps members fresh between syncs. A household
+// fox counts as together at any distance, and its pulses land at
+// any distance: your house is your party. (Will, EE ~1157.)
+
+function mpNewHouse() { return new Map(); }
+
+function mpHouseApply(house, msg, selfId, now) {
+  if (!msg || msg.t !== "house") return house;
+  const keep = new Set();
+  for (const r of msg.roster) {
+    if (r.id === selfId) continue;
+    keep.add(r.id);
+    let e = house.get(r.id);
+    if (!e) { e = { id: r.id, name: r.id, realm: null, lastSeen: 0 }; house.set(r.id, e); }
+    if (r.name) e.name = r.name;
+    if (typeof r.realm === "string") e.realm = r.realm;
+    e.lastSeen = now;
+  }
+  for (const id of [...house.keys()]) if (!keep.has(id)) house.delete(id);
+  return house;
+}
+
+// Any word from a household fox — its state, its pulse, relayed
+// across realms — proves it is still here.
+function mpHouseNote(house, msg, now) {
+  if (!msg || (msg.t !== "s" && msg.t !== "pulse")) return;
+  const e = msg.id ? house.get(msg.id) : null;
+  if (e) e.lastSeen = now;
+}
+
+// Where a fox stands, rendered: look MP_RENDER_DELAY_MS into the
+// past and step between the two samples that bracket that moment.
+// Past the newest sample, hold it — v1 does not extrapolate a fox
+// it can no longer hear. Null when there is nothing to render.
+function mpSampleAt(entry, now) {
+  const s = entry.samples;
+  if (!s.length) return null;
+  const rt = now - MP_RENDER_DELAY_MS;
+  if (rt <= s[0].at) return { p: s[0].p, h: s[0].h, a: s[0].a };
+  for (let i = s.length - 1; i > 0; i--) {
+    if (s[i - 1].at <= rt && rt <= s[i].at) {
+      const a = s[i - 1], b = s[i];
+      const span = Math.max(1, b.at - a.at);
+      const f = Math.max(0, Math.min(1, (rt - a.at) / span));
+      return {
+        p: [a.p[0] + (b.p[0] - a.p[0]) * f,
+            a.p[1] + (b.p[1] - a.p[1]) * f,
+            a.p[2] + (b.p[2] - a.p[2]) * f],
+        h: a.h + (b.h - a.h) * f, a: b.a,
+      };
+    }
+  }
+  const last = s[s.length - 1];
+  return { p: last.p, h: last.h, a: last.a };
+}
+
+function mpDistXZ(a, b) {
+  const dx = a[0] - b[0], dz = a[2] - b[2];
+  return Math.hypot(dx, dz);
+}
+
+// ---------- strength in numbers ----------------------------------------------
+// The bonus curve, pinned: 0 nearby -> +0%, 1 -> +10%, 5 -> +50%,
+// 8 -> still +50%. The cap is the raid shape: you and five.
+
+function mpBonusFor(count) {
+  if (!(count > 0)) return 0;
+  return Math.min(MP_BONUS_CAP, Math.min(count, MP_BONUS_MAX_FOXES) * MP_BONUS_PER_FOX);
+}
+
+// Who stands with this fox: roster foxes whose latest word is
+// fresh and whose ground distance is inside the radius — plus
+// every fresh household fox, at any distance, in any realm. A fox
+// that qualifies both ways counts once. Returns the count and the
+// bonus it earns. Solo is 0 and +0% — stronger together, never
+// weaker alone.
+function mpTogether(roster, house, selfPos, now) {
+  const ids = new Set();
+  for (const e of roster.values()) {
+    if (!e.samples.length || now - e.lastSeen > MP_STALE_MS) continue;
+    const last = e.samples[e.samples.length - 1];
+    if (mpDistXZ(last.p, selfPos) <= MP_TOGETHER_RADIUS) ids.add(e.id);
+  }
+  if (house) {
+    for (const e of house.values()) {
+      if (now - e.lastSeen <= MP_STALE_MS) ids.add(e.id);
+    }
+  }
+  return { count: ids.size, bonus: mpBonusFor(ids.size) };
+}
+
+// Damage is counted in whole hits, so a percentage bonus rides as
+// a fraction pool: each landed blow banks landed*bonus, and whole
+// points leave the pool as extra hits. Over any run of blows the
+// fox deals exactly the bonus the curve promises — at damage 1 and
+// +10%, every tenth blow lands twice. A blow that lands nothing
+// (a shuttered Heart) banks nothing.
+function mpBonusLanded(landed, bonus, pool) {
+  if (!(landed > 0) || !(bonus > 0)) return { landed, pool };
+  pool += landed * bonus;
+  const extra = Math.floor(pool + 1e-9);
+  return { landed: landed + extra, pool: pool - extra };
+}
+
+// ---------- the pulse ----------------------------------------------------------
+// Sender side: a fox may pulse again only once its own cooldown
+// has run. Receiver side: each fox judges every pulse it hears —
+// the source is never itself, the source's last ACCEPTED pulse is
+// at least a cooldown old, and the pulse's origin stands inside
+// the radius. Judged here, applied by the glue to the fox's own
+// health: the receiver is the authority over its own heart.
+
+function mpPulseReady(lastSentAt, now) {
+  return now - (lastSentAt || 0) >= MP_PULSE_COOLDOWN_MS;
+}
+
+function mpPulseJudge(selfId, selfPos, msg, lastBySource, now, house) {
+  if (!msg || msg.t !== "pulse") return { ok: false, reason: "not-a-pulse" };
+  if (!msg.id || msg.id === selfId) return { ok: false, reason: "own-pulse" };
+  const last = lastBySource.get(msg.id) || 0;
+  if (now - last < MP_PULSE_COOLDOWN_MS) return { ok: false, reason: "cooldown" };
+  // A household fox's pulse lands from anywhere — its coordinates
+  // may belong to another realm entirely and mean nothing here.
+  const ofTheHouse = !!(house && typeof house.has === "function" && house.has(msg.id));
+  if (!ofTheHouse && mpDistXZ(msg.p, selfPos) > MP_TOGETHER_RADIUS)
+    return { ok: false, reason: "too-far" };
+  return { ok: true, heal: MP_PULSE_HEAL, from: msg.id, name: msg.name || msg.id };
 }
 
 // ===== game (source: game3.js) =====
@@ -63159,6 +63498,7 @@ const BINDING_ACTIONS = [
   { id: "dash", label: "Dash", def: "KeyJ" }, // EE 1037 (item 4): J likewise — no note, no scheme key
   { id: "feint", label: "Gravity feint", def: "Slash" }, // P-4 (tier 2): K was claimed by P-2's place in the composed stack — Slash is free in the store (consumer composition, build 42; T-1's resolution)
   { id: "shapeStrike", label: "Shaping strike", def: "BracketRight" }, // P-4 (tier 2): "]" — its left twin plays a note; this one shapes
+  { id: "pulse", label: "Echolocation pulse", def: "Equal" }, // MP-1: "=" — nothing dispatched it; the ping that finds your friends, and heals them
 ];
 const BIND = (() => {
   const stored = LS.get("nova-phox-bindings", {});
@@ -66435,7 +66775,7 @@ function stepDashCombat() {
       sfx.noise({ peak: 0.1, decay: 0.08, freq: 700 });
       continue; // a glance does not spend the ward
     }
-    applyStrikeHit(m, gated);
+    applyStrikeHit(m, mpLanded(gated)); // MP-1: strength in numbers rides the ward-strike too
     state.wardCharge = 0;
     damagePopup("the Ward turns outward", "#aef4ff");
     sfx.tone(660, { type: "sine", peak: 0.12, decay: 0.22, slide: 220 });
@@ -66481,8 +66821,9 @@ function tryStrike(opts = {}) {
   // here it becomes the read: a glance is a grey word and a clang,
   // never the flash of a landed blow. A charged blow (item 4) adds
   // its point everywhere else, and cracks the shutter itself.
-  const landed = best.kind === "guardian"
+  const baseLanded = best.kind === "guardian"
     ? guardianStrikeDamage(best, { damage, charged }) : damage + (charged ? 1 : 0);
+  const landed = mpLanded(baseLanded); // MP-1: strength in numbers
   if (landed <= 0) {
     damagePopup("its heart is shuttered", "#8d99b0");
     sfx.noise({ peak: 0.14, decay: 0.09, freq: 700 });
@@ -69724,7 +70065,7 @@ function syncMenuConfirm() {
 function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
-    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-savephext", "menu-merge",
+    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-mp", "menu-savephext", "menu-merge",
       "menu-keys", "menu-video", "menu-audio", "menu-feedback", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
@@ -69774,6 +70115,10 @@ function handleMenuKey(e) {
 }
 function refreshMenuStates() {
   $("menu-lan-state").textContent = LAN.open ? "open" : "closed";
+  $("menu-mp-state").textContent = !mp.pref ? "off"
+    : !gameToken() ? "on — sign in to join the room"
+    : mp.connected ? `on — ${mp.roster.size} fox${mp.roster.size === 1 ? "" : "es"} in earshot`
+    : "on — reaching for the room…";
   const waiting = marksWaiting();
   $("menu-merge-state").textContent = !BACKEND.online
     ? "the shared map is out of reach"
@@ -69808,6 +70153,308 @@ function startNewGame() {
     try { localStorage.removeItem(k); } catch (e) { /* private mode */ }
   }
   location.reload();
+}
+
+
+// ---------- multiplayer: echolocation presence (MP-1, build 42) -------------
+// Will (EE ~1151): "multiplayer on launch day if we can make it
+// happen with echolocation and web sockets." The fox announces
+// itself to its realm's room at the gateway (the hello, carrying
+// the login token) and listens — the roster that answers is the
+// echo. State rides at ~10 Hz; remote foxes are rendered from the
+// relayed samples, interpolated by the pure half (mp.js), which
+// also judges the two gifts co-presence carries: strength in
+// numbers (EE ~1153 — nearby foxes lift your strike, solo never
+// penalized) and the pulse (EE ~1154 — your echolocation pulse
+// heals the friends it finds; it never heals you).
+//
+// v1 limits, named plainly: positions are client-reported and the
+// gateway only relays them — no server-side movement validation.
+// Remote foxes are VISUAL co-players: no collision, no combat
+// interaction. Each client is authoritative over its own fox —
+// its own bonus, its own healing. No fox-body renderer existed to
+// reuse (the player is first-person; the world's creatures are
+// brick-built), so a remote fox is built from primitives in the
+// same idiom as buildJoy and the monster meshes, with its name
+// on a canvas sprite in the Heart sprite's idiom. When the socket
+// drops, the game continues solo without a word of error noise;
+// the menu's state line is the only teller.
+const mp = {
+  pref: LS.get(MP_LS_KEY, true) !== false,
+  ws: null, connected: false, selfId: null, realm: null,
+  roster: mpNewRoster(), house: mpNewHouse(), seq: 0,
+  lastSentAt: 0, lastPingAt: 0, lastRealmCheck: 0, lastTogetherAt: 0,
+  together: { count: 0, bonus: 0 }, bonusPool: 0,
+  lastPulseSentAt: 0, lastPulseBy: new Map(),
+  lastHeal: null, pulsesSent: 0,
+  retryAt: 0, retryMs: 2000,
+  meshes: new Map(), rings: [],
+};
+
+function mpWsUrl() {
+  return BACKEND.base.replace(/^http/, "ws") + "/api/v2/mp";
+}
+
+function mpConnect(now) {
+  let sock;
+  try { sock = new WebSocket(mpWsUrl()); } catch (e) { mp.retryAt = now + mp.retryMs; return; }
+  mp.ws = sock;
+  mp.realm = state.realm;
+  sock.onopen = () => {
+    try { sock.send(mpEncodeHello(gameToken(), state.realm)); } catch (e) { /* the close will tell */ }
+  };
+  sock.onmessage = (ev) => mpOnMessage(ev);
+  sock.onclose = () => {
+    if (mp.ws !== sock) return; // a deliberate disconnect already handled it
+    mp.ws = null; mp.connected = false; mp.selfId = null;
+    mp.roster.clear(); mp.house.clear(); mpClearMeshes();
+    mp.together = { count: 0, bonus: 0 };
+    mp.retryAt = performance.now() + mp.retryMs;
+    mp.retryMs = Math.min(30000, mp.retryMs * 2);
+  };
+  sock.onerror = () => { try { sock.close(); } catch (e) { /* already gone */ } };
+}
+
+function mpDisconnect() {
+  const sock = mp.ws;
+  mp.ws = null; mp.connected = false; mp.selfId = null;
+  if (sock) { try { sock.close(); } catch (e) { /* already gone */ } }
+  mp.roster.clear(); mp.house.clear(); mpClearMeshes();
+  mp.together = { count: 0, bonus: 0 };
+}
+
+function mpOnMessage(ev) {
+  const msg = mpDecode(ev.data);
+  if (!msg) return;
+  const now = performance.now();
+  if (msg.t === "welcome") {
+    mp.selfId = msg.id; mp.connected = true; mp.retryMs = 2000;
+  }
+  if (msg.t === "pulse") { mpHouseNote(mp.house, msg, now); mpOnPulse(msg, now); return; }
+  if (msg.t === "house") { mpHouseApply(mp.house, msg, mp.selfId, now); return; }
+  if (msg.t === "s") mpHouseNote(mp.house, msg, now);
+  if (msg.t === "full") { mpDisconnect(); mp.retryAt = now + 30000; return; }
+  const evts = mpRosterApply(mp.roster, msg, mp.selfId, now);
+  for (const id of evts.parted) mpRemoveMesh(id);
+}
+
+// A pulse I hear: the ring shows from the fox who sent it, their
+// mesh glints, and the pure judge decides what it does to MY fox —
+// the receiver is the authority over its own heart. The floater
+// names the healer, in the damage floater's own idiom.
+function mpOnPulse(msg, now) {
+  mpSpawnRing(msg.p);
+  const mesh = mp.meshes.get(msg.id);
+  if (mesh) mesh.userData.glintUntil = now + 900;
+  const verdict = mpPulseJudge(mp.selfId,
+    [state.pos.x, state.pos.y, state.pos.z], msg, mp.lastPulseBy, now, mp.house);
+  if (!verdict.ok) return;
+  mp.lastPulseBy.set(msg.id, now);
+  if (state.dead) return;
+  const before = state.hp;
+  state.hp = Math.min(state.maxHp, state.hp + verdict.heal);
+  if (state.hp > before) {
+    mp.lastHeal = { from: verdict.name, at: now, amount: state.hp - before };
+    damagePopup(`+1 heart — ${verdict.name}'s pulse`, "#ff9db0");
+    sfx.chime();
+    syncHud();
+  }
+}
+
+// The player's own pulse: the pressable echolocation beat. Its
+// cooldown is judged here on the sending side (mpPulseReady) and
+// again on every receiving side (mpPulseJudge) — the rate is
+// bounded no matter what a client sends. Solo, the ring still
+// sounds; there is simply nobody in it to heal.
+function mpPulse() {
+  const now = performance.now();
+  if (!mpPulseReady(mp.lastPulseSentAt, now)) return false;
+  mp.lastPulseSentAt = now;
+  mp.pulsesSent++;
+  mpSpawnRing([state.pos.x, state.pos.y, state.pos.z]);
+  if (mp.connected && mp.ws) {
+    try { mp.ws.send(mpEncodePulse([state.pos.x, state.pos.y, state.pos.z])); }
+    catch (e) { /* the close will tell */ }
+  }
+  return true;
+}
+
+function mpSpawnRing(p) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffc2d1, transparent: true, opacity: 0.85,
+    side: THREE.DoubleSide, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 48), mat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(p[0], p[1] - 0.9, p[2]);
+  scene.add(ring);
+  mp.rings.push({ mesh: ring, t0: performance.now() });
+}
+
+function mpStepRings(now) {
+  for (let i = mp.rings.length - 1; i >= 0; i--) {
+    const r = mp.rings[i], f = (now - r.t0) / 900;
+    if (f >= 1) {
+      scene.remove(r.mesh);
+      r.mesh.geometry.dispose(); r.mesh.material.dispose();
+      mp.rings.splice(i, 1);
+      continue;
+    }
+    r.mesh.scale.setScalar(0.5 + f * (MP_TOGETHER_RADIUS - 0.5));
+    r.mesh.material.opacity = 0.85 * (1 - f);
+  }
+}
+
+function mpNameSprite(name) {
+  const cv = document.createElement("canvas");
+  cv.width = 256; cv.height = 56;
+  const cx = cv.getContext("2d");
+  cx.font = "600 30px system-ui, sans-serif";
+  cx.textAlign = "center"; cx.textBaseline = "middle";
+  cx.shadowColor = "rgba(0,0,0,0.85)"; cx.shadowBlur = 6;
+  cx.fillStyle = "#ffe9b8";
+  cx.fillText(String(name || "?").slice(0, 24), 128, 28);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false }));
+  sp.scale.set(2.4, 0.53, 1);
+  return sp;
+}
+
+// A fox, brick-built from primitives the way this world builds
+// everything: fur, cream chest and snout, dark legs and nose, a
+// tail with a pale tip. It faces -z, so rotation.y is the fox's
+// own yaw, the same convention the camera obeys.
+function buildRemoteFoxMesh(name) {
+  const g = new THREE.Group();
+  const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const fur = mat(0xd9822b), cream = mat(0xf3e2c2), dark = mat(0x2a1a0e);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 1.15), fur);
+  body.position.y = 0.72; g.add(body);
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.3), cream);
+  chest.position.set(0, 0.68, -0.5); g.add(chest);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.48, 0.52), fur);
+  head.position.set(0, 1.12, -0.72); g.add(head);
+  const snout = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.3), cream);
+  snout.position.set(0, 1.02, -1.05); g.add(snout);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.06), dark);
+  nose.position.set(0, 1.06, -1.21); g.add(nose);
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 4), fur);
+    ear.position.set(0.17 * sx, 1.5, -0.66); g.add(ear);
+    const legF = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.45, 0.16), dark);
+    legF.position.set(0.2 * sx, 0.22, -0.38); g.add(legF);
+    const legB = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.45, 0.16), dark);
+    legB.position.set(0.2 * sx, 0.22, 0.42); g.add(legB);
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.7), fur);
+  tail.position.set(0, 0.95, 0.75); tail.rotation.x = -0.7; g.add(tail);
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.22), cream);
+  tip.position.set(0, 1.18, 0.98); tip.rotation.x = -0.7; g.add(tip);
+  const label = mpNameSprite(name);
+  label.position.y = 1.95; g.add(label);
+  const glint = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: heartTexture(), transparent: true, opacity: 0, depthWrite: false }));
+  glint.scale.setScalar(0.55); glint.position.y = 1.55; g.add(glint);
+  g.userData = { glint, glintUntil: 0 };
+  scene.add(g);
+  return g;
+}
+
+function mpRemoveMesh(id) {
+  const mesh = mp.meshes.get(id);
+  if (mesh) { scene.remove(mesh); mp.meshes.delete(id); }
+}
+function mpClearMeshes() {
+  for (const id of [...mp.meshes.keys()]) mpRemoveMesh(id);
+}
+
+// Remote foxes stand where the interpolation puts them — the same
+// lerp discipline syncMonsterMeshes keeps, over the relay's
+// samples instead of the subspace's monsters.
+function mpSyncMeshes(now) {
+  for (const e of mp.roster.values()) {
+    const s = mpSampleAt(e, now);
+    if (!s) continue;
+    let mesh = mp.meshes.get(e.id);
+    if (!mesh) { mesh = buildRemoteFoxMesh(e.name); mp.meshes.set(e.id, mesh); }
+    mesh.position.set(s.p[0], s.p[1] - 1.01, s.p[2]);
+    mesh.rotation.y = s.h;
+    const glint = mesh.userData.glint;
+    if (glint) glint.material.opacity =
+      now < mesh.userData.glintUntil
+        ? 0.95 * Math.max(0, (mesh.userData.glintUntil - now) / 900) : 0;
+  }
+  for (const id of [...mp.meshes.keys()]) {
+    if (!mp.roster.has(id)) mpRemoveMesh(id);
+  }
+}
+
+// Strength in numbers, applied to a landed blow: whole hits are
+// the currency, so the percentage rides the fraction pool the
+// pure half keeps (mpBonusLanded). A blow that lands nothing
+// banks nothing.
+function mpLanded(landed) {
+  if (!(landed > 0) || !mp.together.bonus) return landed;
+  const r = mpBonusLanded(landed, mp.together.bonus, mp.bonusPool);
+  mp.bonusPool = r.pool;
+  return r.landed;
+}
+
+function mpSyncHud() {
+  const t = $("together"), pc = $("pulsecd");
+  if (t) {
+    if (mp.together.count > 0) {
+      t.style.display = "block";
+      t.textContent = `together ×${mp.together.count} — strikes +${Math.round(mp.together.bonus * 100)}%`;
+    } else t.style.display = "none";
+  }
+  if (pc) {
+    pc.style.display = mp.connected ? "block" : "none";
+    if (mp.connected) {
+      const f = Math.max(0, Math.min(1,
+        (performance.now() - mp.lastPulseSentAt) / MP_PULSE_COOLDOWN_MS));
+      $("pulsefill").style.width = `${Math.round(f * 100)}%`;
+    }
+  }
+}
+
+// The per-frame step, called from animate() beside the monster
+// sync: keep the connection the player asked for, ride the state
+// at ~10 Hz, watch for a realm change, and keep the HUD honest.
+function mpStep(now, dt) {
+  const want = mp.pref && !!gameToken();
+  if (want && !mp.ws && now >= mp.retryAt) mpConnect(now);
+  if (!want && mp.ws) mpDisconnect();
+  if (mp.connected && mp.ws) {
+    if (now - mp.lastSentAt >= MP_STATE_MS) {
+      mp.lastSentAt = now;
+      mp.seq++;
+      try {
+        mp.ws.send(mpEncodeState(mp.seq,
+          [state.pos.x, state.pos.y, state.pos.z], state.yaw,
+          state.swingT < 1 ? "strike" : ""));
+      } catch (e) { /* the close will tell */ }
+    }
+    if (now - mp.lastPingAt >= 10000) {
+      mp.lastPingAt = now;
+      try { mp.ws.send(mpEncodePing()); } catch (e) { /* the close will tell */ }
+    }
+    if (now - mp.lastRealmCheck >= 500) {
+      mp.lastRealmCheck = now;
+      if (mp.realm !== state.realm) {
+        mp.realm = state.realm;
+        try { mp.ws.send(mpEncodeRoom(state.realm)); } catch (e) { /* the close will tell */ }
+      }
+    }
+  }
+  if (now - mp.lastTogetherAt >= 200) {
+    mp.lastTogetherAt = now;
+    mp.together = mp.connected
+      ? mpTogether(mp.roster, mp.house, [state.pos.x, state.pos.y, state.pos.z], now)
+      : { count: 0, bonus: 0 };
+    mpSyncHud();
+  }
+  if (mp.connected) mpSyncMeshes(now);
+  mpStepRings(now);
 }
 
 // --- Open to LAN ---------------------------------------------------------
@@ -70013,6 +70660,15 @@ $("menu-lan").addEventListener("click", () => {
   menuNote(r.ok
     ? "open to LAN — this session can be joined from the local network."
     : "Open to LAN: this build has no LAN transport yet, so nothing was opened. LAN play is ruled for the download build (D2) and is still being built.");
+  refreshMenuStates();
+});
+$("menu-mp").addEventListener("click", () => {
+  mp.pref = !mp.pref;
+  LS.set(MP_LS_KEY, mp.pref);
+  if (!mp.pref) mpDisconnect();
+  menuNote(mp.pref
+    ? "multiplayer on — your fox announces itself to its realm's room and hears who answers. Your pulse (the echolocation key) heals the friends it finds, and theirs heals you."
+    : "multiplayer off — this session is solo. Nothing announces, nothing renders.");
   refreshMenuStates();
 });
 $("menu-savephext").addEventListener("click", () => downloadWorldPhext());
@@ -70296,6 +70952,7 @@ document.addEventListener("keydown", (e) => {
   // The remappable verbs consult the binding store (Esc menu, 2026-11-26).
   if (e.code === BIND.jump) { doJump(); return; }
   if (e.code === BIND.flip) { flipGravityHere(); return; }
+  if (e.code === BIND.pulse) { mpPulse(); return; }
   if (e.code === BIND.strike) {
     // In AWEF, F walks forward — while the strike is bound to F,
     // it lives on the click there, as before.
@@ -70760,6 +71417,7 @@ function animate() {
   banterObserveTick(now);
   chunkMaintenance();
   syncMonsterMeshes(dt);
+  mpStep(now, dt); // MP-1: the room, the foxes in it, the pulse
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place
   stepStoneHeart(now); // EE 1037 (item 1): the Heart breathes at the stone
@@ -72052,6 +72710,21 @@ window.NOVA_FOX3 = {
   renderScaleNow: () => (renderer ? renderer.getPixelRatio() : null),
   renderRadius: () => RENDER_R,
   lanState: () => LAN.state(),
+  // MP-1 handle: the room as this client judges it — probes assert
+  // from the client's own state, never the server's log.
+  mpState: () => ({
+    pref: mp.pref, connected: mp.connected, id: mp.selfId, realm: mp.realm,
+    self: { p: [state.pos.x, state.pos.y, state.pos.z], realm: state.realm },
+    remotes: [...mp.roster.values()].map((e) => {
+      const s = mpSampleAt(e, performance.now());
+      return { id: e.id, name: e.name, p: s ? s.p : null, h: s ? s.h : null };
+    }),
+    together: { ...mp.together }, hp: state.hp, dead: state.dead,
+    house: [...mp.house.values()].map((e) => ({ id: e.id, name: e.name, realm: e.realm })),
+    lastHeal: mp.lastHeal, pulsesSent: mp.pulsesSent,
+  }),
+  mpPulse: () => mpPulse(),
+  mpHurt: (n) => { hurtPlayer(Number(n) || 0, null, null); return state.hp; },
   openToLan: () => LAN.openToLan(),
   mergeState: () => ({
     online: BACKEND.online, hasToken: !!gameToken(),
