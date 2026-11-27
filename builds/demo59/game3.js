@@ -3900,6 +3900,19 @@ function updatePlayer(dt) {
   }
 }
 
+// F-2 (EE 1129): the unstick. Whatever the realm's down, however
+// the fox got where it is, Arrival always answers: the same
+// recovery the fall-catch uses, offered as a verb (Esc menu +
+// this hook). It moves the fox, never the world — the realm
+// keeps its down, the day's shift stays spent; only position is
+// paid. Together with the correction window this is the
+// never-strand guarantee: correct in the window, return after it.
+function unstickToArrival() {
+  respawnAtArrival();
+  toast("Back at this realm's Arrival.", 4000);
+  syncHud();
+}
+
 function respawnAtArrival() {
   closeRift(); // a carried fox leaves no open rift behind
   endTransit(); // EE 995: and no walk through it, either
@@ -5939,11 +5952,17 @@ function flipGravityHere() {
   const day = todayStr();
   const known = gravityKnownRecords();
   const unlocked = dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
-  if (!gravityShiftAllowed(known, state.realm, playerName, day) && !unlocked) {
+  const dailyOpen = gravityShiftAllowed(known, state.realm, playerName, day);
+  // F-2 (EE 1129): the correction window (gravityCorrection,
+  // world.js — rationale there: no window = day-long softlock).
+  const correction = !dailyOpen && !unlocked
+    ? gravityCorrection(known, state.realm, playerName, day, Date.now()) : null;
+  if (!dailyOpen && !unlocked && !correction) {
     toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
     return;
   }
-  if (!writeGapOpen(known, playerName, state.realm, Date.now())) {
+  // A correction is exempt from the write gap (same shift, undone).
+  if (!writeGapOpen(known, playerName, state.realm, Date.now()) && !correction) {
     toast("The chart is still taking the last shift — give it a moment.", 3200);
     return;
   }
@@ -5966,6 +5985,9 @@ function flipGravityHere() {
   markScrollChunksDirty(state.realm, sx, sy);
   playBeat(dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up");
   toast(BEAT_LINES[dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up"], 5000);
+  if (correction) {
+    toast("Correction — the down you just left is restored. That was the same shift, undone; the day's shift is spent.", 6000);
+  }
   banterLastFlipAt = performance.now();
   banterFire({ type: "flip", toUp: dir < 0 });
   guideNotify("flip");
@@ -7726,7 +7748,7 @@ function syncMenuConfirm() {
 function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
-    return ["menu-newgame", "menu-lan", "menu-savephext", "menu-merge",
+    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-savephext", "menu-merge",
       "menu-keys", "menu-video", "menu-audio", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
@@ -7982,6 +8004,10 @@ $("audio-back").addEventListener("click", () => openPanel("menu"));
 // --- The menu's own rows ----------------------------------------------------
 $("btn-menu").addEventListener("click", () => toggleMenu());
 $("menu-close").addEventListener("click", () => { closeMenu(); lockPointer(); });
+$("menu-unstick").addEventListener("click", () => {
+  closeMenu();
+  unstickToArrival();
+});
 $("menu-newgame").addEventListener("click", () => {
   newGameArmed = true;
   syncMenuConfirm();
@@ -9709,6 +9735,8 @@ window.NOVA_FOX3 = {
   selectMaterial: (b) => { state.matSel = +b; return selectedMaterial(); },
   sellMaterialNow: (b, n) => sellMaterialFromPanel(+b, n),
   guideAdvance, guideCurrent: () => GUIDE[state.guideStep] || null,
+  // F-1/F-2 handles (EE 1129): the unstick verb, for the probe legs.
+  unstick: () => { unstickToArrival(); return { x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }; },
   // EE 995 handles: Joy's visible presence (item 8) and the
   // powerup announcement count (item 10), for the e2e legs.
   joyPos: () => (joyMesh ? { x: joyMesh.position.x, y: joyMesh.position.y, z: joyMesh.position.z } : null),
@@ -9819,6 +9847,7 @@ window.NOVA_FOX3 = {
     dir: sub.gravityOf(state.realm, 0, 0),
     known: gravityKnownRecords().length,
     allowed: gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, todayStr()),
+    correction: !!gravityCorrection(gravityKnownRecords(), state.realm, playerName, todayStr(), Date.now()),
   }),
   gravityReadback: (line) => {
     BACKEND.gravityRows.push(...parseGravityScroll(line));
