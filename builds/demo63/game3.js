@@ -1197,7 +1197,7 @@ const BINDING_ACTIONS = [
   { id: "equip", label: "Equip weapon", def: "KeyZ" },
   { id: "fly", label: "Fly", def: "KeyH" }, // EE 1034 (item 5): H is no note key and no scheme key
   { id: "dash", label: "Dash", def: "KeyJ" }, // EE 1037 (item 4): J likewise — no note, no scheme key
-  { id: "feint", label: "Gravity feint", def: "KeyK" }, // P-4 (tier 2): K likewise — home row, beside the dash
+  { id: "feint", label: "Gravity feint", def: "Slash" }, // P-4 (tier 2): K was claimed by P-2's place in the composed stack — Slash is free in the store (consumer composition, build 42; T-1's resolution)
   { id: "shapeStrike", label: "Shaping strike", def: "BracketRight" }, // P-4 (tier 2): "]" — its left twin plays a note; this one shapes
 ];
 const BIND = (() => {

@@ -4423,5 +4423,24 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
       WIKI_FEEDBACK_URL + "?from=game&ee=" + stamps[0].split(":")[1]);
 }
 
+
+// ---------- consumer (build 42): binding defaults never collide ----------
+// P-2's place and P-4's gravity feint both defaulted to KeyK in the
+// composed stack (the T-1 producer found it; its stack resolved the
+// feint to Slash). The dispatch returns on the first match, so a
+// doubled default silently kills the second verb on a fresh profile.
+{
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const table = [...game.matchAll(/\{ id: "(\w+)", label: "[^"]*", def: "(\w+)" \}/g)]
+    .map((m) => [m[1], m[2]]);
+  const defs = table.map(([, d]) => d);
+  check("consumer: every binding action's default key is its own (no doubled defaults)",
+    table.length >= 17 && new Set(defs).size === defs.length,
+    JSON.stringify(table));
+  check("consumer: place keeps KeyK and the gravity feint stands on Slash",
+    table.find(([id]) => id === "place")?.[1] === "KeyK" &&
+    table.find(([id]) => id === "feint")?.[1] === "Slash");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
