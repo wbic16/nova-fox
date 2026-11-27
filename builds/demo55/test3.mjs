@@ -13,7 +13,7 @@ import {
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
   gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
   TUNNEL_LEN, tunnelBlockFor, tunnelEndAt, makeTunnel, tunnelLine, tunnelRetireLine,
-  parseTunnelScroll, resolveTunnels, tunnelKey, tunnelBlockAt, tunnelProgress, tunnelServes,
+  parseTunnelScroll, resolveTunnels, tunnelKey, tunnelBlockAt, tunnelProgress, tunnelServes, tunnelServesLink,
   geometryLine, parseGeometryScroll, resolveGeometry, geoEditRefusal,
   SHAPE_STRIKE_CD_MS, SHAPE_STRIKE_WINDOW_MS, SHAPE_STRIKE_WINDOW_MAX, shapeStrikeAllowed,
   FEINT_GRAV_SCALE, FEINT_BIAS, feintAccel,
@@ -2714,6 +2714,43 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     standing.some((t) => t.crafter === "fox-two" && tunnelServes(t, "nova", "ashfall", 20.5, 8.5)));
   check("no tunnel serves a ring far from every standing mouth",
     !standing.some((t) => tunnelServes(t, "nova", "ashfall", 90.5, 90.5)));
+
+  // EE 1119: serving a LINK requires BOTH ends to match. A tunnel
+  // whose only one end matches is not served to the link.
+  const linkA = { realmId: "nova", x: 20.5, z: 8.5 };
+  const linkB = { realmId: "ashfall", x: 30.5, z: 40.5 };
+  check("EE 1119: a tunnel matching BOTH link ends is served to the link",
+    tunnelServesLink(t1, linkA, linkB) === true);
+  check("EE 1119: a tunnel whose only ONE end matches is NOT served to the link",
+    tunnelServes(t1, "nova", "ashfall", 20.5, 8.5) === true &&
+    tunnelServesLink(t1, linkA, { realmId: "ashfall", x: 90.5, z: 90.5 }) === false &&
+    tunnelServesLink(t1, { realmId: "nova", x: 90.5, z: 90.5 }, linkB) === false);
+  // The slope/Arrival coincidence: the slope link's Ashfall end
+  // (8.5, 11.9) sits within two blocks of the Arrival tunnel's
+  // Ashfall mouth (8, 11) (dist^2 0.16), but the Arrival tunnel's
+  // Nova end (8, 5) is far from the slope ring (10.5, 26.1), so
+  // the coincidence must resolve to the slope link's own tunnel
+  // (Nova mouth (10, 26), floorY 16), never the Arrival tunnel.
+  const arrivalTun = makeTunnel("fox-arrival",
+    { realmId: "ashfall", mx: 8, mz: 11, dx: 0, dz: 1, floorY: 17, gdir: 1 },
+    { realmId: "nova", mx: 8, mz: 5, dx: 0, dz: 1, floorY: 17, gdir: 1 }, 4000);
+  const slopeTun = makeTunnel("fox-slope",
+    { realmId: "ashfall", mx: 8, mz: 11, dx: 0, dz: 1, floorY: 16, gdir: 1 },
+    { realmId: "nova", mx: 10, mz: 26, dx: 0, dz: 1, floorY: 16, gdir: 1 }, 5000);
+  const slopeA = { realmId: "ashfall", x: 8.5, z: 11.9 };
+  const slopeB = { realmId: "nova", x: 10.5, z: 26.1 };
+  check("EE 1119: the Arrival tunnel single-end-matches the slope link's Ashfall end",
+    tunnelServes(arrivalTun, "ashfall", "nova", slopeA.x, slopeA.z) === true);
+  check("EE 1119: the Arrival tunnel is NOT served to the slope link (Nova ends far apart)",
+    tunnelServesLink(arrivalTun, slopeA, slopeB) === false);
+  check("EE 1119: the slope/Arrival coincidence resolves to the link's own tunnel",
+    tunnelServesLink(slopeTun, slopeA, slopeB) === true &&
+    [arrivalTun, slopeTun].find((t) => tunnelServesLink(t, slopeA, slopeB)) === slopeTun);
+  const gameSrc1119 = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  check("EE 1119: game serving uses tunnelServesLink at both call sites, no either-end OR remains",
+    (gameSrc1119.match(/tunnelServesLink\(t, link\.a, link\.b\)/g) || []).length === 2 &&
+    !gameSrc1119.includes("tunnelServes(t, link.a.realmId") &&
+    !gameSrc1119.includes("tunnelServes(t, a.realmId, b.realmId, link.a.x"));
 
   // The bore in generation: real blocks, the home realm's lining.
   const s = new Subspace();

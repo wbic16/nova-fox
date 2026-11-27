@@ -55242,6 +55242,17 @@ function tunnelServes(tunnel, realmId, otherRealm, x, z) {
   const dx = e.mx + 0.5 - x, dz = e.mz + 0.5 - z;
   return dx * dx + dz * dz <= 4.0001;
 }
+// Does this wormhole serve a LINK between its two ends (a and b,
+// each { realmId, x, z })? BOTH ends must match within two blocks
+// — a single-end match is not enough (EE 1119): the slope link's
+// Ashfall end coincides with the earlier Arrival tunnel's Ashfall
+// mouth, so an either-end rule served the slope link a tunnel
+// whose Nova end was the Arrival mouth, not the slope ring, and
+// transit read along ~-21 and instantly unmade itself.
+function tunnelServesLink(tunnel, a, b) {
+  return tunnelServes(tunnel, a.realmId, b.realmId, a.x, a.z) &&
+    tunnelServes(tunnel, b.realmId, a.realmId, b.x, b.z);
+}
 // A point's place in an end's bore: `along` blocks from the mouth
 // plane (negative outside, at the fox's back), `lat` the signed
 // offset from the centerline.
@@ -60080,6 +60091,650 @@ function roadmapSplit(rows) {
   return { upcoming, shipped };
 }
 
+// ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====
+// ---------- the gravity dial (build 42, Grok/xAI lane) --------------------
+// Will: the dial is a microcosm of subspace. Players key Morse to
+// choose their next coordinate. Magnitude and frequency both move
+// once the dial's full range is unlocked. The unlock is the flight
+// gate's own rule — a paid Gumroad license (entitlement, the
+// purchase scroll 1.1.1/1.1.3/1.1.1) or the dragon-kill flag.
+// S.O.S (... --- ...) brings the fox home.
+//
+// This file is pure: no DOM, no localStorage, no clock of its own.
+// The game glue owns persistence, the scroll, and the sound. Tests
+// drive the functions directly, the way they drive world.js.
+//
+// The shared chart stays append-only. Direction shifts keep the
+// grav| line on 1.1.1/1.1.5/1.1.1. The dial's own instrument
+// (magnitude stop, frequency stop) appends gdial| lines to that
+// same scroll — gravity's scroll, gravity's owner. A gdial line
+// never changes a realm's shared down. Latest line per player per
+// realm is that fox's instrument. Free foxes do not write one.
+
+const GRAV_BASE = 23; // the shipped pull, units/s^2
+const TERM_BASE = 26; // the shipped terminal speed
+const FREQ_RIPPLE = 0.08; // the hum breathes the pull by this much
+const FREE_MAG = 2; // Standard — the free dial's only magnitude
+const FREE_FREQ = 0; // Still — the free dial's only frequency
+const WRITE_GAP_MS = 12000; // gateway discipline once the daily cap lifts
+const LETTER_GAP_MS = 700;
+const TAP_DASH_MS = 360; // at or above this, a tap is a dash
+const JOY_CUE_GAP_MS = 20000;
+const MORSE_LS_KEY = "nova-phox-morse-deck";
+const DIAL_LS_KEY = "nova-phox-dial";
+const SOS_PATTERN = "... --- ...";
+const HOME_REALM = "nova";
+const HOME_ARRIVAL = { x: 8, z: 8 };
+
+// Five named stops. Free play sits on Standard and does not leave
+// it. Paid (or the dragon) may set any stop. Terminal speed scales
+// with magnitude so a light world also lands softly.
+const MAG_STOPS = Object.freeze([
+  Object.freeze({ id: "float", name: "Float", mul: 0.25 }),
+  Object.freeze({ id: "light", name: "Light", mul: 0.5 }),
+  Object.freeze({ id: "standard", name: "Standard", mul: 1 }),
+  Object.freeze({ id: "heavy", name: "Heavy", mul: 1.5 }),
+  Object.freeze({ id: "crushing", name: "Crushing", mul: 2 }),
+]);
+// Frequency is the hum of the pull, and the dial's pitch band.
+// Still is silent — no ripple. The others breathe GRAV_BASE.
+const FREQ_STOPS = Object.freeze([
+  Object.freeze({ id: "still", name: "Still", hz: 0 }),
+  Object.freeze({ id: "slow", name: "Slow", hz: 0.5 }),
+  Object.freeze({ id: "pulse", name: "Pulse", hz: 1 }),
+  Object.freeze({ id: "bright", name: "Bright", hz: 2 }),
+  Object.freeze({ id: "keen", name: "Keen", hz: 4 }),
+]);
+
+// The eleven realms, copied from world.js REALMS so this module
+// stays free of imports (the build concatenates sources). Tests
+// pin these coordinates against world.js so the two cannot drift.
+// `call` is the one-letter Morse address. O is not a call: O is
+// the middle of S.O.S, and Orchid answers to R.
+const DIAL_REALMS = Object.freeze([
+  Object.freeze({ id: "nova", name: "Nova Prime", call: "N", coord: Object.freeze([1, 1, 1, 1, 1, 1, 1, 1, 1]) }),
+  Object.freeze({ id: "ashfall", name: "Ashfall Haven", call: "A", coord: Object.freeze([10, 10, 1, 1, 1, 1, 1, 10, 10]) }),
+  Object.freeze({ id: "ni-knight", name: "Ni-Knight", call: "K", coord: Object.freeze([10, 10, 2, 1, 1, 1, 1, 10, 10]) }),
+  Object.freeze({ id: "logos", name: "Logos Prime", call: "L", coord: Object.freeze([10, 10, 3, 1, 1, 1, 1, 10, 10]) }),
+  Object.freeze({ id: "elven", name: "Elven Path", call: "E", coord: Object.freeze([10, 1, 1, 1, 2, 1, 1, 10, 1]) }),
+  Object.freeze({ id: "orchid", name: "Orchid Flow", call: "R", coord: Object.freeze([1, 10, 1, 1, 2, 1, 1, 10, 1]) }),
+  Object.freeze({ id: "halycon", name: "Halycon Vector", call: "H", coord: Object.freeze([2, 10, 1, 1, 2, 1, 1, 10, 1]) }),
+  Object.freeze({ id: "delta", name: "Delta Wood", call: "D", coord: Object.freeze([3, 10, 1, 1, 2, 1, 1, 10, 1]) }),
+  Object.freeze({ id: "willow", name: "Best Willow", call: "W", coord: Object.freeze([90, 1, 1, 1, 1, 1, 1, 1, 1]) }),
+  Object.freeze({ id: "plain", name: "Plain View", call: "P", coord: Object.freeze([3, 1, 1, 1, 1, 1, 7, 7, 7]) }),
+  Object.freeze({ id: "trust", name: "Trust Fall", call: "T", coord: Object.freeze([7, 1, 1, 1, 1, 1, 1, 1, 1]) }),
+]);
+
+const CALL_BY_LETTER = new Map(DIAL_REALMS.map((r) => [r.call, r]));
+
+// ---------- International Morse, A–Z and 0–9 (ITU) ------------------------
+
+const MORSE = Object.freeze({
+  A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.",
+  G: "--.", H: "....", I: "..", J: ".---", K: "-.-", L: ".-..",
+  M: "--", N: "-.", O: "---", P: ".--.", Q: "--.-", R: ".-.",
+  S: "...", T: "-", U: "..-", V: "...-", W: ".--", X: "-..-",
+  Y: "-.--", Z: "--..",
+  0: "-----", 1: ".----", 2: "..---", 3: "...--", 4: "....-",
+  5: ".....", 6: "-....", 7: "--...", 8: "---..", 9: "----.",
+});
+
+// Curriculum order: S and O first (they spell home), then the rest
+// of the alphabet, then the digits. All 36 live in the deck.
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const DIGITS = "0123456789";
+const MORSE_ORDER = Object.freeze([
+  "S", "O",
+  ...[...LETTERS].filter((c) => c !== "S" && c !== "O"),
+  ...[...DIGITS],
+]);
+const MORSE_COUNT = MORSE_ORDER.length;
+
+const PATTERN_TO_SYMBOL = new Map();
+for (const sym of MORSE_ORDER) PATTERN_TO_SYMBOL.set(MORSE[sym], sym);
+
+function encodeMorse(text) {
+  const symbols = [...String(text).toUpperCase()].filter((ch) => ch !== " ");
+  if (!symbols.length) return null;
+  const parts = [];
+  for (const ch of symbols) {
+    const pat = MORSE[ch];
+    if (!pat) return null;
+    parts.push(pat);
+  }
+  return parts.join(" ");
+}
+
+function encodeCoord(coord) {
+  if (!Array.isArray(coord) || !coord.length) return null;
+  const words = [];
+  for (const n of coord) {
+    if (!Number.isInteger(n) || n < 0) return null;
+    const w = encodeMorse(String(n));
+    if (!w) return null;
+    words.push(w);
+  }
+  return words.join(" / ");
+}
+
+// pattern: letters separated by a single space, words by " / ".
+// Unknown marks fail the whole read — the dial never guesses.
+function decodeMorse(pattern) {
+  if (pattern == null) return null;
+  const raw = String(pattern).trim();
+  if (!raw) return null;
+  const words = raw.split(/\s+\/\s+/);
+  const letters = [];
+  const wordTexts = [];
+  for (const word of words) {
+    const parts = word.trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return null;
+    let built = "";
+    for (const p of parts) {
+      if (!/^[.\-]+$/.test(p)) return null;
+      const sym = PATTERN_TO_SYMBOL.get(p);
+      if (!sym) return null;
+      letters.push(sym);
+      built += sym;
+    }
+    wordTexts.push(built);
+  }
+  return { text: wordTexts.join(""), words: wordTexts, letters };
+}
+
+function isSos(pattern) {
+  const d = decodeMorse(pattern);
+  return !!(d && d.words.length === 1 && d.words[0] === "SOS");
+}
+
+function classifyTap(downMs) {
+  if (!(downMs >= 0) || !Number.isFinite(downMs)) return null;
+  return downMs >= TAP_DASH_MS ? "-" : ".";
+}
+
+function appendElement(pattern, el) {
+  if (el !== "." && el !== "-") return String(pattern || "");
+  return String(pattern || "") + el;
+}
+
+function appendLetterGap(pattern) {
+  const p = String(pattern || "");
+  if (!p || /[\s/]$/.test(p)) return p;
+  return p + " ";
+}
+
+function appendWordGap(pattern) {
+  const p = String(pattern || "").replace(/[\s/]+$/, "");
+  if (!p) return "";
+  return p + " / ";
+}
+
+// A pause between taps, longer than a letter, opens the letter gap
+// before the new mark lands. The first mark of a pattern never gaps.
+function applyTap(pattern, el, sinceLastMs, letterGapMs = LETTER_GAP_MS) {
+  let p = String(pattern || "");
+  if (p && sinceLastMs >= letterGapMs) p = appendLetterGap(p);
+  return appendElement(p, el);
+}
+
+function realmByCoord(coord) {
+  return DIAL_REALMS.find((r) => r.coord.length === coord.length && r.coord.every((v, i) => v === coord[i])) || null;
+}
+
+// What a locked pattern means.
+//   home  — the word SOS. Nova Prime, the arrival pad.
+//   realm — one call letter.
+//   coord — nine number-words matching a realm's subspace coordinate.
+//   mag   — Q and a digit 1–5 (Float … Crushing).
+//   freq  — Y and a digit 1–5 (Still … Keen).
+function interpretLock(pattern) {
+  const decoded = decodeMorse(pattern);
+  if (!decoded) return { ok: false, reason: pattern && String(pattern).trim() ? "garbled" : "empty" };
+  const word = decoded.words.length === 1 ? decoded.words[0] : null;
+  if (word === "SOS") {
+    const home = DIAL_REALMS[0];
+    return {
+      ok: true, kind: "home", realmId: HOME_REALM, name: home.name,
+      coord: [...home.coord], arrival: { ...HOME_ARRIVAL }, text: "SOS",
+    };
+  }
+  if (word && word.length === 1 && CALL_BY_LETTER.has(word)) {
+    const r = CALL_BY_LETTER.get(word);
+    return {
+      ok: true, kind: "realm", realmId: r.id, name: r.name, call: r.call,
+      coord: [...r.coord], arrival: { ...HOME_ARRIVAL }, text: word,
+    };
+  }
+  if (word && /^Q[1-5]$/.test(word)) {
+    return { ok: true, kind: "mag", index: Number(word[1]) - 1, text: word };
+  }
+  if (word && /^Y[1-5]$/.test(word)) {
+    return { ok: true, kind: "freq", index: Number(word[1]) - 1, text: word };
+  }
+  if (decoded.words.length === 9 && decoded.words.every((w) => /^\d+$/.test(w))) {
+    const coord = decoded.words.map((w) => Number(w));
+    const r = realmByCoord(coord);
+    if (!r) return { ok: false, reason: "unknown-coord", coord, text: decoded.text };
+    return {
+      ok: true, kind: "coord", realmId: r.id, name: r.name,
+      coord: [...r.coord], arrival: { ...HOME_ARRIVAL }, text: decoded.text,
+    };
+  }
+  return { ok: false, reason: "unknown", text: decoded.text };
+}
+
+// ---------- magnitude, frequency, the gate, the scroll --------------------
+
+function clampStop(i) {
+  const n = Number(i);
+  if (!Number.isInteger(n) || n < 0 || n > 4) return null;
+  return n;
+}
+
+// The flight gate's truth table, named for the dial. Paid wins when
+// both are true, exactly as flightUnlocked does. The game passes
+// isGenerator(eco) and sub.dragonKilled — the purchase scroll is
+// what makes a fox paid, the world's flag is the dragon.
+function dialRangeUnlocked(paid, dragonKilled) {
+  if (paid) return { ok: true, via: "paid" };
+  if (dragonKilled) return { ok: true, via: "dragon" };
+  return { ok: false, via: null };
+}
+
+function proposeDial(magIndex, freqIndex, unlocked) {
+  const mag = clampStop(magIndex);
+  const freq = clampStop(freqIndex);
+  if (mag === null || freq === null) return { ok: false, reason: "bad" };
+  if (!unlocked && (mag !== FREE_MAG || freq !== FREE_FREQ)) {
+    return { ok: false, reason: "locked", mag: FREE_MAG, freq: FREE_FREQ };
+  }
+  return { ok: true, mag, freq };
+}
+
+// perSec is what the shipped line subtracts from vel.y each second:
+// `vel.y -= perSec * dt`. At Standard + Still it is exactly 23*gravDir.
+function gravityStep(magIndex, freqIndex, gravDir, tSec) {
+  const mag = MAG_STOPS[clampStop(magIndex) ?? FREE_MAG].mul;
+  const hz = FREQ_STOPS[clampStop(freqIndex) ?? FREE_FREQ].hz;
+  const t = Number.isFinite(+tSec) ? +tSec : 0;
+  const ripple = hz > 0 ? 1 + FREQ_RIPPLE * Math.sin(2 * Math.PI * hz * t) : 1;
+  const dir = gravDir < 0 ? -1 : 1;
+  return {
+    perSec: GRAV_BASE * mag * ripple * dir,
+    terminal: TERM_BASE * mag,
+    ripple,
+    mag,
+    hz,
+  };
+}
+
+function dialLine(realmId, magIndex, freqIndex, player, day, ts) {
+  const mag = clampStop(magIndex);
+  const freq = clampStop(freqIndex);
+  if (mag === null || freq === null) return null;
+  if (!realmId || !player || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(+ts)) return null;
+  return `gdial|${realmId}|${mag}|${freq}|${player}|${day}|${Math.floor(+ts)}`;
+}
+
+function parseDialScroll(text) {
+  if (!text) return [];
+  const out = [];
+  for (const ln of String(text).split("\n")) {
+    const parts = ln.split("|");
+    if (parts.length !== 7 || parts[0] !== "gdial") continue;
+    const [, realmId, magRaw, freqRaw, player, day, tsRaw] = parts;
+    const mag = clampStop(Number(magRaw));
+    const freq = clampStop(Number(freqRaw));
+    const ts = Number(tsRaw);
+    if (!realmId || !player || mag === null || freq === null) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(ts)) continue;
+    out.push({ realmId, mag, freq, player, day, ts });
+  }
+  return out;
+}
+
+// Latest gdial line per player+realm. Order is scroll order; the
+// caller merges queued lines so the newest act stands last.
+function latestDialByPlayerRealm(records) {
+  const by = new Map();
+  for (const r of records || []) by.set(`${r.player}|${r.realmId}`, r);
+  return by;
+}
+
+function writeGapOpen(records, player, realmId, now, gap = WRITE_GAP_MS) {
+  let last = null;
+  for (const r of records || []) {
+    if (!r || r.player !== player || r.realmId !== realmId) continue;
+    if (last === null || r.ts > last) last = r.ts;
+  }
+  if (last === null) return true;
+  return now - last >= gap;
+}
+
+// Daily cap, judged only on direction records (they carry dir).
+// A gdial line must not spend the day's flip.
+function dailyShiftOpen(records, realmId, player, day) {
+  for (const r of records || []) {
+    if (!r || (r.dir !== 1 && r.dir !== -1)) continue;
+    if (r.realmId === realmId && r.player === player && r.day === day) return false;
+  }
+  return true;
+}
+
+// The combined gate the dial's flip uses once the range is open:
+// the daily cap holds for a free fox; an unlocked fox may shift
+// again, but never inside the write gap.
+function shiftGate(records, realmId, player, day, unlocked, now) {
+  if (!writeGapOpen(records, player, realmId, now)) return { ok: false, reason: "rate" };
+  if (!dailyShiftOpen(records, realmId, player, day) && !unlocked) {
+    return { ok: false, reason: "daily" };
+  }
+  return { ok: true, reason: null };
+}
+
+function newDialInstrument() {
+  return { v: 1, byRealm: {} };
+}
+
+function saveDialInstrument(inst) {
+  const byRealm = {};
+  for (const [id, rec] of Object.entries(inst && inst.byRealm || {})) byRealm[id] = { mag: rec.mag, freq: rec.freq };
+  return { v: 1, byRealm };
+}
+
+function loadDialInstrument(raw) {
+  const inst = newDialInstrument();
+  if (!raw || raw.v !== 1 || !raw.byRealm || typeof raw.byRealm !== "object") return inst;
+  for (const [id, rec] of Object.entries(raw.byRealm)) {
+    if (!DIAL_REALMS.some((r) => r.id === id) || !rec) continue;
+    const mag = clampStop(rec.mag);
+    const freq = clampStop(rec.freq);
+    if (mag === null || freq === null) continue;
+    inst.byRealm[id] = { mag, freq };
+  }
+  return inst;
+}
+
+function rememberDial(inst, realmId, mag, freq) {
+  inst.byRealm[realmId] = { mag, freq };
+  return inst;
+}
+
+function dialReading(inst, realmId, unlocked) {
+  const rec = inst && inst.byRealm && inst.byRealm[realmId];
+  if (!unlocked) return { mag: FREE_MAG, freq: FREE_FREQ, locked: true };
+  if (!rec) return { mag: FREE_MAG, freq: FREE_FREQ, locked: false };
+  return { mag: rec.mag, freq: rec.freq, locked: false };
+}
+
+// Scroll wins for this fox, and only when the range is open —
+// a free fox is not handed Crushing by somebody else's line,
+// nor by a line of their own from a paid season they no longer
+// hold. Other players' lines never apply.
+function applyDialRecords(inst, records, player, unlocked) {
+  if (!unlocked) return inst;
+  const latest = new Map();
+  for (const r of records || []) {
+    if (!r || r.player !== player) continue;
+    latest.set(r.realmId, r);
+  }
+  for (const [realmId, r] of latest) {
+    if (!DIAL_REALMS.some((d) => d.id === realmId)) continue;
+    const proposed = proposeDial(r.mag, r.freq, true);
+    if (proposed.ok) inst.byRealm[realmId] = { mag: proposed.mag, freq: proposed.freq };
+  }
+  return inst;
+}
+
+// ---------- pitches: pentatonic, overtones, the S.O.S cadence -------------
+// C D E G A, rooted at C. Pure functions — the glue plays them
+// through the existing WebAudio voice. No samples.
+
+const PENTA_STEPS = Object.freeze([0, 2, 4, 7, 9]);
+
+function midiToHz(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function symbolPitch(symbol) {
+  const i = MORSE_ORDER.indexOf(symbol);
+  if (i < 0) return null;
+  const degree = i % 5;
+  const octave = Math.floor(i / 5) % 3;
+  const midi = 60 + PENTA_STEPS[degree] + 12 * octave;
+  return { midi, hz: midiToHz(midi), degree, octave };
+}
+
+function dialPitch(magIndex, freqIndex) {
+  const mag = clampStop(magIndex);
+  const freq = clampStop(freqIndex);
+  if (mag === null || freq === null) return null;
+  const midi = 48 + 12 * mag + PENTA_STEPS[freq];
+  return { midi, hz: midiToHz(midi), mag, freq };
+}
+
+function coordPitch(coord) {
+  if (!Array.isArray(coord) || !coord.length) return null;
+  let sum = 0;
+  for (let i = 0; i < coord.length; i++) sum += Math.abs(Number(coord[i]) || 0) * (i + 1);
+  const degree = sum % 5;
+  const octave = sum % 3;
+  const midi = 60 + PENTA_STEPS[degree] + 12 * octave;
+  return { midi, hz: midiToHz(midi) };
+}
+
+function tapPitch(el, freqIndex) {
+  const band = dialPitch(FREE_MAG, clampStop(freqIndex) ?? FREE_FREQ);
+  if (!band) return null;
+  return el === "-" ? band.hz * 0.5 : band.hz;
+}
+
+function tonePartials(hz) {
+  const h = Number(hz);
+  if (!(h > 0)) return [];
+  const gains = [1, 0.45, 0.22, 0.1];
+  return gains.map((gain, i) => ({ n: i + 1, hz: h * (i + 1), gain }));
+}
+
+function confirmChord(symbol) {
+  const root = symbolPitch(symbol);
+  if (!root) return null;
+  return [0, 4, 7].map((semi) => ({
+    midi: root.midi + semi,
+    hz: midiToHz(root.midi + semi),
+  }));
+}
+
+// A low, slow, rising major arpeggio — warmer and longer than a
+// sidetone. C3 E3 G3 C4.
+function sosCadence() {
+  return [48, 52, 55, 60].map((midi, i) => ({
+    midi, hz: midiToHz(midi), hold: 0.28 + i * 0.04,
+  }));
+}
+
+function spectrumColor(hz) {
+  const h = Number(hz);
+  if (!(h > 0)) return { hue: 188, css: "hsl(188, 85%, 62%)" };
+  const t = Math.max(0, Math.min(1,
+    (Math.log2(h) - Math.log2(98)) / (Math.log2(1568) - Math.log2(98))));
+  const hue = Math.round(188 + t * 132);
+  return { hue, css: `hsl(${hue}, 85%, 62%)` };
+}
+
+// ---------- the Morse primer: a Leitner deck, local only ------------------
+// Boxes 1..5. A miss returns to box 1, due again now. A clean key
+// promotes one box and the interval stretches. Nothing here touches
+// the gateway — the glue stores the deck under MORSE_LS_KEY.
+
+const LEITNER_INTERVALS_MS = Object.freeze([
+  0,
+  0, // box 1: due immediately
+  45000,
+  180000,
+  600000,
+  1800000,
+]);
+
+function newMorseDeck(now = 0) {
+  return {
+    v: 1,
+    introduced: 2,
+    sosCued: false,
+    cards: MORSE_ORDER.map((symbol, i) => ({
+      symbol,
+      box: 1,
+      due: i < 2 ? now : 0,
+      correct: 0,
+      wrong: 0,
+      introduced: i < 2,
+    })),
+  };
+}
+
+function cardBySymbol(deck, symbol) {
+  if (!deck || !Array.isArray(deck.cards)) return null;
+  return deck.cards.find((c) => c.symbol === symbol) || null;
+}
+
+function reviewCard(deck, symbol, correct, now) {
+  const card = cardBySymbol(deck, symbol);
+  if (!card || !card.introduced) return { ok: false, reason: "unintroduced" };
+  if (correct) {
+    card.correct += 1;
+    card.box = Math.min(5, card.box + 1);
+  } else {
+    card.wrong += 1;
+    card.box = 1;
+  }
+  card.due = now + LEITNER_INTERVALS_MS[card.box];
+  return { ok: true, box: card.box, due: card.due, correct: card.correct, wrong: card.wrong };
+}
+
+function dueCard(deck, now) {
+  const playable = (deck.cards || []).filter((c) => c.introduced && c.due <= now);
+  playable.sort((a, b) => a.due - b.due
+    || MORSE_ORDER.indexOf(a.symbol) - MORSE_ORDER.indexOf(b.symbol));
+  return playable[0] || null;
+}
+
+function introduceNext(deck, now) {
+  if (!deck || deck.introduced >= MORSE_COUNT) return null;
+  const card = deck.cards[deck.introduced];
+  card.introduced = true;
+  card.box = 1;
+  card.due = now;
+  deck.introduced += 1;
+  return card.symbol;
+}
+
+function sosReady(deck) {
+  const s = cardBySymbol(deck, "S");
+  const o = cardBySymbol(deck, "O");
+  return !!(s && o && s.correct >= 1 && o.correct >= 1);
+}
+
+function saveMorseDeck(deck) {
+  return {
+    v: 1,
+    introduced: deck.introduced,
+    sosCued: !!deck.sosCued,
+    cards: deck.cards.map((c) => ({
+      symbol: c.symbol,
+      box: c.box,
+      due: c.due,
+      correct: c.correct,
+      wrong: c.wrong,
+      introduced: !!c.introduced,
+    })),
+  };
+}
+
+function loadMorseDeck(raw, now = 0) {
+  const deck = newMorseDeck(now);
+  if (!raw || raw.v !== 1 || !Array.isArray(raw.cards)) return deck;
+  const by = new Map();
+  for (const c of raw.cards) {
+    if (c && typeof c.symbol === "string") by.set(c.symbol, c);
+  }
+  let n = Number(raw.introduced);
+  if (!Number.isInteger(n) || n < 2 || n > MORSE_COUNT) n = 2;
+  deck.introduced = n;
+  deck.sosCued = !!raw.sosCued;
+  for (let i = 0; i < deck.cards.length; i++) {
+    const card = deck.cards[i];
+    card.introduced = i < n;
+    const src = by.get(card.symbol);
+    if (!src) continue;
+    const box = Number(src.box);
+    card.box = Number.isInteger(box) && box >= 1 && box <= 5 ? box : 1;
+    card.due = Number.isFinite(+src.due) ? +src.due : 0;
+    card.correct = Number.isFinite(+src.correct) && +src.correct > 0 ? Math.floor(+src.correct) : 0;
+    card.wrong = Number.isFinite(+src.wrong) && +src.wrong > 0 ? Math.floor(+src.wrong) : 0;
+  }
+  return deck;
+}
+
+function morseChart() {
+  return MORSE_ORDER.map((symbol, i) => ({ symbol, pattern: MORSE[symbol], index: i }));
+}
+
+function joyPrompt(symbol, fresh) {
+  const pat = encodeMorse(symbol);
+  if (symbol === "S") {
+    return `Joy — the dial speaks Morse. S is ${pat} — three short taps. Key it back when you're ready.`;
+  }
+  if (symbol === "O") {
+    return `Joy — O is ${pat} — three long holds. With S, that is how you call home.`;
+  }
+  if (fresh) return `Joy — a new mark, as you walk: ${symbol} is ${pat}.`;
+  return `Joy — ${symbol} again, when you can: ${pat}.`;
+}
+
+// Joy's cue. Text only — no recorded take. The glue shows it as a
+// toast and plays the sidetone itself. Quiet inside the gap, so a
+// walk does not nag. A practice answer is never held back by the gap.
+// ctx: { event, lastCueAt, prompted, keyedOk, sosCued }
+function joyMorseCue(deck, now, ctx) {
+  const c = ctx || {};
+  if (c.event === "practice") {
+    const symbol = c.prompted;
+    if (!symbol) return { kind: "quiet", text: "", speak: false };
+    if (c.keyedOk) {
+      const text = symbol === "SOS"
+        ? "Joy — S.O.S, clean. Home is listening."
+        : `Joy — ${symbol}, clean. That one will stay with you a while.`;
+      return { kind: "celebrate", symbol, text, speak: true };
+    }
+    const pat = symbol === "SOS" ? SOS_PATTERN : encodeMorse(symbol);
+    return {
+      kind: "retry", symbol, speak: true,
+      text: `Joy — not quite. ${symbol} is ${pat}. Try it once more.`,
+    };
+  }
+  if (c.lastCueAt && now - c.lastCueAt < JOY_CUE_GAP_MS) {
+    return { kind: "quiet", text: "", speak: false };
+  }
+  if (!deck.sosCued && sosReady(deck)) {
+    deck.sosCued = true;
+    return {
+      kind: "sos", symbol: "SOS", speak: true,
+      text: "Joy — S.O.S is ... --- ... — three short, three long, three short. Key that on the dial and it brings you home.",
+    };
+  }
+  const due = dueCard(deck, now);
+  if (due) {
+    return { kind: "prompt", symbol: due.symbol, text: joyPrompt(due.symbol, false), speak: true };
+  }
+  if (c.event === "explore" || c.event === "enter") {
+    const sym = introduceNext(deck, now);
+    if (sym) {
+      return { kind: "prompt", symbol: sym, text: joyPrompt(sym, true), speak: true, introduced: sym };
+    }
+  }
+  return { kind: "quiet", text: "", speak: false };
+}
+
 // ===== game (source: game3.js) =====
 // Nova Fox demo3 — view + input + game loop.
 //
@@ -60141,6 +60796,8 @@ const state = {
   transit: null, // the rift crossing in progress, or null (EE 1034: a tunnel walk, in the world itself)
   // v3 state
   flying: false, // EE 1034 (item 5): flight — gated by flightUnlocked (paid, or the dragon)
+  dialMag: 2, dialFreq: 0, // the gravity dial: Standard + Still until a reading says otherwise
+  dialOpen: false, dialPattern: "", dialTapAt: 0, dialDownAt: 0, dialWalkMark: 0,
   weapon: null, // null = bare strike; "lance" = the Star Lance
   ownsSword: false, // EE 1023 (item 5): picked up, whether or not in hand
   ownsLance: false,
@@ -60279,6 +60936,31 @@ const sfx = {
     this.env(g, t, peak, decay);
     osc.connect(g).connect(this.master);
     osc.start(t); osc.stop(t + decay + 0.05);
+  },
+  // The gravity dial's voice: the same oscillator, stacked as
+  // harmonic partials (gdial.js tonePartials). No samples.
+  partial(hz, { peak = 0.1, decay = 0.18, delay = 0 } = {}) {
+    for (const p of tonePartials(hz)) {
+      this.tone(p.hz, {
+        type: p.n === 1 ? "sine" : "triangle",
+        peak: peak * p.gain,
+        decay: Math.max(0.05, decay * (1.05 - p.n * 0.12)),
+        delay,
+      });
+    }
+  },
+  sidetone(el, freqIndex) {
+    const hz = tapPitch(el, freqIndex);
+    if (!hz) return;
+    this.partial(hz, { peak: el === "-" ? 0.09 : 0.07, decay: el === "-" ? 0.32 : 0.12 });
+  },
+  confirm(symbol) {
+    const chord = confirmChord(symbol);
+    if (!chord) return;
+    chord.forEach((n, i) => this.partial(n.hz, { peak: 0.08, decay: 0.55, delay: i * 0.03 }));
+  },
+  sos() {
+    sosCadence().forEach((n, i) => this.partial(n.hz, { peak: 0.1, decay: n.hold + 0.35, delay: i * 0.26 }));
   },
   noise({ peak = 0.2, decay = 0.15, freq = 800, type = "bandpass", delay = 0 } = {}) {
     if (!this.ctx || this.muted) return;
@@ -61071,6 +61753,16 @@ function banterObserveTick(now) {
 // like the standings do.
 const eco = loadEconomyState(LS.get("nova-phox-economy", null));
 function persistEco() { LS.set("nova-phox-economy", eco); }
+// The dial's instrument and Joy's Morse deck live on this machine.
+// The deck never touches the gateway. The instrument's shared copy
+// is the gdial| lines, appended, and only when the range is open.
+const dialInst = loadDialInstrument(LS.get(DIAL_LS_KEY, null));
+dialInst.pending = null;
+function persistDial() { LS.set(DIAL_LS_KEY, saveDialInstrument(dialInst)); }
+let morseDeck = loadMorseDeck(LS.get(MORSE_LS_KEY, null), Date.now());
+let joyMorseLast = 0;
+let joyMorsePrompt = null;
+function persistMorse() { LS.set(MORSE_LS_KEY, saveMorseDeck(morseDeck)); }
 // Economy lines bound for the shared chart queue here — the same
 // discipline as the marks outbox: written locally the moment they
 // happen, flushed under the gateway's rate budget with a login
@@ -61115,6 +61807,8 @@ function onBecameGenerator() {
   }
   syncHud();
   renderBoard();
+  applyDialReading();
+  if (state.dialOpen) renderDial();
 }
 
 // Control prefs (v5, feedback #5; scheme preference demo19, Will
@@ -61306,7 +62000,7 @@ const BACKEND = {
   boardCoord: "1.1.1/1.1.2/1.1.1", // the shared leaderboard scroll
   purchaseCoord: "1.1.1/1.1.3/1.1.1", // the written record: purchase claims, in order (D1)
   ecoCoord: "1.1.1/1.1.4/1.1.1", // the economy ledger: gift issues/redeems, hand-downs (D12)
-  gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: one line per shift; a realm's latest line is its down (demo10)
+  gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: grav| shifts (a realm's down) and gdial| instrument lines (one fox's magnitude and frequency). Same owner, append-only.
   formCoord: "1.1.1/1.1.6/1.1.1", // the forms scroll: the shapes foxes wear (demo6; coordinate reassigned at integration — demo6 and demo10 both claimed 1.1.1/1.1.5/1.1.1; gravity kept it, forms moved to 1.1.6)
   ideaCoord: "1.1.1/1.1.7/1.1.1", // the ideas scroll: tellings at the door (demo8; coordinate allocated 1.1.7 by the scroll registry, EE 974 — forms keep 1.1.6)
   tunnelCoord: "1.1.1/1.1.8/1.1.1", // the tunnel scroll: wormholes foxes craft, shared, permanent until the crafter replaces one between the same pair (EE 1034; allocated 1.1.8 by the scroll registry)
@@ -61319,6 +62013,7 @@ const BACKEND = {
   purchaseRows: [], // purchase claims actually read back, numbered by arrival
   ecoLedger: null, // parsed economy ledger actually read back (null = not yet)
   gravityRows: [], // gravity records actually read back from the shared chart
+  dialRows: [], // gdial instrument lines read back from the same scroll
   formRows: null, // forms actually read back, by fox name (null = not yet)
   ideaRows: [], // ideas actually read back, resolved to their current state
   tunnelRows: [], // wormhole records actually read back from the shared chart
@@ -61631,8 +62326,11 @@ async function backendFlushPass() {
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) {
-        BACKEND.gravityRows = parseGravityScroll(await r.text());
+        const text = await r.text();
+        BACKEND.gravityRows = parseGravityScroll(text);
+        BACKEND.dialRows = parseDialScroll(text);
         reconcileGravity();
+        reconcileDial();
       }
     } catch (e) { /* gravity keeps its last honest state */ }
     try {
@@ -61793,8 +62491,13 @@ async function enterRealmGravity(realmId) {
       `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
       { method: "GET", signal: AbortSignal.timeout(5000) });
     if (r.ok) {
-      BACKEND.gravityRows = parseGravityScroll(await r.text());
-      if (state.realm === realmId) reconcileGravity();
+      const text = await r.text();
+      BACKEND.gravityRows = parseGravityScroll(text);
+      BACKEND.dialRows = parseDialScroll(text);
+      if (state.realm === realmId) {
+        reconcileGravity();
+        reconcileDial();
+      }
     }
   } catch (e) { /* the chart keeps its last honest state; entry already attuned from what is known */ }
 }
@@ -61843,9 +62546,7 @@ function reconcileTunnels() {
   }
   const link = state.riftLink;
   if (link && !link.tunnel) {
-    link.tunnel = standing.find((t) =>
-      tunnelServes(t, link.a.realmId, link.b.realmId, link.a.x, link.a.z) ||
-      tunnelServes(t, link.b.realmId, link.a.realmId, link.b.x, link.b.z)) || null;
+    link.tunnel = standing.find((t) => tunnelServesLink(t, link.a, link.b)) || null;
   }
 }
 
@@ -62208,17 +62909,16 @@ function tunnelEndSpec(end) {
 }
 
 // Serve-or-craft for a freshly opened link: a standing wormhole
-// (any fox's) whose mouth stands at either of this link's ends
-// serves it. Otherwise this fox crafts one — retiring his own
+// (any fox's) whose mouths stand at BOTH of this link's ends
+// serves it (EE 1119: both ends, never either end alone).
+// Otherwise this fox crafts one — retiring his own
 // older wormhole between the same pair first (its record is
 // queued BEFORE the new craft, one tick older, so the resolver
 // reads the replacement in order).
 function ensureTunnelsForLink(link) {
   const a = tunnelEndSpec(link.a), b = tunnelEndSpec(link.b);
   const standing = resolveTunnels(tunnelKnownRecords());
-  const served = standing.find((t) =>
-    tunnelServes(t, a.realmId, b.realmId, link.a.x, link.a.z) ||
-    tunnelServes(t, b.realmId, a.realmId, link.b.x, link.b.z)) || null;
+  const served = standing.find((t) => tunnelServesLink(t, link.a, link.b)) || null;
   if (served) { link.tunnel = served; return served; }
   const ts = Date.now();
   const old = standing.find((t) => t.crafter === playerName &&
@@ -63819,9 +64519,10 @@ function updatePlayer(dt) {
     if (state.vel.y > 26) state.vel.y = 26;
     if (state.vel.y < -26) state.vel.y = -26;
   } else {
-    state.vel.y -= 23 * state.gravDir * dt;
-    if (state.vel.y > 26) state.vel.y = 26;
-    if (state.vel.y < -26) state.vel.y = -26;
+    const pull = gravityStep(state.dialMag, state.dialFreq, state.gravDir, performance.now() / 1000);
+    state.vel.y -= pull.perSec * dt;
+    if (state.vel.y > pull.terminal) state.vel.y = pull.terminal;
+    if (state.vel.y < -pull.terminal) state.vel.y = -pull.terminal;
   }
   const wasGround = state.onGround;
   const prevVy = state.vel.y;
@@ -63862,6 +64563,10 @@ function updatePlayer(dt) {
     state.bobPhase += dt * moving * 1.9;
     if (Math.sin(prevPhase) > 0 && Math.sin(state.bobPhase) <= 0) sfx.step();
     state.movedTotal += moving * dt;
+    if (state.movedTotal - state.dialWalkMark >= 48) {
+      state.dialWalkMark = state.movedTotal;
+      joyMorseOnExplore("explore");
+    }
   }
   state._lean = THREE.MathUtils.lerp(state._lean || 0, -strafe * 0.02, 1 - Math.pow(0.001, dt));
   // The first jump, landed: the ward's second half lifts (feedback #4).
@@ -65537,6 +66242,8 @@ function doCross(target, opts = {}) {
       viaLink: !!opts.viaLink, inverted: state.gravDir < 0,
       ambience: banterAmbience(state.realm), fromAmbience: banterAmbience(from) });
     guideNotify("realm");
+    applyDialReading();
+    joyMorseOnExplore("enter");
   } else {
     sub.getScroll(state.realm, target.sx, target.sy, true);
     state.pocketChord = target.chord;
@@ -65661,16 +66368,292 @@ function warpAnnounceOk(now) {
   return !state.splash && now - state.realmSince >= WARP_DWELL_MS;
 }
 
+// ---------- the gravity dial -------------------------------------------------
+// A microcosm of subspace on the instrument. Morse chooses the next
+// coordinate; S.O.S brings the fox home. Magnitude and frequency
+// stay at Standard / Still until flight's gate opens — a paid
+// license (the purchase scroll) or the dragon. The deck Joy teaches
+// from is local. gdial| lines, when the range is open, append to
+// the gravity scroll and never rewrite it.
+
+function dialIsUnlocked() {
+  return dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
+}
+function applyDialReading() {
+  const r = dialReading(dialInst, state.realm, dialIsUnlocked());
+  state.dialMag = r.mag;
+  state.dialFreq = r.freq;
+}
+function dialKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.gravityCoord) continue;
+    for (const r of parseDialScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...(BACKEND.dialRows || []), ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+function reconcileDial() {
+  applyDialRecords(dialInst, dialKnownRecords(), playerName, dialIsUnlocked());
+  applyDialReading();
+  persistDial();
+  if (state.dialOpen) renderDial();
+}
+function commitDialStops(mag, freq) {
+  const proposed = proposeDial(mag, freq, dialIsUnlocked());
+  if (!proposed.ok) {
+    sfx.tone(120, { type: "sine", peak: 0.12, decay: 0.3, slide: -40 });
+    toast("The dial's full range is not yours yet — it belongs to those who have bought the game, and to whoever kills the dragon.", 4600);
+    return false;
+  }
+  const prev = dialInst.byRealm[state.realm];
+  const same = prev && prev.mag === proposed.mag && prev.freq === proposed.freq;
+  rememberDial(dialInst, state.realm, proposed.mag, proposed.freq);
+  persistDial();
+  applyDialReading();
+  if (dialIsUnlocked() && !same) {
+    const now = Date.now();
+    if (writeGapOpen(dialKnownRecords(), playerName, state.realm, now)) {
+      queueEcoLine(BACKEND.gravityCoord,
+        dialLine(state.realm, proposed.mag, proposed.freq, playerName, todayStr(), now));
+      dialInst.pending = null;
+    } else {
+      dialInst.pending = { realmId: state.realm, mag: proposed.mag, freq: proposed.freq };
+    }
+  }
+  const pitch = dialPitch(proposed.mag, proposed.freq);
+  if (pitch) sfx.partial(pitch.hz, { peak: 0.08, decay: 0.4 });
+  renderDial();
+  return true;
+}
+function flushDialPending() {
+  const p = dialInst.pending;
+  if (!p || !dialIsUnlocked()) return;
+  const now = Date.now();
+  if (!writeGapOpen(dialKnownRecords(), playerName, p.realmId, now)) return;
+  queueEcoLine(BACKEND.gravityCoord,
+    dialLine(p.realmId, p.mag, p.freq, playerName, todayStr(), now));
+  dialInst.pending = null;
+}
+function joyMorseOnExplore(event) {
+  const cue = joyMorseCue(morseDeck, Date.now(), {
+    event, lastCueAt: joyMorseLast, prompted: joyMorsePrompt, sosCued: morseDeck.sosCued,
+  });
+  if (!cue.speak) return cue;
+  joyMorseLast = Date.now();
+  if (cue.kind === "prompt" || cue.kind === "sos") joyMorsePrompt = cue.symbol;
+  toast(cue.text, 5600);
+  persistMorse();
+  if (state.dialOpen) renderDial();
+  return cue;
+}
+function gradePractice(decoded) {
+  if (!joyMorsePrompt || !decoded) return null;
+  const want = joyMorsePrompt;
+  const ok = decoded.text === want;
+  if (want !== "SOS") reviewCard(morseDeck, want, ok, Date.now());
+  const cue = joyMorseCue(morseDeck, Date.now(), {
+    event: "practice", lastCueAt: joyMorseLast, prompted: want, keyedOk: ok, sosCued: morseDeck.sosCued,
+  });
+  if (ok) joyMorsePrompt = null;
+  persistMorse();
+  return cue;
+}
+function dialTap(el) {
+  if (el !== "." && el !== "-") return;
+  const since = state.dialTapAt ? performance.now() - state.dialTapAt : 0;
+  state.dialPattern = applyTap(state.dialPattern, el, state.dialTapAt ? since : 0);
+  state.dialTapAt = performance.now();
+  sfx.unlock();
+  sfx.sidetone(el, state.dialFreq);
+  renderDial();
+}
+function dialLetterGap() {
+  state.dialPattern = appendLetterGap(state.dialPattern);
+  renderDial();
+}
+function dialWordGap() {
+  state.dialPattern = appendWordGap(state.dialPattern);
+  renderDial();
+}
+function dialArrive(realmId, opts = {}) {
+  if (state.dead) return;
+  const from = state.realm;
+  if (from !== realmId) {
+    state.realm = realmId;
+    state.pocketChord = null;
+    state.pocketScroll = null;
+    respawnAtArrival();
+    enterRealmGravity(realmId);
+    applyRealmSky();
+    for (const [, mesh] of monsterMeshes) scene.remove(mesh);
+    monsterMeshes.clear();
+    banterVis.clear();
+    banterAirStart = 0;
+    if (realmId === "nova" || realmId === "ashfall") {
+      playBeat(realmId === "ashfall" ? "BEAT-cross-ashfall" : "BEAT-cross-nova");
+    }
+    guideNotify("realm");
+    applyDialReading();
+    joyMorseOnExplore("enter");
+  } else {
+    respawnAtArrival();
+    applyDialReading();
+  }
+  flashPortal();
+  syncHud();
+  syncReadout();
+  toast(opts.line || (opts.home
+    ? "S.O.S — the dial brings you home."
+    : `The dial reads ${realmName(realmId)}.`), 4200);
+  renderDial();
+}
+function dialLock() {
+  const decoded = decodeMorse(state.dialPattern);
+  const intent = interpretLock(state.dialPattern);
+  const cue = gradePractice(decoded);
+  state.dialPattern = "";
+  if (!intent.ok) {
+    if (cue && cue.speak) toast(cue.text, 4200);
+    else toast(intent.reason === "garbled" ? "The dial can't read that yet." : "That coordinate isn't on the chart.", 2800);
+    renderDial();
+    return;
+  }
+  if (intent.kind === "mag" || intent.kind === "freq") {
+    const mag = intent.kind === "mag" ? intent.index : state.dialMag;
+    const freq = intent.kind === "freq" ? intent.index : state.dialFreq;
+    const set = commitDialStops(mag, freq);
+    if (set && cue && cue.speak) toast(cue.text, 4200);
+    renderDial();
+    return;
+  }
+  if (intent.kind === "home") {
+    sfx.sos();
+    dialArrive(HOME_REALM, {
+      home: true,
+      line: cue && cue.speak ? cue.text : "S.O.S — the dial brings you home.",
+    });
+    return;
+  }
+  const pitch = coordPitch(intent.coord);
+  if (pitch) sfx.partial(pitch.hz, { peak: 0.09, decay: 0.45 });
+  if (intent.call) sfx.confirm(intent.call);
+  if (cue && cue.speak) {
+    dialArrive(intent.realmId, { line: cue.text });
+  } else {
+    dialArrive(intent.realmId, {});
+  }
+}
+function renderDial() {
+  const panel = $("gdial");
+  if (!panel) return;
+  applyDialReading();
+  const unlocked = dialIsUnlocked();
+  const pitch = dialPitch(state.dialMag, state.dialFreq);
+  const color = spectrumColor(pitch ? pitch.hz : 0);
+  const bar = $("gdial-spectrum");
+  if (bar) {
+    bar.style.background = color.css;
+    bar.style.boxShadow = `0 0 12px ${color.css}`;
+  }
+  const mag = MAG_STOPS[state.dialMag], freq = FREQ_STOPS[state.dialFreq];
+  const read = $("gdial-read");
+  if (read) {
+    read.textContent = `${mag.name} pull · ${freq.name} hum`
+      + (unlocked ? " · full range" : " · full range locked");
+  }
+  const magHost = $("gdial-mags");
+  if (magHost) {
+    magHost.innerHTML = MAG_STOPS.map((s, i) =>
+      `<button class="ghost ${i === state.dialMag ? "on" : ""} ${!unlocked && i !== FREE_MAG ? "locked" : ""}" data-mag="${i}">${s.name}</button>`).join("");
+  }
+  const freqHost = $("gdial-freqs");
+  if (freqHost) {
+    freqHost.innerHTML = FREQ_STOPS.map((s, i) =>
+      `<button class="ghost ${i === state.dialFreq ? "on" : ""} ${!unlocked && i !== FREE_FREQ ? "locked" : ""}" data-freq="${i}">${s.name}</button>`).join("");
+  }
+  const pat = $("gdial-pattern");
+  if (pat) pat.textContent = state.dialPattern || "·";
+  const dec = $("gdial-decoded");
+  if (dec) {
+    const d = decodeMorse(state.dialPattern);
+    const intent = state.dialPattern.trim() ? interpretLock(state.dialPattern) : null;
+    const target = intent && intent.ok
+      ? (intent.kind === "home" ? "home — Nova Prime"
+        : intent.kind === "realm" || intent.kind === "coord" ? intent.name
+        : intent.kind === "mag" ? MAG_STOPS[intent.index].name
+        : intent.kind === "freq" ? FREQ_STOPS[intent.index].name : "")
+      : "";
+    dec.textContent = (d ? d.text : "…") + (target ? ` → ${target}` : "");
+  }
+  const joy = $("gdial-joy");
+  if (joy) {
+    if (joyMorsePrompt) {
+      const patPrompt = joyMorsePrompt === "SOS" ? SOS_PATTERN : encodeMorse(joyMorsePrompt);
+      const card = cardBySymbol(morseDeck, joyMorsePrompt);
+      joy.textContent = `Joy asks ${joyMorsePrompt} — ${patPrompt}`
+        + (card ? ` · box ${card.box}` : "");
+    } else {
+      joy.textContent = `Joy's deck: ${morseDeck.introduced} of ${MORSE_COUNT} marks.`;
+    }
+  }
+}
+function renderMorseChart() {
+  const el = $("gdial-ref");
+  if (!el) return;
+  el.innerHTML = morseChart().map((row) => {
+    const card = cardBySymbol(morseDeck, row.symbol);
+    const box = card && card.introduced ? ` ·${card.box}` : "";
+    return `<span><b>${row.symbol}</b> ${row.pattern}${box}</span>`;
+  }).join("");
+}
+function toggleDial(force) {
+  const el = $("gdial");
+  if (!el) return;
+  const show = force !== undefined ? force : el.style.display !== "block";
+  state.dialOpen = show;
+  el.style.display = show ? "block" : "none";
+  if (show) {
+    applyDialReading();
+    renderMorseChart();
+    renderDial();
+    sfx.unlock();
+  }
+}
+function renderMorseGuide() {
+  const el = document.getElementById("board-morse");
+  if (!el) return;
+  const due = dueCard(morseDeck, Date.now());
+  const unlocked = dialIsUnlocked();
+  el.innerHTML =
+    `<div class="realmrow here"><span class="realmname2">the dial</span>` +
+    `<span class="realmstatus">Open it, then a short tap is a dot and a long hold is a dash. S.O.S (... --- ...) brings you home.</span>` +
+    `<span class="realmstatus">${unlocked ? "full range open" : "full range locked — a bought key, or the dragon"}</span></div>` +
+    `<div class="realmrow"><span class="realmname2">${due ? due.symbol : "—"}</span>` +
+    `<span class="realmstatus">${due ? `Joy's next mark: ${encodeMorse(due.symbol)} · box ${due.box}` : "nothing due — walk, and Joy offers the next mark"}</span>` +
+    `<span class="realmstatus">${morseDeck.introduced} of ${MORSE_COUNT} in the deck</span></div>`;
+}
+setInterval(() => { try { flushDialPending(); } catch (e) { /* the gap will open */ } }, 2000);
+applyDialReading();
+
 function flipGravityHere() {
   // One shift per player per realm per day (Will, 2026-11-26),
   // judged against every record known here — read back from the
   // gravity scroll or still queued for it — so a shift counts from
   // the moment it is made, not from when it lands. A refused shift
-  // does not happen; the toast below is a placeholder line in the
-  // game's comms style, flagged for Will's wording.
+  // does not happen.
+  // Full range (a paid license, or the dragon) lifts the daily cap.
+  // The write gap stays either way, so the chart is never flooded.
   const day = todayStr();
-  if (!gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, day)) {
+  const known = gravityKnownRecords();
+  const unlocked = dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
+  if (!gravityShiftAllowed(known, state.realm, playerName, day) && !unlocked) {
     toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
+    return;
+  }
+  if (!writeGapOpen(known, playerName, state.realm, Date.now())) {
+    toast("The chart is still taking the last shift — give it a moment.", 3200);
     return;
   }
   const { sx, sy } = playerScroll();
@@ -66240,6 +67223,7 @@ function renderBoard() {
   renderSolver();
   renderFieldGuide();
   renderMaterials();
+  renderMorseGuide();
   renderFormPanel();
   renderRoadmap();
   renderSaveState();
@@ -67962,6 +68946,15 @@ document.addEventListener("keydown", (e) => {
   // While a menu panel is up, the keyboard works the menu.
   if (menuIsOpen()) { handleMenuKey(e); return; }
   if (e.repeat) return;
+  if (state.dialOpen && (e.code === "Slash" || e.code === "Escape" || e.code === "Enter"
+      || e.code === "BracketRight" || e.code === "Backslash")) {
+    e.preventDefault();
+    if (e.code === "Escape") { toggleDial(false); return; }
+    if (e.code === "Enter") { dialLock(); return; }
+    if (e.code === "BracketRight") { dialLetterGap(); return; }
+    if (e.code === "Backslash") { dialWordGap(); return; }
+    if (e.code === "Slash") { state.dialDownAt = performance.now(); return; }
+  }
   keys.add(e.code);
   if (e.code === "ArrowLeft") state.yaw += 0.32 * state.gravDir;
   if (e.code === "ArrowRight") state.yaw -= 0.32 * state.gravDir;
@@ -68035,6 +69028,11 @@ document.addEventListener("keydown", (e) => {
 let wTap = null;
 document.addEventListener("keyup", (e) => {
   keys.delete(e.code);
+  if (e.code === "Slash" && state.dialDownAt) {
+    const ms = performance.now() - state.dialDownAt;
+    state.dialDownAt = 0;
+    if (state.dialOpen) dialTap(classifyTap(ms));
+  }
   if (e.code === BIND.strike) chargeEnd(); // EE 1037 (item 4)
   if (e.code === "KeyW" && wTap) {
     const held = performance.now() - wTap.t;
@@ -68385,6 +69383,7 @@ tBtn("t-strike", () => { tryStrike(); });
 tBtn("t-chisel", () => { tryChisel(); });
 tBtn("t-place", () => { tryPlace(); });
 tBtn("t-flip", () => flipGravityHere());
+tBtn("t-dial", () => toggleDial());
 tBtn("t-lamp", () => toggleLamp());
 tBtn("t-vision", () => toggleFoxVision());
 tBtn("t-brushdn", () => cycleBrush(-1));
@@ -69336,6 +70335,28 @@ function toggleSpeedrun(force) {
   if (show) srRenderPanel();
 }
 $("btn-speedrun").addEventListener("click", () => toggleSpeedrun());
+const btnDial = $("btn-dial");
+if (btnDial) btnDial.addEventListener("click", () => toggleDial());
+const gdialPanel = $("gdial");
+if (gdialPanel) {
+  gdialPanel.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.id === "gdial-dot") dialTap(".");
+    else if (b.id === "gdial-dash") dialTap("-");
+    else if (b.id === "gdial-gap") dialLetterGap();
+    else if (b.id === "gdial-word") dialWordGap();
+    else if (b.id === "gdial-lock") dialLock();
+    else if (b.id === "gdial-close") toggleDial(false);
+    else if (b.id === "gdial-ref-btn") {
+      const ref = $("gdial-ref");
+      if (!ref) return;
+      const on = ref.classList.toggle("on");
+      if (on) renderMorseChart();
+    } else if (b.dataset.mag != null) commitDialStops(Number(b.dataset.mag), state.dialFreq);
+    else if (b.dataset.freq != null) commitDialStops(state.dialMag, Number(b.dataset.freq));
+  });
+}
 $("sr-start").addEventListener("click", () => speedrunArm());
 $("sr-abort").addEventListener("click", () => speedrunAbort());
 $("sr-connect").addEventListener("click", () => {
@@ -69484,8 +70505,17 @@ window.NOVA_FOX3 = {
   }),
   gravityReadback: (line) => {
     BACKEND.gravityRows.push(...parseGravityScroll(line));
+    BACKEND.dialRows.push(...parseDialScroll(line));
     reconcileGravity();
+    reconcileDial();
   },
+  dialState: () => ({
+    mag: state.dialMag, freq: state.dialFreq, open: state.dialOpen,
+    pattern: state.dialPattern,
+    unlocked: dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled),
+    prompt: joyMorsePrompt,
+    introduced: morseDeck.introduced,
+  }),
   invertFx: () => ({
     active: invertFxActive(performance.now()),
     slow: INVERT_SLOW, ms: INVERT_FX_MS,
