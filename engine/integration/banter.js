@@ -136,9 +136,9 @@ export const BANTER_BY_N = new Map(BANTER_LINES.map((l) => [l.n, l]));
 
 // ---------- the discipline (tunables — stated, never hidden) ---------------
 export const BANTER_TUNABLES = {
-  startGraceMs: 20000,    // the scripted opening owns the first moments
-  globalGapMs: 45000,     // minimum ms between any two banter lines
-  groupGapMs: 90000,      // minimum ms between two lines of one group
+  startGraceMs: 12000,    // the scripted opening owns the first moments (EE 1023: the opening is brisker now)
+  globalGapMs: 20000,     // minimum ms between any two banter lines (EE 1023, item 2: more frequent random dialogue — was 45000)
+  groupGapMs: 40000,      // minimum ms between two lines of one group (EE 1023, item 2 — was 90000)
   poolLockPlays: 60,      // a played line sits out until 60 other lines have played
   longAbsenceMs: 8 * 3600 * 1000, // #29: "a long absence" before a return
   quietAfter100Ms: 180000,        // #100: the quiet she saved, protected

@@ -336,6 +336,15 @@
   }
   #powercard.show { animation: powercard 2.6s ease-out both; }
   #powercard.show #power-name { animation: warpname 0.9s ease-out both; }
+  /* EE 1023 (item 6): the Hall waypoint diamond. */
+  #waypoint {
+    position: absolute; z-index: 6; pointer-events: none;
+    transform: translate(-50%, -50%);
+    color: #ffd76a; font: 700 15px/1 ui-monospace, monospace;
+    text-shadow: 0 0 8px rgba(255, 190, 60, .8), 0 1px 2px #000;
+    display: none; white-space: nowrap;
+  }
+  #waypoint.edge { opacity: .85; }
   @keyframes powercard {
     0% { opacity: 0; transform: translateX(-50%) scale(0.92); }
     10% { opacity: 1; transform: translateX(-50%) scale(1); }
@@ -613,6 +622,7 @@
 <div class="overlay" id="wardline"></div>
 <div class="overlay" id="doorline"></div>
 <div class="overlay" id="dmgnum"></div>
+<div id="waypoint"></div>
 <div class="overlay" id="striker"><div id="striker-cap"></div><div id="striker-word">strike</div></div>
 <div class="overlay" id="introcard">
   <div class="rule"></div>
