@@ -57,3 +57,17 @@ that earned each grade. Grades: SHIPPED-LIVE-PLAYABLE /
 SHIPPED-LIVE-UNVERIFIED / BUILT-NOT-SHIPPED / IN-FLIGHT / FAILED. A feature
 whose live check fails is FAILED with the failure stated — silence is not a
 grade.
+
+## Authored texts are canonical — Will's builder rule (2026-11-26 19:25 CST)
+
+Will's authored texts are canonical. Where code and his script disagree,
+the script wins, the code changes, and the disagreement is flagged the
+same tick it is found — never silently resolved in code's favor.
+
+Worked example, same day: demo19 found the game's AWEF mapping (W
+forward / F back) disagreeing with Will's authored N-03 AWEF text (A
+backwards, F forwards, W left, E right) and shipped the code's mapping
+with the disagreement merely flagged. Will's ruling: "F is for
+forward." demo26 corrected the code to the authored mapping — both
+direction tables, the toasts, and the rift walk probe — and unit pins
+now assert the authored mapping letter by letter.

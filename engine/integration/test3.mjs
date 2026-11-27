@@ -1426,7 +1426,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const label = fnSrc ? eval(`(${fnSrc[0]})`) : () => null;
   check("strike hint: WASD assigns the strike to F",
     label("WASD", false) === "F");
-  check("strike hint: AWEF assigns the strike to the click (F walks backward)",
+  check("strike hint: AWEF assigns the strike to the click (F walks forward)",
     label("AWEF", false) === "CLICK");
   check("strike hint: touch assigns the strike to the strike button",
     label("WASD", true) === "STRIKE" && label("AWEF", true) === "STRIKE");
@@ -1439,6 +1439,37 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     game.includes('if (m.kind === "guardian") setGuardianEncounter(true);') &&
     game.includes("updateGuardianEncounter();") &&
     game.includes("GUARDIAN_LEASH"));
+}
+
+// =====================================================================
+// AWEF IS CANONICAL AS AUTHORED (Will, 2026-11-26 19:25 CST: "F is
+// for forward"). His N-03 AWEF text — A backwards, F forwards,
+// W left, E right — is the ruling; the code's old table (W forward,
+// F back) was the defect demo19 flagged and the everything ship
+// carried unfixed. These pins hold every AWEF direction table in
+// the game (movement and the touch stick) to the authored mapping,
+// letter by letter, and pin the old table absent from source and
+// build alike.
+// =====================================================================
+{
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const tables = [...game.matchAll(/scheme === "AWEF"\s*\?\s*\{ f: "(Key\w+)", b: "(Key\w+)", l: "(Key\w+)", r: "(Key\w+)" \}/g)]
+    .map((m) => m.slice(1).join("/"));
+  check("awef: both direction tables (movement + touch stick) carry the scheme",
+    tables.length === 2);
+  check("awef: F forwards, A backwards, W left, E right — the authored mapping",
+    tables.every((t) => t === "KeyF/KeyA/KeyW/KeyE"));
+  check("awef: the old W-forward/F-back table is absent from source and build",
+    !game.includes('{ f: "KeyW", b: "KeyF", l: "KeyA", r: "KeyE" }') &&
+    !html.includes('{ f: "KeyW", b: "KeyF", l: "KeyA", r: "KeyE" }'));
+  check("awef: WASD is untouched in both tables",
+    (game.match(/\{ f: "KeyW", b: "KeyS", l: "KeyA", r: "KeyD" \}/g) || []).length === 2);
+  check("awef: the scheme toasts name F as the forward key, never backward",
+    (game.match(/F walks forward in this scheme/g) || []).length === 2 &&
+    !game.includes("F walks backward"));
+  check("awef: the rift walk probe presses the scheme's own forward key",
+    game.includes('state.scheme === "AWEF" ? "KeyF" : "KeyW"'));
 }
 
 // =====================================================================

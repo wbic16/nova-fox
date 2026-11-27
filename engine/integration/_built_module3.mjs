@@ -57897,7 +57897,7 @@ const parseIdeaScroll = parseIdeas;
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:987";
+const NF_SHIP_EE = "NF_SHIP_EE:995";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -60381,9 +60381,9 @@ function updatePlayer(dt) {
   // Input direction in heading space. When down is up, your right
   // hand points the other way — the strafe sign follows gravity.
   // The walking keys themselves are the chosen scheme's (feedback
-  // #5): WASD, or AWEF for home-row hands (F walks backward there).
+  // #5): WASD, or AWEF for home-row hands (F walks forward there).
   const mv = state.scheme === "AWEF"
-    ? { f: "KeyW", b: "KeyF", l: "KeyA", r: "KeyE" }
+    ? { f: "KeyF", b: "KeyA", l: "KeyW", r: "KeyE" }
     : { f: "KeyW", b: "KeyS", l: "KeyA", r: "KeyD" };
   let fwd = 0, strafe = 0;
   if (keys.has(mv.f) || keys.has("ArrowUp")) fwd += 1;
@@ -60585,7 +60585,7 @@ function hurtPlayer(amount, fromPos, why) {
 //
 // The binding is read from the assignment itself, never lettered
 // by hand: under WASD the strike lives on F; under AWEF, F walks
-// backward (see the key handler) and the strike lives on the
+// forward (see the key handler) and the strike lives on the
 // click; on touch it is the strike button. One pure function of
 // the assignment, so the unit suite can hold it to account.
 function strikeBindingLabel(scheme, touch) {
@@ -63519,7 +63519,7 @@ document.addEventListener("keydown", (e) => {
   if (e.code === BIND.jump) { doJump(); return; }
   if (e.code === BIND.flip) { flipGravityHere(); return; }
   if (e.code === BIND.strike) {
-    // In AWEF, F walks backward — while the strike is bound to F,
+    // In AWEF, F walks forward — while the strike is bound to F,
     // it lives on the click there, as before.
     if (!(state.scheme === "AWEF" && BIND.strike === "KeyF")) tryStrike();
     return;
@@ -63615,7 +63615,7 @@ syncSchemeControls();
 $("btn-keys").addEventListener("click", () => {
   setScheme(otherScheme(state.scheme));
   toast(state.scheme === "AWEF"
-    ? "Keys: A W E F — F walks backward in this scheme, so strike with the click."
+    ? "Keys: A W E F — F walks forward in this scheme, so strike with the click."
     : "Keys: W A S D.", 4000);
 });
 // The same choice on the title panel (demo19): the splash is where a
@@ -63635,7 +63635,7 @@ $("btn-keys").addEventListener("click", () => {
       e.stopPropagation();
       setScheme(otherScheme(state.scheme));
       toast(state.scheme === "AWEF"
-        ? "Keys: A W E F — F walks backward in this scheme, so strike with the click."
+        ? "Keys: A W E F — F walks forward in this scheme, so strike with the click."
         : "Keys: W A S D.", 4000);
     });
   }
@@ -63722,7 +63722,7 @@ window.addEventListener("touchstart", () => {
 
 function stickCodes() {
   return state.scheme === "AWEF"
-    ? { f: "KeyW", b: "KeyF", l: "KeyA", r: "KeyE" }
+    ? { f: "KeyF", b: "KeyA", l: "KeyW", r: "KeyE" }
     : { f: "KeyW", b: "KeyS", l: "KeyA", r: "KeyD" };
 }
 function stickSet(dx, dy) {
@@ -64234,6 +64234,7 @@ function nfWalkProbe(timeoutMs) {
   return new Promise((resolve) => {
     const r = state.rift;
     if (!r) return resolve({ error: "no rift standing" });
+    const fwdCode = state.scheme === "AWEF" ? "KeyF" : "KeyW"; // the scheme's own forward key — canonical AWEF walks forward on F
     const startRealm = state.realm;
     const crosses0 = state.riftLink ? state.riftLink.crosses : 0;
     const ring = { x: r.x, z: r.z, feetY: r.feetY };
@@ -64242,7 +64243,7 @@ function nfWalkProbe(timeoutMs) {
     const finish = (flags) => {
       if (done) return;
       done = true;
-      keys.delete("KeyW");
+      keys.delete(fwdCode);
       resolve({ ...flags, minD, dyAtMin,
         ms: Math.round(performance.now() - t0), realm: state.realm });
     };
@@ -64260,7 +64261,7 @@ function nfWalkProbe(timeoutMs) {
       }
       requestAnimationFrame(tick);
     };
-    keys.add("KeyW");
+    keys.add(fwdCode);
     requestAnimationFrame(tick);
     const backstop = setInterval(() => {
       if (done) { clearInterval(backstop); return; }
