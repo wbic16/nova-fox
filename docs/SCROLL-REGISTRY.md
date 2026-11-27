@@ -24,6 +24,7 @@ fox scroll claims audited and managed by one planner."*
 | 1.1.1/1.1.7/1.1.1 | **Player ideas** — tellings at the idea door (demo8) | `BACKEND.ideaCoord` | Game: ideaOutbox (idea-door builds) | select read-back → `BACKEND.ideaRows`; dev-loop harvest | Append-only | **Allocated** (planner, this registry) — code adoption pending, see C2 note |
 | 1.1.1/1.1.8/1.1.1 | **Wormholes** — tunnels a player crafts between two realms; shared across all players, permanent (demo34, EE 1034 batch) | `BACKEND.tunnelCoord` | Game: ecoOutbox via queueEcoLine `tun\|` (craft) / `tunx\|` (retire) lines | select read-back → `parseTunnelScroll` / `resolveTunnels` (world.js) | Append-only; reads resolve the standing set — one tunnel per (crafter, realm-pair): a new craft between the same pair retires that crafter's old one (`tunx` written before the replacement `tun`) | **Built** — in the demo34 ship tree |
 | 1.1.1/1.1.9/1.1.1 | **Mutable subspace geometry** — the shaped world itself: one line per cell a player shapes, carve (AIR) or raise (block id) (P-1, EE 1087 batch, demo45) | `BACKEND.geoCoord` | Game: ecoOutbox via queueEcoLine `geo|` lines (the chisel in game3.js `tryChisel`; P-4's shaping strike writes through the same record path, demo44) | select read-back → `parseGeometryScroll` / `resolveGeometry` (world.js); `Subspace.geo` in `genChunk` | Append-only; replay resolves per cell — the last record in scroll order is the cell's truth. Ratified defaults (EE 1088): all players may edit; no per-player cap beyond the gateway budget; edits do not decay; record order resolves cross-player conflicts. Protected cells refused at write time by `geoEditRefusal` (spawn pad, Deep Stone + pedestal, Hall volume, sealing the entrance shaft) | **Built** — producer tree demo45 (merge request in DEV-LOOP-LOG); delta already stacked on by demo44 (P-4) |
+| 1.1.1/1.1.10/1.1.1 | **Realmgen** — each realm's generation parameters (verticality, density, block-mix) recorded in the world record (P-5, EE 1087 batch) | `BACKEND.genCoord` | Game: queueEcoLine `rgen|` lines (genesis recording in game3.js `reconcileRealmGen` — a fox queues the derived line for any realm whose standing line is missing or disagrees) | select read-back → `parseRealmGenScroll` / `resolveRealmGen` (world.js); `realmGenAgrees` verifies the record against the derived table | Append-only; last line per realm wins. Generation derives from realm identity (`realmGenParams`) and never reads the scroll — the scroll is the world's public record of its own character, verified and self-healing | **Built** — producer tree (P-5; tree + commit in DEV-LOOP-LOG) |
 
 ## Allocation rule
 
@@ -49,8 +50,8 @@ fox scroll claims audited and managed by one planner."*
 The established row is `1.1.1/1.1.N/1.1.1`, allocated sequentially:
 
 - N = 1 log · 2 board · 3 purchase · 4 economy · 5 gravity · 6 forms ·
-  7 ideas (allocated, unadopted) · 8 wormholes (demo34) · 9 geometry (demo45)
-- **Next free: N = 10** — `1.1.1/1.1.10/1.1.1`, then 11, 12, … in order.
+  7 ideas (allocated, unadopted) · 8 wormholes (demo34) · 9 geometry (demo45) · 10 realmgen (P-5)
+- **Next free: N = 11** — `1.1.1/1.1.11/1.1.1`, then 12, 13, … in order.
 - Allocate sequentially; do not skip numbers to "save" them, and do not
   squat a coordinate in code before its registry entry lands.
 
