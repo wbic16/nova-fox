@@ -42,5 +42,8 @@ Task: wire Joy's inscribed script (integration/NARRATION.md, 25 texts) + recorde
 - Rebuild after a docstring-only tidy of build3.py reproduces the committed hashes exactly (index.html e74bdbae…, module 7d23bb72…); unit suite re-run post-tidy: **320 passed, 0 failed**.
 
 ## Stage 5 — commit
-- (landing below)
+- Committed via a scratch worktree off fresh origin/exo (the dev loop's main-tree state — demo21 edits, demo23 — untouched; origin had advanced to 8f8625e, the demo23 commit, and this commit parents on it).
+- **Commit 4d6e1ce9616d7463dfc7e86df157dbcd9988eda5** — "Nova Fox demo22: narration wiring — Joy's final script in text and voice (EE 980)". 51 files: builds/demo22/ (49), audio/narration-audio-joy/MANIFEST.md, reports/NARRATION-WIRING-REPORT.md (this report). Pushed HEAD → exo (no force); **verified by ls-remote: refs/heads/exo = 4d6e1ce9…**.
+- NOT staged to awsbox, per the brief — staging follows the parent's word. The build carries the EE 974 stamp; re-stamping happens at staging time.
+- Next-ship note: demo22 is the narration-wired EE 974 lineage. It does not include demo13/16/17/19 (the forming next-ship set) — the merge order in BUILD-QUEUE.md governs how demo22's wiring combines with them; the banter takes hook in when demo17 merges.
 - Built-file confinement, verified at the module level: with the NARRATION_AUDIO/MANIFEST JSON masked out, demo22's _built_module3.mjs differs from the shipped demo20 module ONLY in the game3.js dialog-wiring hunks — three.js, WASM, world, economy, forms, and the intro film are byte-identical in the built file.
