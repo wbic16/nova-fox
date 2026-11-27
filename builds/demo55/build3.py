@@ -291,6 +291,8 @@ parts = [
     scheme,
     "// ===== player ideas: the telling door's chart lines (source: ideas.js) =====",
     re.sub(r"^export ", "", read("ideas.js"), flags=re.M),
+    "// ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====",
+    re.sub(r"^export ", "", read("gdial.js"), flags=re.M),
     "// ===== game (source: game3.js) =====",
     read("game3.js"),
 ]

@@ -53,6 +53,24 @@
     background: rgba(0, 8, 20, 0.82); border: 1px solid rgba(0, 140, 255, 0.55);
     border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(3px);
   }
+  #gdial {
+    left: 14px; top: 92px; width: min(440px, calc(100vw - 28px));
+    display: none; z-index: 7; max-height: calc(100vh - 130px); overflow: auto;
+  }
+  #gdial h2 { margin: 0 0 4px; font-size: 16px; color: #e8f6ff; font-family: Georgia, "Times New Roman", serif; font-weight: 500; }
+  #gdial .sub { color: #7fd8ff; font-size: 12px; margin: 2px 0 6px; }
+  #gdial-spectrum { height: 8px; border-radius: 6px; margin: 6px 0 8px; background: hsl(188, 85%, 62%); }
+  #gdial-read { font-size: 13px; color: #fff; margin-bottom: 6px; }
+  #gdial-pattern { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18px; letter-spacing: 0.14em; color: #fff; min-height: 1.3em; }
+  #gdial-decoded { font-size: 13px; color: #d6ecff; margin: 4px 0; }
+  #gdial-joy { font-size: 12.5px; font-style: italic; color: #c7e6ff; margin: 6px 0; }
+  #gdial .stops { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
+  #gdial .stops button.on { border-color: #e8f6ff; color: #fff; }
+  #gdial .stops button.locked { opacity: 0.42; }
+  #gdial-ref { display: none; margin-top: 8px; grid-template-columns: repeat(6, 1fr); gap: 3px 6px; }
+  #gdial-ref.on { display: grid; }
+  #gdial-ref span { font-size: 10px; color: #9fc4e8; line-height: 1.3; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  #gdial-ref b { color: #fff; font-family: Georgia, "Times New Roman", serif; }
   #topleft { left: 14px; top: 14px; display: flex; gap: 12px; align-items: center; }
   #portrait { border-radius: 8px; background: #000a18; }
   #hearts { font-size: 19px; letter-spacing: 1px; line-height: 1; }
@@ -697,7 +715,7 @@
   <b>W A S D</b> walk (or <b>A W E F</b> — the keys button, bottom right) · <b>mouse</b> look (click the world first) · <b>Space</b> jump · <b>Shift</b> run<br>
   <b>1–9 0 −</b> and <b>Q W E R T Y U I O P [</b> the eleven notes — three together travel, repeats and all<br>
   <b>hold right mouse + draw</b> a triangle (bridge), circle (home), or diamond (far-off place) · <b>Shift + drag</b> the spectral flute<br>
-  <b>G</b> flip down · <b>H</b> fly (the bought, and dragon-slayers) · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>N</b> fox vision in the Hall · <b>B</b> the board · <b>I</b> the telling door · <b>M</b> the map of realms · <b>L</b> your log · <b>`</b> the test console<br>
+  <b>G</b> flip down · <b>dial</b> Morse (short tap a dot, long hold a dash; S.O.S brings you home) · <b>H</b> fly (the bought, and dragon-slayers) · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>N</b> fox vision in the Hall · <b>B</b> the board · <b>I</b> the telling door · <b>M</b> the map of realms · <b>L</b> your log · <b>`</b> the test console<br>
   <span style="color:#5f7194">your marks can save to a map all foxes share — sign in from the board (B) to save there, or save a copy on this machine from the same panel; offline, your marks wait here</span>
 </div>
 
@@ -721,6 +739,7 @@
   <button class="ghost" id="btn-board">board (B)</button>
   <button class="ghost" id="btn-realms">realms (M)</button>
   <button class="ghost" id="btn-guide">Joy</button>
+  <button class="ghost" id="btn-dial">dial</button>
   <button class="ghost" id="btn-keys">Controls: WASD</button>
   <button class="ghost" id="btn-sound">sound: on</button>
   <button class="ghost" id="btn-extras">extras: off</button>
@@ -737,6 +756,7 @@
     <button class="tbtn" id="t-chisel">chisel</button>
     <button class="tbtn" id="t-place">place</button>
     <button class="tbtn" id="t-flip">flip</button>
+    <button class="tbtn" id="t-dial">dial</button>
     <button class="tbtn" id="t-run">run</button>
     <button class="tbtn" id="t-lamp">lamp</button>
     <button class="tbtn" id="t-vision">vision</button>
@@ -802,6 +822,9 @@
   <h3>The field guide — what things are for</h3>
   <div class="sub">Every thing you can hold, what it does, and how you use it — the weapons and charms out in the world, and the ladder's rungs below.</div>
   <div id="board-guide"></div>
+  <h3>The gravity dial — Morse, and how hard down pulls</h3>
+  <div class="sub">The dial is a small subspace. Key Morse on it to choose your next coordinate. S.O.S (... --- ...) brings you home. Joy teaches the marks as you walk — S and O first, then the rest of the alphabet and the digits. The flip stays free, once a realm each day. The full sweep of magnitude and frequency belongs to a bought key, or to whoever kills the dragon.</div>
+  <div id="board-morse"></div>
   <div id="board-shop"></div>
   <h3>What you dig — material and placing</h3>
   <div class="sub">Digging has a point now: what the chisel breaks, you carry. Place a carried block and it stands in the world for every fox, for good — the same shared record as a carve, spent from your pack. What you cannot use, the world buys back at the rates below.</div>
@@ -895,6 +918,32 @@
   <h3>Your runs</h3>
   <div class="sub">Each finished run is written down as an event stream — inputs, positions, crossings, strikes — and checked against itself before it stands here. Download one and anyone can re-walk it.</div>
   <div id="sr-runs"></div>
+</div>
+
+<div class="overlay hudpanel" id="gdial">
+  <h2>The gravity dial</h2>
+  <div class="sub">A small subspace. Dots and dashes choose the next coordinate. S.O.S brings you home.</div>
+  <div id="gdial-spectrum"></div>
+  <div id="gdial-read"></div>
+  <div class="sub">How hard down pulls</div>
+  <div class="stops" id="gdial-mags"></div>
+  <div class="sub">How fast the pull hums</div>
+  <div class="stops" id="gdial-freqs"></div>
+  <div id="gdial-pattern">·</div>
+  <div id="gdial-decoded"></div>
+  <div id="gdial-joy"></div>
+  <div class="btnrow">
+    <button class="tbtn" id="gdial-dot" type="button">dot</button>
+    <button class="tbtn" id="gdial-dash" type="button">dash</button>
+    <button class="ghost" id="gdial-gap" type="button">letter</button>
+    <button class="ghost" id="gdial-word" type="button">space</button>
+    <button class="act" id="gdial-lock" type="button">lock</button>
+  </div>
+  <div class="btnrow">
+    <button class="ghost" id="gdial-ref-btn" type="button">Morse chart</button>
+    <button class="ghost" id="gdial-close" type="button">close</button>
+  </div>
+  <div id="gdial-ref"></div>
 </div>
 
 <div class="overlay hudpanel" id="ideas">

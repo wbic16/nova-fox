@@ -58,6 +58,8 @@ const state = {
   transit: null, // the rift crossing in progress, or null (EE 1034: a tunnel walk, in the world itself)
   // v3 state
   flying: false, // EE 1034 (item 5): flight — gated by flightUnlocked (paid, or the dragon)
+  dialMag: 2, dialFreq: 0, // the gravity dial: Standard + Still until a reading says otherwise
+  dialOpen: false, dialPattern: "", dialTapAt: 0, dialDownAt: 0, dialWalkMark: 0,
   weapon: null, // null = bare strike; "lance" = the Star Lance
   ownsSword: false, // EE 1023 (item 5): picked up, whether or not in hand
   ownsLance: false,
@@ -196,6 +198,31 @@ const sfx = {
     this.env(g, t, peak, decay);
     osc.connect(g).connect(this.master);
     osc.start(t); osc.stop(t + decay + 0.05);
+  },
+  // The gravity dial's voice: the same oscillator, stacked as
+  // harmonic partials (gdial.js tonePartials). No samples.
+  partial(hz, { peak = 0.1, decay = 0.18, delay = 0 } = {}) {
+    for (const p of tonePartials(hz)) {
+      this.tone(p.hz, {
+        type: p.n === 1 ? "sine" : "triangle",
+        peak: peak * p.gain,
+        decay: Math.max(0.05, decay * (1.05 - p.n * 0.12)),
+        delay,
+      });
+    }
+  },
+  sidetone(el, freqIndex) {
+    const hz = tapPitch(el, freqIndex);
+    if (!hz) return;
+    this.partial(hz, { peak: el === "-" ? 0.09 : 0.07, decay: el === "-" ? 0.32 : 0.12 });
+  },
+  confirm(symbol) {
+    const chord = confirmChord(symbol);
+    if (!chord) return;
+    chord.forEach((n, i) => this.partial(n.hz, { peak: 0.08, decay: 0.55, delay: i * 0.03 }));
+  },
+  sos() {
+    sosCadence().forEach((n, i) => this.partial(n.hz, { peak: 0.1, decay: n.hold + 0.35, delay: i * 0.26 }));
   },
   noise({ peak = 0.2, decay = 0.15, freq = 800, type = "bandpass", delay = 0 } = {}) {
     if (!this.ctx || this.muted) return;
@@ -988,6 +1015,16 @@ function banterObserveTick(now) {
 // like the standings do.
 const eco = loadEconomyState(LS.get("nova-phox-economy", null));
 function persistEco() { LS.set("nova-phox-economy", eco); }
+// The dial's instrument and Joy's Morse deck live on this machine.
+// The deck never touches the gateway. The instrument's shared copy
+// is the gdial| lines, appended, and only when the range is open.
+const dialInst = loadDialInstrument(LS.get(DIAL_LS_KEY, null));
+dialInst.pending = null;
+function persistDial() { LS.set(DIAL_LS_KEY, saveDialInstrument(dialInst)); }
+let morseDeck = loadMorseDeck(LS.get(MORSE_LS_KEY, null), Date.now());
+let joyMorseLast = 0;
+let joyMorsePrompt = null;
+function persistMorse() { LS.set(MORSE_LS_KEY, saveMorseDeck(morseDeck)); }
 // Economy lines bound for the shared chart queue here — the same
 // discipline as the marks outbox: written locally the moment they
 // happen, flushed under the gateway's rate budget with a login
@@ -1032,6 +1069,8 @@ function onBecameGenerator() {
   }
   syncHud();
   renderBoard();
+  applyDialReading();
+  if (state.dialOpen) renderDial();
 }
 
 // Control prefs (v5, feedback #5; scheme preference demo19, Will
@@ -1223,7 +1262,7 @@ const BACKEND = {
   boardCoord: "1.1.1/1.1.2/1.1.1", // the shared leaderboard scroll
   purchaseCoord: "1.1.1/1.1.3/1.1.1", // the written record: purchase claims, in order (D1)
   ecoCoord: "1.1.1/1.1.4/1.1.1", // the economy ledger: gift issues/redeems, hand-downs (D12)
-  gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: one line per shift; a realm's latest line is its down (demo10)
+  gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: grav| shifts (a realm's down) and gdial| instrument lines (one fox's magnitude and frequency). Same owner, append-only.
   formCoord: "1.1.1/1.1.6/1.1.1", // the forms scroll: the shapes foxes wear (demo6; coordinate reassigned at integration — demo6 and demo10 both claimed 1.1.1/1.1.5/1.1.1; gravity kept it, forms moved to 1.1.6)
   ideaCoord: "1.1.1/1.1.7/1.1.1", // the ideas scroll: tellings at the door (demo8; coordinate allocated 1.1.7 by the scroll registry, EE 974 — forms keep 1.1.6)
   tunnelCoord: "1.1.1/1.1.8/1.1.1", // the tunnel scroll: wormholes foxes craft, shared, permanent until the crafter replaces one between the same pair (EE 1034; allocated 1.1.8 by the scroll registry)
@@ -1236,6 +1275,7 @@ const BACKEND = {
   purchaseRows: [], // purchase claims actually read back, numbered by arrival
   ecoLedger: null, // parsed economy ledger actually read back (null = not yet)
   gravityRows: [], // gravity records actually read back from the shared chart
+  dialRows: [], // gdial instrument lines read back from the same scroll
   formRows: null, // forms actually read back, by fox name (null = not yet)
   ideaRows: [], // ideas actually read back, resolved to their current state
   tunnelRows: [], // wormhole records actually read back from the shared chart
@@ -1548,8 +1588,11 @@ async function backendFlushPass() {
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) {
-        BACKEND.gravityRows = parseGravityScroll(await r.text());
+        const text = await r.text();
+        BACKEND.gravityRows = parseGravityScroll(text);
+        BACKEND.dialRows = parseDialScroll(text);
         reconcileGravity();
+        reconcileDial();
       }
     } catch (e) { /* gravity keeps its last honest state */ }
     try {
@@ -1710,8 +1753,13 @@ async function enterRealmGravity(realmId) {
       `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.gravityCoord}`,
       { method: "GET", signal: AbortSignal.timeout(5000) });
     if (r.ok) {
-      BACKEND.gravityRows = parseGravityScroll(await r.text());
-      if (state.realm === realmId) reconcileGravity();
+      const text = await r.text();
+      BACKEND.gravityRows = parseGravityScroll(text);
+      BACKEND.dialRows = parseDialScroll(text);
+      if (state.realm === realmId) {
+        reconcileGravity();
+        reconcileDial();
+      }
     }
   } catch (e) { /* the chart keeps its last honest state; entry already attuned from what is known */ }
 }
@@ -3736,9 +3784,10 @@ function updatePlayer(dt) {
     if (state.vel.y > 26) state.vel.y = 26;
     if (state.vel.y < -26) state.vel.y = -26;
   } else {
-    state.vel.y -= 23 * state.gravDir * dt;
-    if (state.vel.y > 26) state.vel.y = 26;
-    if (state.vel.y < -26) state.vel.y = -26;
+    const pull = gravityStep(state.dialMag, state.dialFreq, state.gravDir, performance.now() / 1000);
+    state.vel.y -= pull.perSec * dt;
+    if (state.vel.y > pull.terminal) state.vel.y = pull.terminal;
+    if (state.vel.y < -pull.terminal) state.vel.y = -pull.terminal;
   }
   const wasGround = state.onGround;
   const prevVy = state.vel.y;
@@ -3779,6 +3828,10 @@ function updatePlayer(dt) {
     state.bobPhase += dt * moving * 1.9;
     if (Math.sin(prevPhase) > 0 && Math.sin(state.bobPhase) <= 0) sfx.step();
     state.movedTotal += moving * dt;
+    if (state.movedTotal - state.dialWalkMark >= 48) {
+      state.dialWalkMark = state.movedTotal;
+      joyMorseOnExplore("explore");
+    }
   }
   state._lean = THREE.MathUtils.lerp(state._lean || 0, -strafe * 0.02, 1 - Math.pow(0.001, dt));
   // The first jump, landed: the ward's second half lifts (feedback #4).
@@ -5454,6 +5507,8 @@ function doCross(target, opts = {}) {
       viaLink: !!opts.viaLink, inverted: state.gravDir < 0,
       ambience: banterAmbience(state.realm), fromAmbience: banterAmbience(from) });
     guideNotify("realm");
+    applyDialReading();
+    joyMorseOnExplore("enter");
   } else {
     sub.getScroll(state.realm, target.sx, target.sy, true);
     state.pocketChord = target.chord;
@@ -5578,6 +5633,275 @@ function warpAnnounceOk(now) {
   return !state.splash && now - state.realmSince >= WARP_DWELL_MS;
 }
 
+// ---------- the gravity dial -------------------------------------------------
+// A microcosm of subspace on the instrument. Morse chooses the next
+// coordinate; S.O.S brings the fox home. Magnitude and frequency
+// stay at Standard / Still until flight's gate opens — a paid
+// license (the purchase scroll) or the dragon. The deck Joy teaches
+// from is local. gdial| lines, when the range is open, append to
+// the gravity scroll and never rewrite it.
+
+function dialIsUnlocked() {
+  return dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
+}
+function applyDialReading() {
+  const r = dialReading(dialInst, state.realm, dialIsUnlocked());
+  state.dialMag = r.mag;
+  state.dialFreq = r.freq;
+}
+function dialKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.gravityCoord) continue;
+    for (const r of parseDialScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...(BACKEND.dialRows || []), ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+function reconcileDial() {
+  applyDialRecords(dialInst, dialKnownRecords(), playerName, dialIsUnlocked());
+  applyDialReading();
+  persistDial();
+  if (state.dialOpen) renderDial();
+}
+function commitDialStops(mag, freq) {
+  const proposed = proposeDial(mag, freq, dialIsUnlocked());
+  if (!proposed.ok) {
+    sfx.tone(120, { type: "sine", peak: 0.12, decay: 0.3, slide: -40 });
+    toast("The dial's full range is not yours yet — it belongs to those who have bought the game, and to whoever kills the dragon.", 4600);
+    return false;
+  }
+  const prev = dialInst.byRealm[state.realm];
+  const same = prev && prev.mag === proposed.mag && prev.freq === proposed.freq;
+  rememberDial(dialInst, state.realm, proposed.mag, proposed.freq);
+  persistDial();
+  applyDialReading();
+  if (dialIsUnlocked() && !same) {
+    const now = Date.now();
+    if (writeGapOpen(dialKnownRecords(), playerName, state.realm, now)) {
+      queueEcoLine(BACKEND.gravityCoord,
+        dialLine(state.realm, proposed.mag, proposed.freq, playerName, todayStr(), now));
+      dialInst.pending = null;
+    } else {
+      dialInst.pending = { realmId: state.realm, mag: proposed.mag, freq: proposed.freq };
+    }
+  }
+  const pitch = dialPitch(proposed.mag, proposed.freq);
+  if (pitch) sfx.partial(pitch.hz, { peak: 0.08, decay: 0.4 });
+  renderDial();
+  return true;
+}
+function flushDialPending() {
+  const p = dialInst.pending;
+  if (!p || !dialIsUnlocked()) return;
+  const now = Date.now();
+  if (!writeGapOpen(dialKnownRecords(), playerName, p.realmId, now)) return;
+  queueEcoLine(BACKEND.gravityCoord,
+    dialLine(p.realmId, p.mag, p.freq, playerName, todayStr(), now));
+  dialInst.pending = null;
+}
+function joyMorseOnExplore(event) {
+  const cue = joyMorseCue(morseDeck, Date.now(), {
+    event, lastCueAt: joyMorseLast, prompted: joyMorsePrompt, sosCued: morseDeck.sosCued,
+  });
+  if (!cue.speak) return cue;
+  joyMorseLast = Date.now();
+  if (cue.kind === "prompt" || cue.kind === "sos") joyMorsePrompt = cue.symbol;
+  toast(cue.text, 5600);
+  persistMorse();
+  if (state.dialOpen) renderDial();
+  return cue;
+}
+function gradePractice(decoded) {
+  if (!joyMorsePrompt || !decoded) return null;
+  const want = joyMorsePrompt;
+  const ok = decoded.text === want;
+  if (want !== "SOS") reviewCard(morseDeck, want, ok, Date.now());
+  const cue = joyMorseCue(morseDeck, Date.now(), {
+    event: "practice", lastCueAt: joyMorseLast, prompted: want, keyedOk: ok, sosCued: morseDeck.sosCued,
+  });
+  if (ok) joyMorsePrompt = null;
+  persistMorse();
+  return cue;
+}
+function dialTap(el) {
+  if (el !== "." && el !== "-") return;
+  const since = state.dialTapAt ? performance.now() - state.dialTapAt : 0;
+  state.dialPattern = applyTap(state.dialPattern, el, state.dialTapAt ? since : 0);
+  state.dialTapAt = performance.now();
+  sfx.unlock();
+  sfx.sidetone(el, state.dialFreq);
+  renderDial();
+}
+function dialLetterGap() {
+  state.dialPattern = appendLetterGap(state.dialPattern);
+  renderDial();
+}
+function dialWordGap() {
+  state.dialPattern = appendWordGap(state.dialPattern);
+  renderDial();
+}
+function dialArrive(realmId, opts = {}) {
+  if (state.dead) return;
+  const from = state.realm;
+  if (from !== realmId) {
+    state.realm = realmId;
+    state.pocketChord = null;
+    state.pocketScroll = null;
+    respawnAtArrival();
+    enterRealmGravity(realmId);
+    applyRealmSky();
+    for (const [, mesh] of monsterMeshes) scene.remove(mesh);
+    monsterMeshes.clear();
+    banterVis.clear();
+    banterAirStart = 0;
+    if (realmId === "nova" || realmId === "ashfall") {
+      playBeat(realmId === "ashfall" ? "BEAT-cross-ashfall" : "BEAT-cross-nova");
+    }
+    guideNotify("realm");
+    applyDialReading();
+    joyMorseOnExplore("enter");
+  } else {
+    respawnAtArrival();
+    applyDialReading();
+  }
+  flashPortal();
+  syncHud();
+  syncReadout();
+  toast(opts.line || (opts.home
+    ? "S.O.S — the dial brings you home."
+    : `The dial reads ${realmName(realmId)}.`), 4200);
+  renderDial();
+}
+function dialLock() {
+  const decoded = decodeMorse(state.dialPattern);
+  const intent = interpretLock(state.dialPattern);
+  const cue = gradePractice(decoded);
+  state.dialPattern = "";
+  if (!intent.ok) {
+    if (cue && cue.speak) toast(cue.text, 4200);
+    else toast(intent.reason === "garbled" ? "The dial can't read that yet." : "That coordinate isn't on the chart.", 2800);
+    renderDial();
+    return;
+  }
+  if (intent.kind === "mag" || intent.kind === "freq") {
+    const mag = intent.kind === "mag" ? intent.index : state.dialMag;
+    const freq = intent.kind === "freq" ? intent.index : state.dialFreq;
+    const set = commitDialStops(mag, freq);
+    if (set && cue && cue.speak) toast(cue.text, 4200);
+    renderDial();
+    return;
+  }
+  if (intent.kind === "home") {
+    sfx.sos();
+    dialArrive(HOME_REALM, {
+      home: true,
+      line: cue && cue.speak ? cue.text : "S.O.S — the dial brings you home.",
+    });
+    return;
+  }
+  const pitch = coordPitch(intent.coord);
+  if (pitch) sfx.partial(pitch.hz, { peak: 0.09, decay: 0.45 });
+  if (intent.call) sfx.confirm(intent.call);
+  if (cue && cue.speak) {
+    dialArrive(intent.realmId, { line: cue.text });
+  } else {
+    dialArrive(intent.realmId, {});
+  }
+}
+function renderDial() {
+  const panel = $("gdial");
+  if (!panel) return;
+  applyDialReading();
+  const unlocked = dialIsUnlocked();
+  const pitch = dialPitch(state.dialMag, state.dialFreq);
+  const color = spectrumColor(pitch ? pitch.hz : 0);
+  const bar = $("gdial-spectrum");
+  if (bar) {
+    bar.style.background = color.css;
+    bar.style.boxShadow = `0 0 12px ${color.css}`;
+  }
+  const mag = MAG_STOPS[state.dialMag], freq = FREQ_STOPS[state.dialFreq];
+  const read = $("gdial-read");
+  if (read) {
+    read.textContent = `${mag.name} pull · ${freq.name} hum`
+      + (unlocked ? " · full range" : " · full range locked");
+  }
+  const magHost = $("gdial-mags");
+  if (magHost) {
+    magHost.innerHTML = MAG_STOPS.map((s, i) =>
+      `<button class="ghost ${i === state.dialMag ? "on" : ""} ${!unlocked && i !== FREE_MAG ? "locked" : ""}" data-mag="${i}">${s.name}</button>`).join("");
+  }
+  const freqHost = $("gdial-freqs");
+  if (freqHost) {
+    freqHost.innerHTML = FREQ_STOPS.map((s, i) =>
+      `<button class="ghost ${i === state.dialFreq ? "on" : ""} ${!unlocked && i !== FREE_FREQ ? "locked" : ""}" data-freq="${i}">${s.name}</button>`).join("");
+  }
+  const pat = $("gdial-pattern");
+  if (pat) pat.textContent = state.dialPattern || "·";
+  const dec = $("gdial-decoded");
+  if (dec) {
+    const d = decodeMorse(state.dialPattern);
+    const intent = state.dialPattern.trim() ? interpretLock(state.dialPattern) : null;
+    const target = intent && intent.ok
+      ? (intent.kind === "home" ? "home — Nova Prime"
+        : intent.kind === "realm" || intent.kind === "coord" ? intent.name
+        : intent.kind === "mag" ? MAG_STOPS[intent.index].name
+        : intent.kind === "freq" ? FREQ_STOPS[intent.index].name : "")
+      : "";
+    dec.textContent = (d ? d.text : "…") + (target ? ` → ${target}` : "");
+  }
+  const joy = $("gdial-joy");
+  if (joy) {
+    if (joyMorsePrompt) {
+      const patPrompt = joyMorsePrompt === "SOS" ? SOS_PATTERN : encodeMorse(joyMorsePrompt);
+      const card = cardBySymbol(morseDeck, joyMorsePrompt);
+      joy.textContent = `Joy asks ${joyMorsePrompt} — ${patPrompt}`
+        + (card ? ` · box ${card.box}` : "");
+    } else {
+      joy.textContent = `Joy's deck: ${morseDeck.introduced} of ${MORSE_COUNT} marks.`;
+    }
+  }
+}
+function renderMorseChart() {
+  const el = $("gdial-ref");
+  if (!el) return;
+  el.innerHTML = morseChart().map((row) => {
+    const card = cardBySymbol(morseDeck, row.symbol);
+    const box = card && card.introduced ? ` ·${card.box}` : "";
+    return `<span><b>${row.symbol}</b> ${row.pattern}${box}</span>`;
+  }).join("");
+}
+function toggleDial(force) {
+  const el = $("gdial");
+  if (!el) return;
+  const show = force !== undefined ? force : el.style.display !== "block";
+  state.dialOpen = show;
+  el.style.display = show ? "block" : "none";
+  if (show) {
+    applyDialReading();
+    renderMorseChart();
+    renderDial();
+    sfx.unlock();
+  }
+}
+function renderMorseGuide() {
+  const el = document.getElementById("board-morse");
+  if (!el) return;
+  const due = dueCard(morseDeck, Date.now());
+  const unlocked = dialIsUnlocked();
+  el.innerHTML =
+    `<div class="realmrow here"><span class="realmname2">the dial</span>` +
+    `<span class="realmstatus">Open it, then a short tap is a dot and a long hold is a dash. S.O.S (... --- ...) brings you home.</span>` +
+    `<span class="realmstatus">${unlocked ? "full range open" : "full range locked — a bought key, or the dragon"}</span></div>` +
+    `<div class="realmrow"><span class="realmname2">${due ? due.symbol : "—"}</span>` +
+    `<span class="realmstatus">${due ? `Joy's next mark: ${encodeMorse(due.symbol)} · box ${due.box}` : "nothing due — walk, and Joy offers the next mark"}</span>` +
+    `<span class="realmstatus">${morseDeck.introduced} of ${MORSE_COUNT} in the deck</span></div>`;
+}
+setInterval(() => { try { flushDialPending(); } catch (e) { /* the gap will open */ } }, 2000);
+applyDialReading();
+
 function flipGravityHere() {
   // One shift per player per realm per day (Will, 2026-11-26),
   // judged against every record known here — read back from the
@@ -5585,9 +5909,17 @@ function flipGravityHere() {
   // the moment it is made, not from when it lands. A refused shift
   // does not happen; the toast below is a placeholder line in the
   // game's comms style, flagged for Will's wording.
+  // Full range (a paid license, or the dragon) lifts the daily cap.
+  // The write gap stays either way, so the chart is never flooded.
   const day = todayStr();
-  if (!gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, day)) {
+  const known = gravityKnownRecords();
+  const unlocked = dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
+  if (!gravityShiftAllowed(known, state.realm, playerName, day) && !unlocked) {
     toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
+    return;
+  }
+  if (!writeGapOpen(known, playerName, state.realm, Date.now())) {
+    toast("The chart is still taking the last shift — give it a moment.", 3200);
     return;
   }
   const { sx, sy } = playerScroll();
@@ -6157,6 +6489,7 @@ function renderBoard() {
   renderSolver();
   renderFieldGuide();
   renderMaterials();
+  renderMorseGuide();
   renderFormPanel();
   renderRoadmap();
   renderSaveState();
@@ -7879,6 +8212,15 @@ document.addEventListener("keydown", (e) => {
   // While a menu panel is up, the keyboard works the menu.
   if (menuIsOpen()) { handleMenuKey(e); return; }
   if (e.repeat) return;
+  if (state.dialOpen && (e.code === "Slash" || e.code === "Escape" || e.code === "Enter"
+      || e.code === "BracketRight" || e.code === "Backslash")) {
+    e.preventDefault();
+    if (e.code === "Escape") { toggleDial(false); return; }
+    if (e.code === "Enter") { dialLock(); return; }
+    if (e.code === "BracketRight") { dialLetterGap(); return; }
+    if (e.code === "Backslash") { dialWordGap(); return; }
+    if (e.code === "Slash") { state.dialDownAt = performance.now(); return; }
+  }
   keys.add(e.code);
   if (e.code === "ArrowLeft") state.yaw += 0.32 * state.gravDir;
   if (e.code === "ArrowRight") state.yaw -= 0.32 * state.gravDir;
@@ -7952,6 +8294,11 @@ document.addEventListener("keydown", (e) => {
 let wTap = null;
 document.addEventListener("keyup", (e) => {
   keys.delete(e.code);
+  if (e.code === "Slash" && state.dialDownAt) {
+    const ms = performance.now() - state.dialDownAt;
+    state.dialDownAt = 0;
+    if (state.dialOpen) dialTap(classifyTap(ms));
+  }
   if (e.code === BIND.strike) chargeEnd(); // EE 1037 (item 4)
   if (e.code === "KeyW" && wTap) {
     const held = performance.now() - wTap.t;
@@ -8302,6 +8649,7 @@ tBtn("t-strike", () => { tryStrike(); });
 tBtn("t-chisel", () => { tryChisel(); });
 tBtn("t-place", () => { tryPlace(); });
 tBtn("t-flip", () => flipGravityHere());
+tBtn("t-dial", () => toggleDial());
 tBtn("t-lamp", () => toggleLamp());
 tBtn("t-vision", () => toggleFoxVision());
 tBtn("t-brushdn", () => cycleBrush(-1));
@@ -9253,6 +9601,28 @@ function toggleSpeedrun(force) {
   if (show) srRenderPanel();
 }
 $("btn-speedrun").addEventListener("click", () => toggleSpeedrun());
+const btnDial = $("btn-dial");
+if (btnDial) btnDial.addEventListener("click", () => toggleDial());
+const gdialPanel = $("gdial");
+if (gdialPanel) {
+  gdialPanel.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.id === "gdial-dot") dialTap(".");
+    else if (b.id === "gdial-dash") dialTap("-");
+    else if (b.id === "gdial-gap") dialLetterGap();
+    else if (b.id === "gdial-word") dialWordGap();
+    else if (b.id === "gdial-lock") dialLock();
+    else if (b.id === "gdial-close") toggleDial(false);
+    else if (b.id === "gdial-ref-btn") {
+      const ref = $("gdial-ref");
+      if (!ref) return;
+      const on = ref.classList.toggle("on");
+      if (on) renderMorseChart();
+    } else if (b.dataset.mag != null) commitDialStops(Number(b.dataset.mag), state.dialFreq);
+    else if (b.dataset.freq != null) commitDialStops(state.dialMag, Number(b.dataset.freq));
+  });
+}
 $("sr-start").addEventListener("click", () => speedrunArm());
 $("sr-abort").addEventListener("click", () => speedrunAbort());
 $("sr-connect").addEventListener("click", () => {
@@ -9401,8 +9771,17 @@ window.NOVA_FOX3 = {
   }),
   gravityReadback: (line) => {
     BACKEND.gravityRows.push(...parseGravityScroll(line));
+    BACKEND.dialRows.push(...parseDialScroll(line));
     reconcileGravity();
+    reconcileDial();
   },
+  dialState: () => ({
+    mag: state.dialMag, freq: state.dialFreq, open: state.dialOpen,
+    pattern: state.dialPattern,
+    unlocked: dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled),
+    prompt: joyMorsePrompt,
+    introduced: morseDeck.introduced,
+  }),
   invertFx: () => ({
     active: invertFxActive(performance.now()),
     slow: INVERT_SLOW, ms: INVERT_FX_MS,

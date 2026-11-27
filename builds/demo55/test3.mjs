@@ -73,6 +73,20 @@ import {
   otherScheme, prefForScheme, resolveScheme, schemeBeatId,
 } from "./scheme.js";
 import {
+  GRAV_BASE, TERM_BASE, FREQ_RIPPLE, FREE_MAG, FREE_FREQ, WRITE_GAP_MS,
+  SOS_PATTERN, HOME_REALM, HOME_ARRIVAL, MAG_STOPS, FREQ_STOPS, DIAL_REALMS,
+  MORSE, MORSE_ORDER, MORSE_COUNT, MORSE_LS_KEY, DIAL_LS_KEY,
+  encodeMorse, encodeCoord, decodeMorse, isSos, classifyTap, applyTap,
+  interpretLock, clampStop, dialRangeUnlocked, proposeDial, gravityStep,
+  dialLine, parseDialScroll, latestDialByPlayerRealm, writeGapOpen,
+  dailyShiftOpen, shiftGate, newDialInstrument, saveDialInstrument,
+  loadDialInstrument, rememberDial, dialReading, applyDialRecords,
+  PENTA_STEPS, midiToHz, symbolPitch, dialPitch, coordPitch, tapPitch,
+  tonePartials, confirmChord, sosCadence, spectrumColor,
+  LEITNER_INTERVALS_MS, newMorseDeck, reviewCard, dueCard, introduceNext,
+  sosReady, saveMorseDeck, loadMorseDeck, morseChart, joyMorseCue, cardBySymbol,
+} from "./gdial.js";
+import {
   IDEA_TITLE_MAX, IDEA_BODY_MAX, IDEA_LIMITS,
   validateIdea, makeIdeaId,
   serializeIdea, parseIdeaLine, serializeStatus, parseStatusLine,
@@ -3792,5 +3806,306 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     SOLVER_GOVERNOR.DUTY < SOLVER_GOVERNOR.CAP && SOLVER_GOVERNOR.CAP === 0.30 &&
     SOLVER_GOVERNOR.SLICE_MS === 100);
 }
+// --- the gravity dial: Morse, magnitude, frequency, the primer --------
+// Will: the dial is a microcosm of subspace. Morse chooses the next
+// coordinate. S.O.S brings you home. Full range (magnitude and
+// frequency, and no once-a-day cap) opens for a paid license or the
+// dragon — the flight gate's rule. Joy teaches all 36 marks by
+// spaced repetition, on this machine, as the fox explores.
+{
+  check("dial: the alphabet and the digits are 36 symbols",
+    MORSE_COUNT === 36 && MORSE_ORDER.length === 36 &&
+    new Set(MORSE_ORDER).size === 36);
+  check("dial: the deck starts S, then O, then the rest",
+    MORSE_ORDER[0] === "S" && MORSE_ORDER[1] === "O" &&
+    MORSE_ORDER.includes("A") && MORSE_ORDER.includes("Z") &&
+    MORSE_ORDER.includes("0") && MORSE_ORDER.includes("9"));
+  const patterns = new Set();
+  let round = true;
+  for (const sym of MORSE_ORDER) {
+    const enc = encodeMorse(sym);
+    const dec = decodeMorse(enc);
+    if (!enc || !MORSE[sym] || enc !== MORSE[sym] || !dec || dec.text !== sym || dec.letters[0] !== sym) {
+      round = false;
+    }
+    patterns.add(enc);
+  }
+  check("dial: all 36 symbols encode and decode cleanly", round && patterns.size === 36);
+
+  check("dial: S.O.S is the three-letter word, dots dashes dots",
+    encodeMorse("SOS") === SOS_PATTERN && SOS_PATTERN === "... --- ..." &&
+    isSos(SOS_PATTERN) && decodeMorse(SOS_PATTERN).text === "SOS" &&
+    decodeMorse(SOS_PATTERN).letters.join("") === "SOS");
+  check("dial: a garbled pattern is not a coordinate",
+    decodeMorse("........") === null && decodeMorse("") === null &&
+    decodeMorse(null) === null && interpretLock("........").ok === false);
+
+  const home = interpretLock(SOS_PATTERN);
+  check("dial: S.O.S locks home — Nova Prime, the arrival pad",
+    home.ok && home.kind === "home" && home.realmId === HOME_REALM &&
+    home.realmId === "nova" && home.arrival.x === HOME_ARRIVAL.x &&
+    home.arrival.z === ARRIVAL.nova.z &&
+    home.coord.join(",") === realmCoord("nova").join(","));
+
+  let callsOk = DIAL_REALMS.length === REALMS.length;
+  for (const r of DIAL_REALMS) {
+    const w = REALMS.find((x) => x.id === r.id);
+    if (!w || w.name !== r.name || w.coord.join(",") !== r.coord.join(",")) callsOk = false;
+    const hit = interpretLock(encodeMorse(r.call));
+    if (!hit.ok || hit.kind !== "realm" || hit.realmId !== r.id) callsOk = false;
+  }
+  check("dial: each realm's call letter and coordinate match the chart", callsOk);
+  check("dial: O is not Orchid — R is, so S.O.S stays home",
+    interpretLock(encodeMorse("R")).realmId === "orchid" &&
+    interpretLock(encodeMorse("O")).kind !== "realm" &&
+    interpretLock(encodeMorse("O")).kind !== "home");
+
+  const ash = DIAL_REALMS.find((r) => r.id === "ashfall");
+  const ashLock = interpretLock(encodeCoord(ash.coord));
+  check("dial: a nine-word digit coordinate locks that realm",
+    ashLock.ok && ashLock.kind === "coord" && ashLock.realmId === "ashfall");
+  const novaLock = interpretLock(encodeCoord(realmCoord("nova")));
+  check("dial: Nova's own coordinate locks Nova, and it is not the S.O.S kind",
+    novaLock.ok && novaLock.kind === "coord" && novaLock.realmId === "nova");
+  check("dial: an unknown nine-word coordinate is refused",
+    interpretLock(encodeCoord([9, 9, 9, 9, 9, 9, 9, 9, 9])).reason === "unknown-coord");
+
+  check("dial: Q1–Q5 set magnitude, Y1–Y5 set frequency",
+    interpretLock(encodeMorse("Q1")).index === 0 && interpretLock(encodeMorse("Q1")).kind === "mag" &&
+    interpretLock(encodeMorse("Q5")).index === 4 &&
+    interpretLock(encodeMorse("Y1")).kind === "freq" && interpretLock(encodeMorse("Y5")).index === 4);
+
+  const std = gravityStep(FREE_MAG, FREE_FREQ, 1, 0);
+  check("dial: Standard and Still are the shipped pull, exactly",
+    FREE_MAG === 2 && FREE_FREQ === 0 && MAG_STOPS[2].mul === 1 && FREQ_STOPS[0].hz === 0 &&
+    std.perSec === GRAV_BASE && std.terminal === TERM_BASE && std.ripple === 1);
+  check("dial: inverted Standard pulls the other way at the same strength",
+    gravityStep(2, 0, -1, 1.7).perSec === -GRAV_BASE);
+  check("dial: Float is a quarter, Crushing is double, terminal follows",
+    gravityStep(0, 0, 1, 0).perSec === GRAV_BASE * 0.25 &&
+    gravityStep(4, 0, 1, 0).perSec === GRAV_BASE * 2 &&
+    gravityStep(4, 0, 1, 0).terminal === TERM_BASE * 2 &&
+    gravityStep(1, 0, 1, 0).terminal === TERM_BASE * 0.5);
+  const hum = gravityStep(2, 2, 1, 0.25); // Pulse is 1 Hz; quarter period is the crest
+  check("dial: frequency breathes the pull and rests at the zero crossing",
+    FREQ_STOPS[2].hz === 1 &&
+    Math.abs(hum.ripple - (1 + FREQ_RIPPLE)) < 1e-9 &&
+    Math.abs(hum.perSec - GRAV_BASE * (1 + FREQ_RIPPLE)) < 1e-9 &&
+    gravityStep(2, 2, 1, 0).ripple === 1);
+
+  const freeEco = newEconomyState();
+  const paidEco = newEconomyState();
+  paidEco.entitlement.status = "paid";
+  const cases = [[false, false], [true, false], [false, true], [true, true]];
+  check("dial: the range gate matches the flight gate on every case",
+    cases.every(([paid, dragon]) => {
+      const eco = paid ? paidEco : freeEco;
+      const f = flightUnlocked(eco, dragon);
+      const d = dialRangeUnlocked(isGenerator(eco), dragon);
+      return f.ok === d.ok && f.via === d.via;
+    }));
+  check("dial: a free fox is refused off Standard and off Still",
+    proposeDial(4, 4, false).reason === "locked" &&
+    proposeDial(2, 1, false).reason === "locked" &&
+    proposeDial(2, 0, false).ok === true);
+  check("dial: a paid fox and a dragon-slayer may set Crushing and Keen",
+    proposeDial(4, 4, dialRangeUnlocked(true, false).ok).ok === true &&
+    proposeDial(0, 3, dialRangeUnlocked(false, true).ok).ok === true &&
+    proposeDial(9, 0, true).reason === "bad");
+
+  const DAY = "2026-11-27";
+  const grav = [
+    { realmId: "nova", dir: -1, player: "fox-one", day: DAY, ts: 1000 },
+  ];
+  check("dial: a free fox's second same-day shift is the daily refusal",
+    shiftGate(grav, "nova", "fox-one", DAY, false, 50000).reason === "daily" &&
+    gravityShiftAllowed(grav, "nova", "fox-one", DAY) === false);
+  check("dial: an unlocked fox may shift again, once the write gap has passed",
+    shiftGate(grav, "nova", "fox-one", DAY, true, 1000 + WRITE_GAP_MS).ok === true &&
+    shiftGate(grav, "nova", "fox-one", DAY, true, 1000 + WRITE_GAP_MS - 1).reason === "rate");
+  check("dial: the write gap is per fox — another player's shift does not close it",
+    writeGapOpen(grav, "fox-two", "nova", 1001) === true);
+  check("dial: a gdial line does not spend the day's flip",
+    dailyShiftOpen([{ realmId: "nova", mag: 4, freq: 4, player: "fox-one", day: DAY, ts: 5 }],
+      "nova", "fox-one", DAY) === true);
+
+  const line = dialLine("nova", 4, 3, "fox-one", DAY, 4242);
+  check("dial: a gdial line has the scroll's shape",
+    line === "gdial|nova|4|3|fox-one|2026-11-27|4242");
+  const mixed = line + "\n" + gravityShiftLine("nova", -1, "fox-one", DAY, 1000) + "\n" +
+    "gdial|nova|9|0|fox|2026-11-27|1\ngdial|nova|1|x|fox|2026-11-27|1\n";
+  const dials = parseDialScroll(mixed);
+  const gravs = parseGravityScroll(mixed);
+  check("dial: each parser keeps its own lines and drops the malformed",
+    dials.length === 1 && dials[0].mag === 4 && dials[0].freq === 3 &&
+    gravs.length === 1 && gravs[0].dir === -1);
+  const again = dialLine("nova", 0, 1, "fox-one", DAY, 9000);
+  const latest = latestDialByPlayerRealm(parseDialScroll(line + "\n" + again));
+  check("dial: the latest gdial line per fox per realm wins, and the earlier line is still in the scroll",
+    latest.get("fox-one|nova").mag === 0 && latest.get("fox-one|nova").freq === 1 &&
+    parseDialScroll(line + "\n" + again).length === 2);
+
+  const inst = newDialInstrument();
+  rememberDial(inst, "nova", 4, 4);
+  check("dial: a free reading stays Standard and Still even if Crushing was stored",
+    dialReading(inst, "nova", false).mag === FREE_MAG &&
+    dialReading(inst, "nova", false).freq === FREE_FREQ &&
+    dialReading(inst, "nova", false).locked === true);
+  check("dial: an unlocked reading keeps what was stored",
+    dialReading(inst, "nova", true).mag === 4 && dialReading(inst, "nova", true).freq === 4);
+  const records = parseDialScroll(
+    dialLine("ashfall", 1, 2, "fox-one", DAY, 10) + "\n" +
+    dialLine("ashfall", 3, 1, "fox-two", DAY, 11) + "\n" +
+    dialLine("ashfall", 0, 4, "fox-one", DAY, 12));
+  const applied = applyDialRecords(newDialInstrument(), records, "fox-one", true);
+  check("dial: read-back applies this fox's latest line and not another fox's",
+    applied.byRealm.ashfall.mag === 0 && applied.byRealm.ashfall.freq === 4 &&
+    !applied.byRealm.nova);
+  const untouched = applyDialRecords(newDialInstrument(), records, "fox-one", false);
+  check("dial: a free fox does not take a paid reading off the scroll",
+    Object.keys(untouched.byRealm).length === 0);
+  const saved = loadDialInstrument(JSON.parse(JSON.stringify(saveDialInstrument(applied))));
+  const dirtyInst = loadDialInstrument({ v: 1, byRealm: { nova: { mag: 4, freq: 1 }, nope: { mag: 1, freq: 1 }, ashfall: { mag: 9, freq: 0 } } });
+  check("dial: the instrument survives a save round-trip and drops bad realms",
+    saved.byRealm.ashfall.freq === 4 && dirtyInst.byRealm.nova.mag === 4 &&
+    !dirtyInst.byRealm.nope && !dirtyInst.byRealm.ashfall);
+
+  check("dial: a short tap is a dot and a long hold is a dash",
+    classifyTap(0) === "." && classifyTap(359) === "." &&
+    classifyTap(360) === "-" && classifyTap(-1) === null);
+  check("dial: a pause opens a letter gap before the next mark",
+    applyTap(".", "-", 800) === ". -" && applyTap(".", "-", 100) === ".-" &&
+    applyTap("", ".", 5000) === ".");
+
+  const deck = newMorseDeck(0);
+  check("dial: a new deck holds all 36, with S and O introduced and due",
+    deck.cards.length === 36 && deck.introduced === 2 &&
+    deck.cards.every((c) => MORSE_ORDER.includes(c.symbol)) &&
+    cardBySymbol(deck, "S").introduced && cardBySymbol(deck, "O").introduced &&
+    !cardBySymbol(deck, "A").introduced &&
+    dueCard(deck, 0).symbol === "S");
+  const promoted = reviewCard(deck, "S", true, 1000);
+  check("dial: a clean key promotes a box and spaces the next due time",
+    promoted.ok && promoted.box === 2 && cardBySymbol(deck, "S").correct === 1 &&
+    cardBySymbol(deck, "S").due === 1000 + LEITNER_INTERVALS_MS[2]);
+  reviewCard(deck, "S", true, 2000);
+  reviewCard(deck, "S", true, 3000);
+  const demoted = reviewCard(deck, "S", false, 4000);
+  check("dial: a miss demotes to box 1 and is due again now",
+    demoted.ok && demoted.box === 1 && cardBySymbol(deck, "S").wrong === 1 &&
+    cardBySymbol(deck, "S").due === 4000 && cardBySymbol(deck, "S").correct === 3);
+  check("dial: an unintroduced mark cannot be reviewed",
+    reviewCard(deck, "A", true, 4000).reason === "unintroduced" &&
+    reviewCard(deck, "Z", false, 4000).ok === false);
+  check("dial: the next introduced mark is A, in curriculum order",
+    introduceNext(deck, 5000) === "A" && cardBySymbol(deck, "A").introduced &&
+    deck.introduced === 3);
+  const persisted = loadMorseDeck(JSON.parse(JSON.stringify(saveMorseDeck(deck))), 5000);
+  check("dial: the deck persists — box, counts, and how far Joy has gone",
+    cardBySymbol(persisted, "S").box === 1 && cardBySymbol(persisted, "S").correct === 3 &&
+    cardBySymbol(persisted, "S").wrong === 1 && persisted.introduced === 3 &&
+    cardBySymbol(persisted, "A").introduced && !cardBySymbol(persisted, "B").introduced);
+  const filthy = loadMorseDeck({
+    v: 1, introduced: 99, sosCued: true,
+    cards: [
+      { symbol: "S", box: 9, correct: -3, wrong: 2.8, due: "no" },
+      { symbol: "NOPE", box: 3, correct: 4 },
+    ],
+  }, 0);
+  check("dial: a dirty deck drops unknown symbols, clamps boxes, and keeps all 36",
+    filthy.cards.length === 36 && filthy.introduced === 2 &&
+    cardBySymbol(filthy, "S").box === 1 && cardBySymbol(filthy, "S").correct === 0 &&
+    cardBySymbol(filthy, "S").wrong === 2 && cardBySymbol(filthy, "S").due === 0 &&
+    !filthy.cards.some((c) => c.symbol === "NOPE") && filthy.sosCued === true);
+  check("dial: the storage keys are the machine's, not a scroll",
+    MORSE_LS_KEY === "nova-phox-morse-deck" && DIAL_LS_KEY === "nova-phox-dial");
+
+  const fresh = newMorseDeck(0);
+  const first = joyMorseCue(fresh, 0, { event: "enter", lastCueAt: 0 });
+  check("dial: Joy's first cue is S, as text, with no recorded take required",
+    first.kind === "prompt" && first.symbol === "S" && first.speak &&
+    first.text.startsWith("Joy —") && first.text.includes(encodeMorse("S")));
+  const nag = joyMorseCue(fresh, 1000, { event: "explore", lastCueAt: 500 });
+  check("dial: Joy stays quiet inside the gap",
+    nag.kind === "quiet" && nag.speak === false);
+  reviewCard(fresh, "S", true, 0);
+  const second = joyMorseCue(fresh, 30000, { event: "explore", lastCueAt: 0 });
+  check("dial: once S has landed, Joy asks for O",
+    second.symbol === "O" && second.kind === "prompt" && second.text.includes(encodeMorse("O")));
+  reviewCard(fresh, "O", true, 0);
+  const sosCue = joyMorseCue(fresh, 60000, { event: "enter", lastCueAt: 0 });
+  check("dial: with S and O in hand, Joy teaches S.O.S home",
+    sosReady(fresh) && sosCue.kind === "sos" && sosCue.symbol === "SOS" &&
+    sosCue.text.includes("... --- ...") && fresh.sosCued === true);
+  cardBySymbol(fresh, "S").due = 1e15;
+  cardBySymbol(fresh, "O").due = 1e15;
+  const againSos = joyMorseCue(fresh, 90000, { event: "explore", lastCueAt: 0 });
+  check("dial: S.O.S is taught once, then the walk introduces the next mark",
+    againSos.kind !== "sos" && againSos.introduced === "A");
+  const cheer = joyMorseCue(fresh, 1000, { event: "practice", lastCueAt: 90000, prompted: "A", keyedOk: true });
+  const miss = joyMorseCue(fresh, 1000, { event: "practice", lastCueAt: 90000, prompted: "A", keyedOk: false });
+  check("dial: a clean key is celebrated at once, and a miss comes back with the pattern",
+    cheer.kind === "celebrate" && cheer.speak && cheer.text.includes("A") &&
+    miss.kind === "retry" && miss.text.includes(encodeMorse("A")));
+  let walked = fresh;
+  // finish the curriculum so every symbol has been offered
+  for (let i = 0; i < 40; i++) introduceNext(walked, 100000 + i);
+  check("dial: the whole alphabet and every digit join the deck, and then it stops",
+    walked.introduced === 36 && walked.cards.every((c) => c.introduced) &&
+    introduceNext(walked, 200000) === null &&
+    morseChart().length === 36);
+
+  const pcs = new Set(PENTA_STEPS);
+  let pitchesOk = true;
+  for (const sym of MORSE_ORDER) {
+    const p = symbolPitch(sym);
+    if (!p || !(p.hz > 0) || !Number.isFinite(p.hz) || !pcs.has((p.midi - 60) % 12)) pitchesOk = false;
+  }
+  check("dial: every symbol sits on the pentatonic, at a real pitch", pitchesOk);
+  const low = dialPitch(0, 0), high = dialPitch(4, 4);
+  check("dial: magnitude lifts the octave and frequency picks the degree",
+    low.midi === 48 && high.midi === 48 + 12 * 4 + PENTA_STEPS[4] && high.hz > low.hz);
+  const novaHz = coordPitch(realmCoord("nova"));
+  check("dial: a coordinate's pitch is stable, and a dash sits an octave under its dot",
+    novaHz.hz === coordPitch(realmCoord("nova")).hz &&
+    tapPitch("-", 0) === tapPitch(".", 0) * 0.5);
+  const chord = confirmChord("S");
+  check("dial: a locked symbol confirms as a major triad",
+    chord.length === 3 && chord[1].midi === chord[0].midi + 4 &&
+    chord[2].midi === chord[0].midi + 7);
+  const cadence = sosCadence();
+  check("dial: S.O.S is a low rising cadence, warmer than a sidetone",
+    cadence.length === 4 && cadence[0].midi === 48 &&
+    cadence[3].midi === 60 && cadence.every((n, i) => i === 0 || n.midi > cadence[i - 1].midi) &&
+    cadence[0].midi < symbolPitch("S").midi && cadence.every((n) => n.hold >= 0.28));
+  const parts = tonePartials(220);
+  check("dial: the voice is four harmonic partials, no sample",
+    parts.length === 4 && parts[1].hz === 440 && parts[0].gain === 1 &&
+    parts.every((p, i) => i === 0 || p.gain < parts[i - 1].gain));
+  const tintA = spectrumColor(110), tintB = spectrumColor(880);
+  check("dial: pitch maps to a spectrum color, higher pitches warmer",
+    /^hsl\(\d+, 85%, 62%\)$/.test(tintA.css) && tintB.hue > tintA.hue);
+
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  check("dial: the panel, the chart, and the field-guide primer are in the page",
+    page.includes('id="gdial"') && page.includes('id="gdial-dot"') &&
+    page.includes('id="gdial-dash"') && page.includes('id="board-morse"') &&
+    page.includes("S.O.S"));
+  check("dial: the game judges the range with the flight gate's own inputs",
+    game.includes("dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled)") &&
+    game.includes("MORSE_LS_KEY") && game.includes("gravityCoord") &&
+    game.includes('id="gdial"') === false);
+  check("dial: a refused daily shift still returns before the wooze",
+    (() => {
+      const i = game.indexOf("function flipGravityHere()");
+      const seg = game.slice(i, i + 1800);
+      return seg.includes("gravityShiftAllowed") &&
+        seg.indexOf("gravityShiftAllowed") < seg.indexOf("return;") &&
+        seg.indexOf("return;") < seg.indexOf("startInvertFx()") &&
+        seg.includes("writeGapOpen");
+    })());
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

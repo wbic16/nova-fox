@@ -19,7 +19,7 @@ fox scroll claims audited and managed by one planner."*
 | 1.1.1/1.1.2/1.1.1 | Leaderboard — purchase-number board, marks, standings (demo4) | `BACKEND.boardCoord` | Game: backendFlush board segment | backendFlush read-back; loading trail; install.sh health check | Append-only | **Live** |
 | 1.1.1/1.1.3/1.1.1 | Purchase record — claims in order (D1) (demo4) | `BACKEND.purchaseCoord` | Game: ecoOutbox via queueEcoLine | backendFlush read-back (first-claim order) | Append-only | **Live** |
 | 1.1.1/1.1.4/1.1.1 | Economy ledger — gift issues/redeems, hand-downs (D12) (demo4/demo5) | `BACKEND.ecoCoord` | Game: ecoOutbox via queueEcoLine | backendFlush read-back; loading trail | Append-only | **Live** |
-| 1.1.1/1.1.5/1.1.1 | **Gravity** — one line per shift; a realm's latest line is its down (demo10) | `BACKEND.gravityCoord` | Game: queueEcoLine gravity lines (demo10, demo18) | select read-back at boot + flush (demo10 game3.js) | Append-only; latest line per realm wins | **Built** — in the merged ship tree |
+| 1.1.1/1.1.5/1.1.1 | **Gravity** — one `grav\|` line per direction shift; a realm's latest `grav` line is its shared down (demo10). The gravity dial (demo54) appends `gdial\|` instrument lines to this same scroll: magnitude and frequency stops, latest line per player per realm. A `gdial` line never changes the realm's shared direction. | `BACKEND.gravityCoord` | Game: queueEcoLine `grav\|` lines (demo10, demo18) and, when the dial's full range is open, `gdial\|` lines (demo54) | select read-back at boot + flush (demo10 game3.js); `parseGravityScroll` reads `grav`, `parseDialScroll` reads `gdial` | Append-only; latest `grav` line per realm wins. Latest `gdial` line per (player, realm) wins. Direction shifts stay once per player per realm per day unless the dial's full range is open (paid license or the dragon), and then a 12s write gap still holds. | **Built** — direction in the merged ship tree; dial lines in producer tree demo54 |
 | 1.1.1/1.1.6/1.1.1 | **Player forms** — the shapes foxes wear (demo6) | `BACKEND.formCoord` | Game: queueEcoLine `form\|` / `formoff\|` lines | select read-back → `parseFormChart` (forms.js) | Append-only | **Staged** — coordinate applied in the merged ship tree (see Ratification) |
 | 1.1.1/1.1.7/1.1.1 | **Player ideas** — tellings at the idea door (demo8) | `BACKEND.ideaCoord` | Game: ideaOutbox (idea-door builds) | select read-back → `BACKEND.ideaRows`; dev-loop harvest | Append-only | **Allocated** (planner, this registry) — code adoption pending, see C2 note |
 | 1.1.1/1.1.8/1.1.1 | **Wormholes** — tunnels a player crafts between two realms; shared across all players, permanent (demo34, EE 1034 batch) | `BACKEND.tunnelCoord` | Game: ecoOutbox via queueEcoLine `tun\|` (craft) / `tunx\|` (retire) lines | select read-back → `parseTunnelScroll` / `resolveTunnels` (world.js) | Append-only; reads resolve the standing set — one tunnel per (crafter, realm-pair): a new craft between the same pair retires that crafter's old one (`tunx` written before the replacement `tun`) | **Built** — in the demo34 ship tree |
@@ -82,6 +82,14 @@ dev-loop lineage — and the two lineages must not merge until the move
 lands. Full evidence: SCROLL-AUDIT-REPORT (2026-11-26), collision C2.
 
 ## History
+
+- 2026-11-27 — Gravity dial instrument lines (`gdial|`) join the gravity
+  scroll `1.1.1/1.1.5/1.1.1` (producer tree demo54, Grok/xAI lane).
+  Not a new coordinate: the dial is the same owner. Direction stays
+  `grav|`, latest per realm. Magnitude and frequency are per fox,
+  latest `gdial|` per (player, realm), and never rewrite another
+  fox's down. The Morse deck and the spaced-repetition primer stay
+  on the player's machine (`nova-phox-morse-deck`) and write nothing.
 
 - 2026-11-27 — Mutable subspace geometry allocated `1.1.1/1.1.9/1.1.1`
   (EE 1087 feedback batch, Feature 1; producer tree demo45): the
