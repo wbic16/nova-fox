@@ -2304,5 +2304,104 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     g.includes('state.weapon === "sword" ? ITEM_DEFS.sword : null'));
 }
 
+
+// =====================================================================
+// PHONE PLAYABILITY (demo28, 2026-11-26): Will's phone playtest —
+// "couldn't cancel the console", "couldn't get back to anything
+// useful, couldn't type a rift code" — and the 20:27 ruling: the
+// world stays playable after a gravity inversion (the once-a-day
+// rule itself untouched — its pins stand elsewhere in this suite).
+// The pure pins hold baseBlockAt's vault; the source pins hold the
+// wiring the headless modules cannot reach.
+// =====================================================================
+{
+  console.log("\n== phone playability: the vault, the console, the rift ==");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const world = readFileSync(new URL("./world.js", import.meta.url), "utf8");
+
+  // The vault, pure (IP-3): under normal gravity there is no vault
+  // anywhere — the shaft column is carve at vault height, open
+  // country is air. Inverted, the vault lies at CEIL_Y/CEIL_Y+1
+  // over open country AND over the barrow shaft: no hole.
+  const subUp = new Subspace();
+  check("vault: normal gravity — the shaft column is carve at vault height",
+    baseBlockAt(subUp, "nova", 45, CEIL_Y, 31) === -1);
+  check("vault: normal gravity — open country is air at vault height",
+    baseBlockAt(subUp, "nova", 20, CEIL_Y, 20) === BLOCK.AIR);
+  const subInv = new Subspace();
+  subInv.flipGravity("nova", 0, 0);
+  check("vault: inverted — open country wears the vault at CEIL_Y and CEIL_Y + 1",
+    baseBlockAt(subInv, "nova", 20, CEIL_Y, 20) === BLOCK.VAULT &&
+    baseBlockAt(subInv, "nova", 20, CEIL_Y + 1, 20) === BLOCK.VAULT);
+  check("vault: inverted — the vault caps the barrow shaft too (no hole over the shaft)",
+    baseBlockAt(subInv, "nova", 45, CEIL_Y, 31) === BLOCK.VAULT &&
+    baseBlockAt(subInv, "nova", 45, CEIL_Y + 1, 31) === BLOCK.VAULT);
+  check("vault: the cap is judged before the dungeon carve in baseBlockAt",
+    world.indexOf("The vault caps every column alike") > -1 &&
+    world.indexOf("The vault caps every column alike") <
+      world.indexOf("The dungeon is carved into Nova Prime"));
+
+  // The console's class joins the touch exemptions (defect 1): a
+  // panel's touches are the panel's, never the world's — without
+  // this the world-touch handler preventDefaults every tap on the
+  // console and its close button's click never exists.
+  check("touch: TOUCH_UI exempts the console and the panels of its class",
+    game.includes("#nfconsole, #speedrun, #menu") &&
+    game.includes('#audio-panel, #ideas";'));
+  // The console's controls answer touch first (tBtn idiom); the
+  // stop control exists in the page and the build.
+  check("touch: the console's close, toggle, and stop answer touchstart",
+    game.includes('tBtn("nfconsole-close", () => nfConsoleToggle(false));') &&
+    game.includes('tBtn("btn-console", () => nfConsoleToggle());') &&
+    game.includes('tBtn("nfconsole-stop"'));
+  check("touch: the stop control stands in the console row, page and build alike",
+    page.includes('id="nfconsole-stop"') && html.includes('id="nfconsole-stop"'));
+  // Cancellation: closing the console cancels; the walk probe
+  // honors the flag; runall stops between legs; each leg names
+  // the outcome; the stop control shows exactly while busy.
+  check("console: closing the console cancels a running probe",
+    game.includes("if (!want && nfCon.busy) nfCon.cancel = true;"));
+  check("console: the walk probe honors the cancel flag",
+    game.includes("if (nfCon.cancel) { finish({ cancelled: true }); return; }"));
+  check("console: runall stops between legs when cancelled",
+    game.includes('if (!nfCon.cancel) results.push(["rift-veer", await nfLegVeer(20)]);') &&
+    game.includes('if (!nfCon.cancel) results.push(["rift-slope", await nfLegSlope()]);'));
+  check("console: every leg reports a cancellation as its own outcome",
+    (game.match(/STOPPED  the walk was cancelled from the console\./g) || []).length === 3);
+  check("console: the stop control shows while a probe runs and hides after",
+    game.includes('$("nfconsole-stop").style.display = "";') &&
+    game.includes('$("nfconsole-stop").style.display = "none";'));
+  // The pads answer a touch directly: the same playNote call the
+  // click makes, wired a second time for touchstart.
+  check("touch: the note pads play through touchstart as well as click",
+    (game.match(/playNote\(Number\(el\.dataset\.note\) \+ 1\)/g) || []).length === 2 &&
+    game.includes('el.addEventListener("touchstart", (e) => {'));
+
+  // Rifts stand on the gravity surface (IP-1): standFeetY /
+  // surfaceStandY decide by the realm's own gravity; both link
+  // landings step out through surfaceStandY; the ring hangs
+  // toward the fox's body on either surface.
+  check("rift: standFeetY names the vault plane for an inverted realm",
+    game.includes("return CEIL_Y - 1;") &&
+    game.includes("? feetY : standFeetY(realmId, x, z),"));
+  check("rift: surfaceStandY lands a step-out on the vault, not the ground",
+    game.includes("return CEIL_Y - 0.01;") &&
+    (game.match(/surfaceStandY\(/g) || []).length === 3);
+  check("rift: the ring's center rides toward the fox's body on either surface",
+    game.includes("const ringY = end.feetY + 1 + 0.65 *"));
+
+  // The Deep Stone's reach is the body's span (IP-2), at the quest
+  // check and the speedrun finish alike.
+  check("quest: reach is judged against the body's span, quest and speedrun alike",
+    (game.match(/state\.gravDir \* PHEIGHT/g) || []).length === 2);
+
+  // Small-screen layout: the media query stands in page and build.
+  check("layout: the small-screen corrections stand in page and build",
+    page.includes("@media (max-width: 680px)") && html.includes("@media (max-width: 680px)") &&
+    page.includes("#nfconsole { left: 6px; right: 6px; width: auto; top: 6px; z-index: 40; }"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

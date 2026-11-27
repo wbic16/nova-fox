@@ -1310,6 +1310,15 @@ export function chordTarget(sub, realmId, sx, sy, chord, currentChord) {
 export function baseBlockAt(sub, realmId, x, y, z, h = heightAt(realmId, x, z)) {
   if (y < 0 || y >= WORLD_H) return BLOCK.AIR;
   if (y === 0) return BLOCK.BEDROCK;
+  // The vault caps every column alike when down is up — the dungeon
+  // shaft included (IP-3, 2026-11-26): the shaft's carve below would
+  // otherwise punch a hole through the vault exactly over the shaft,
+  // and a fox walking the vault would fall out of the world there.
+  // Under normal gravity this is inert — no vault exists to cap with.
+  if ((y === CEIL_Y || y === CEIL_Y + 1) && y > h &&
+      sub.gravityOf(realmId, scrollOfBlock(x), scrollOfBlock(z)) < 0) {
+    return BLOCK.VAULT;
+  }
   // The dungeon is carved into Nova Prime's hill country.
   if (realmId === DUNGEON.realm && inDungeon(x, z)) {
     const db = dungeonBlockAt(x, y, z, h);

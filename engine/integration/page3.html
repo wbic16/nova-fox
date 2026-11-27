@@ -554,6 +554,25 @@
     -webkit-tap-highlight-color: transparent; padding: 0;
   }
   .tbtn.on { background: #00c8ff; color: #03121f; border-color: #00e5ff; }
+  /* Small screens (2026-11-26 phone fix): the desktop geometry
+     stacks every panel onto the same strips of a portrait phone —
+     the top three panels collide, the help wall buries the note
+     pads, and the bottom-right button row runs wider than the
+     screen, over the pads. Below 680px the console becomes a top
+     sheet that clears everything while it is open (and closes
+     reliably — #nfconsole is in TOUCH_UI now), the right top
+     panel stacks under the left one, the help wall is capped and
+     scrolls in place, and the button row wraps clear of the
+     instrument. Desktop geometry is untouched. */
+  @media (max-width: 680px) {
+    #nfconsole { left: 6px; right: 6px; width: auto; top: 6px; z-index: 40; }
+    #nfconsole-out { max-height: 30vh; }
+    #topright { top: 118px; right: 6px; max-width: 62vw; }
+    #topcenter { max-width: 44vw; }
+    #help { left: 6px; right: 6px; bottom: 128px; max-height: 24vh; overflow-y: auto; }
+    #bottomright { right: 6px; bottom: 64px; max-width: 58vw; flex-wrap: wrap; justify-content: flex-end; }
+    #readout { left: 6px; right: 6px; width: auto; top: 6px; max-height: 44vh; z-index: 39; }
+  }
 </style>
 </head>
 <body>
@@ -798,6 +817,7 @@
   <div id="nfconsole-out"></div>
   <div id="nfconsole-row">
     <input type="text" id="nfconsole-input" placeholder="where · gravity · purse · rift-straight · rift-veer · rift-slope · runall" autocomplete="off" spellcheck="false">
+    <button class="ghost" id="nfconsole-stop" style="display:none">stop</button>
     <button class="ghost" id="nfconsole-close">close</button>
   </div>
 <div class="overlay hudpanel" id="speedrun">

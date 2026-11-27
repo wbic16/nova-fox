@@ -20,7 +20,7 @@
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:1023";
+const NF_SHIP_EE = "NF_SHIP_EE:1032";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -3307,6 +3307,28 @@ function closeRift() {
 // where he can walk into it; the far end's ring stands a few
 // steps BEHIND the landing (behind = true) — the door a fox
 // steps out of is at his back, not in his path.
+// The surface a realm's gravity presses a fox to at this column,
+// and the two y-values the rift machinery needs from it (IP-1,
+// 2026-11-26 — Will: "the world still needs to still be playable
+// after the inversion"). Normally the ground: its top block is
+// heightAt, feet rest a hair above its face. Inverted, the surface
+// is the vault's underside: feet rest a hair below the CEIL_Y
+// plane. standFeetY keeps riftEnd's convention (feet rest at
+// feetY + 1) on both surfaces, so riftStep's dy reads ~0 for a fox
+// standing on either — before this, a ring always stood on the
+// ground and an inverted fox, ~25 blocks above it on the vault,
+// could never satisfy the crossing gate: portals were dead for
+// the rest of the day in an inverted realm.
+function standFeetY(realmId, x, z) {
+  if (sub.gravityOf(realmId, scrollOfBlock(x), scrollOfBlock(z)) < 0)
+    return CEIL_Y - 1;
+  return heightAt(realmId, Math.floor(x), Math.floor(z));
+}
+function surfaceStandY(realmId, x, z) {
+  if (sub.gravityOf(realmId, scrollOfBlock(x), scrollOfBlock(z)) < 0)
+    return CEIL_Y - 0.01;
+  return heightAt(realmId, Math.floor(x), Math.floor(z)) + 1.01;
+}
 function riftEnd(realmId, landX, landZ, yaw, feetY, behind = false) {
   const dirx = -Math.sin(yaw), dirz = -Math.cos(yaw);
   const off = behind ? -3.4 : 3.4;
@@ -3314,7 +3336,7 @@ function riftEnd(realmId, landX, landZ, yaw, feetY, behind = false) {
   return {
     realmId, landX, landZ, x, z,
     feetY: feetY !== undefined
-      ? feetY : heightAt(realmId, Math.floor(x), Math.floor(z)),
+      ? feetY : standFeetY(realmId, x, z),
     faceYaw: Math.atan2(landX - x, landZ - z),
   };
 }
@@ -3364,8 +3386,14 @@ function showRiftEnd(which) {
         }));
   mesh.add(ring);
   mesh.add(disc);
-  mesh.position.set(end.x, end.feetY + 1.65, end.z);
-  mesh.lookAt(end.landX, end.feetY + 1.65, end.landZ);
+  // The ring's center rides 0.65 from the fox's foot plane toward
+  // his body — above it on the ground, below it on the vault
+  // (IP-1): an inverted end's ring hangs under the vault where
+  // the fox walks, not down at the ground he cannot reach.
+  const ringY = end.feetY + 1 + 0.65 *
+    (sub.gravityOf(end.realmId, scrollOfBlock(end.x), scrollOfBlock(end.z)) < 0 ? -1 : 1);
+  mesh.position.set(end.x, ringY, end.z);
+  mesh.lookAt(end.landX, ringY, end.landZ);
   scene.add(mesh);
   state.rift = {
     target: viewTarget, end: which, x: end.x, z: end.z,
@@ -3450,8 +3478,7 @@ function crossThroughRift(carriedPre) {
     state.pocketChord = null;
     state.pocketScroll = null;
     state.pos.set(other.landX,
-      heightAt(state.realm, Math.floor(other.landX),
-        Math.floor(other.landZ)) + 1.01,
+      surfaceStandY(state.realm, other.landX, other.landZ),
       other.landZ);
     state.vel.set(0, 0, 0);
     ensureNeighborhood(state.realm,
@@ -3782,8 +3809,7 @@ function doCross(target, opts = {}) {
       // respawnAtArrival would fold it and drop you at Arrival.
       const land = opts.land;
       state.pos.set(land.landX,
-        heightAt(state.realm, Math.floor(land.landX),
-          Math.floor(land.landZ)) + 1.01,
+        surfaceStandY(state.realm, land.landX, land.landZ),
         land.landZ);
       state.vel.set(0, 0, 0);
       ensureNeighborhood(state.realm,
@@ -6065,6 +6091,17 @@ document.addEventListener("keyup", (e) => {
 });
 document.querySelectorAll(".notepad").forEach((el) => {
   el.addEventListener("click", () => playNote(Number(el.dataset.note) + 1));
+  // A pad answers a touch directly, like every touch control
+  // (2026-11-26 phone fix): click synthesis after a touch is the
+  // browser's courtesy, not a contract — and a tune is three taps
+  // that must each land. preventDefault keeps the tap from ALSO
+  // arriving as a click, so the note sounds exactly once.
+  el.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    sfx.unlock();
+    if (state.splash) { dismissSplash(); return; }
+    playNote(Number(el.dataset.note) + 1);
+  }, { passive: false });
 });
 $("btn-realms").addEventListener("click", () => toggleRealms());
 // Portal panel rows (item 4): a click — or Enter on a focused row —
@@ -6290,7 +6327,9 @@ $("stick").addEventListener("touchcancel", stickEnd);
 // rather than the one canvas element keeps the drag surface the
 // whole screen on real devices, HUD text included.
 const TOUCH_UI = "#touchui, #bottombar, #bottomright, #readout, " +
-  "#board, #realms, #subspace, #intro-viewer, #login-screen";
+  "#board, #realms, #subspace, #intro-viewer, #login-screen, " +
+  "#nfconsole, #speedrun, #menu, #bindings-panel, #video-panel, " +
+  "#audio-panel, #ideas";
 document.addEventListener("touchstart", (e) => {
   if (e.target.closest && e.target.closest(TOUCH_UI)) return;
   e.preventDefault();
@@ -6467,7 +6506,13 @@ function animate() {
       banterHallVisited = true;
     }
     inDungeonBefore = inDungeon(bx, bz);
-    if (sub.checkQuest(bx, Math.floor(state.pos.y), bz)) {
+    // Reach is judged against the body's span (IP-2, 2026-11-26):
+    // pos.y is the feet row, but inverted the feet are the body's
+    // top — a fox on the hall ceiling over the stone sampled a row
+    // the stone's tolerance could never see. Either end of the
+    // body within reach is a reaching.
+    if (sub.checkQuest(bx, Math.floor(state.pos.y), bz) ||
+        sub.checkQuest(bx, Math.floor(state.pos.y + state.gravDir * PHEIGHT), bz)) {
       playBeat("BEAT-quest");
       banterFire({ type: "quest",
         hallTimeMs: banterHallEnterAt ? performance.now() - banterHallEnterAt : 0 });
@@ -6603,7 +6648,7 @@ const NF_TRIGGER2 = 1.25; // riftStep's crossing test in this build:
                           // it must change this with it — the
                           // geometry command exists to catch drift.
 const nfCon = {
-  open: false, busy: false, history: [], hIdx: -1,
+  open: false, busy: false, cancel: false, history: [], hIdx: -1,
   el: $("nfconsole"), out: $("nfconsole-out"), input: $("nfconsole-input"),
 };
 function nfPrint(text, cls = "") {
@@ -6616,6 +6661,11 @@ function nfPrint(text, cls = "") {
 function nfConsoleToggle(force) {
   const want = force !== undefined ? !!force : !nfCon.open;
   if (want === nfCon.open) return;
+  // Closing the console cancels a running probe (2026-11-26 phone
+  // fix): a walk let loose by runall must never outlive the pane
+  // that started it — the fox is the player's again the moment
+  // the console goes away.
+  if (!want && nfCon.busy) nfCon.cancel = true;
   nfCon.open = want;
   nfCon.el.style.display = want ? "block" : "none";
   if (want) {
@@ -6663,6 +6713,16 @@ nfCon.el.addEventListener("click", (e) => {
 });
 $("nfconsole-close").addEventListener("click", () => nfConsoleToggle(false));
 $("btn-console").addEventListener("click", () => nfConsoleToggle());
+// The same controls on touch, first (2026-11-26 phone fix): the
+// close button's click never arrived on a phone at all — the
+// world-touch handler claimed the panel's touches before
+// #nfconsole joined TOUCH_UI, and click synthesis is a courtesy
+// besides. tBtn's preventDefault keeps a tap from also landing
+// as a click, so the toggle fires exactly once per tap.
+tBtn("nfconsole-close", () => nfConsoleToggle(false));
+tBtn("btn-console", () => nfConsoleToggle());
+tBtn("nfconsole-stop", () => { nfCon.cancel = true; });
+$("nfconsole-stop").addEventListener("click", () => { nfCon.cancel = true; });
 
 // --- readouts: the facts a playtester needs, read off live state ---------
 function nfCmdWhere() {
@@ -6765,6 +6825,7 @@ function nfWalkProbe(timeoutMs) {
     };
     const tick = () => {
       if (done) return;
+      if (nfCon.cancel) { finish({ cancelled: true }); return; }
       const dx = state.pos.x - ring.x, dz = state.pos.z - ring.z;
       const d = Math.hypot(dx, dz);
       if (d < minD) { minD = d; dyAtMin = (state.pos.y - 1.01) - ring.feetY; }
@@ -6797,6 +6858,7 @@ async function nfLegStraight() {
   if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
   nfPrint(`  ring stands ahead at ${r.x.toFixed(1)}, ${r.z.toFixed(1)} · disc radius ${r.geo.disc.toFixed(3)} · ring feetY ${r.feetY.toFixed(2)}. walking…`);
   const w = await nfWalkProbe(12000);
+  if (w.cancelled) { nfPrint("  STOPPED  the walk was cancelled from the console.", "fail"); return "notrun"; }
   if (w.crossed) {
     nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s; closest approach ${w.minD.toFixed(3)}.`, "pass");
     return "pass";
@@ -6813,6 +6875,7 @@ async function nfLegVeer(deg) {
   state.yaw += deg * Math.PI / 180;
   nfPrint(`  veered ${deg}° (a ruler-straight line now misses the ring's center by ~${(3.4 * Math.sin(deg * Math.PI / 180)).toFixed(2)} blocks). walking…`);
   const w = await nfWalkProbe(12000);
+  if (w.cancelled) { nfPrint("  STOPPED  the walk was cancelled from the console.", "fail"); return "notrun"; }
   if (w.crossed) {
     nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s; closest approach ${w.minD.toFixed(3)} of a ${disc.toFixed(3)} disc.`, "pass");
     return "pass";
@@ -6846,6 +6909,7 @@ async function nfLegSlope() {
   if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
   nfPrint(`  ring feetY is ${r.feetY.toFixed(2)} — in this build the ring's height is anchored to the ground where the tune was played, while the ground at the ring itself is ${spot.gR}. walking…`);
   const w = await nfWalkProbe(12000);
+  if (w.cancelled) { nfPrint("  STOPPED  the walk was cancelled from the console.", "fail"); return "notrun"; }
   if (w.crossed) {
     nfPrint(`  PASS  crossed to ${realmName(w.realm)} in ${(w.ms / 1000).toFixed(1)}s up a ${spot.rise.toFixed(2)}-block rise; closest approach ${w.minD.toFixed(3)}, |dy| there ${Math.abs(w.dyAtMin).toFixed(2)}.`, "pass");
     return "pass";
@@ -6860,8 +6924,9 @@ async function nfRunAll() {
   nfPrint("geometry:"); results.push(["geometry", nfCheckGeometry()]);
   nfPrint("bridge:"); results.push(["bridge tune", nfCheckBridge()]);
   results.push(["rift-straight", await nfLegStraight()]);
-  results.push(["rift-veer", await nfLegVeer(20)]);
-  results.push(["rift-slope", await nfLegSlope()]);
+  if (!nfCon.cancel) results.push(["rift-veer", await nfLegVeer(20)]);
+  if (!nfCon.cancel) results.push(["rift-slope", await nfLegSlope()]);
+  if (nfCon.cancel) nfPrint("runall: stopped — the legs that did not run are not counted.", "fail");
   const p = results.filter((r) => r[1] === "pass").length;
   const f = results.filter((r) => r[1] === "fail").length;
   const n = results.filter((r) => r[1] === "notrun").length;
@@ -6893,11 +6958,20 @@ async function nfConsoleRun(line) {
   const [name, ...args] = trimmed.split(/\s+/);
   const cmd = NF_COMMANDS[name.toLowerCase()];
   if (!cmd) { nfPrint("no such command — help lists them.", "fail"); return; }
-  if (cmd.probe && nfCon.busy) { nfPrint("a probe is already walking — let it finish.", "fail"); return; }
-  if (cmd.probe) nfCon.busy = true;
+  if (cmd.probe && nfCon.busy) { nfPrint("a probe is already walking — let it finish, or stop it.", "fail"); return; }
+  if (cmd.probe) {
+    nfCon.busy = true;
+    nfCon.cancel = false;
+    $("nfconsole-stop").style.display = "";
+  }
   try { await cmd.run(args); }
   catch (err) { nfPrint(`  ERROR  ${err && err.message ? err.message : err}`, "fail"); }
-  finally { if (cmd.probe) nfCon.busy = false; }
+  finally {
+    if (cmd.probe) {
+      nfCon.busy = false;
+      $("nfconsole-stop").style.display = "none";
+    }
+  }
 }
 // ---------- speedrun mode (demo16) -------------------------------------
 // Will's spec (2026-11-26): "include modes for speed runners to
@@ -7105,7 +7179,9 @@ function speedrunTick(now) {
     const bx = Math.floor(state.pos.x);
     const by = Math.floor(state.pos.y);
     const bz = Math.floor(state.pos.z);
-    if (state.realm === DUNGEON.realm && deepStoneNear(bx, by, bz, DUNGEON.deepStone)) {
+    if (state.realm === DUNGEON.realm &&
+        (deepStoneNear(bx, by, bz, DUNGEON.deepStone) ||
+         deepStoneNear(bx, Math.floor(state.pos.y + state.gravDir * PHEIGHT), bz, DUNGEON.deepStone))) {
       srFinish(now);
     }
   }
