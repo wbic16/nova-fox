@@ -1703,6 +1703,39 @@ export function gravityShiftAllowed(records, realmId, player, day) {
   return true;
 }
 
+// F-2 (Libby playtest, EE 1129): the correction window. Will's
+// standing rule — "the world still needs to still be playable
+// after the inversion" — outranks the no-free-reversal shape of
+// the daily rule where the two collide: a fox who flips into a
+// landing that strands them (the Hall's ceiling, a pit's
+// underside) had NO legal way back until tomorrow, because the
+// flip itself spent the day. So: flipping back to the direction
+// that stood before your own shift, within the window below, is
+// a CORRECTION of that shift, not a new one. Judged purely from
+// the records: the realm's latest line must be yours, from
+// today, inside the window, and it must be your ONLY line in
+// this realm today — after a correction the day is spent either
+// way, so no toggle loop exists. Because direction is binary
+// and yours is the realm's latest line, the correction
+// necessarily restores the pre-shift direction. Returns the
+// record being corrected, or null.
+export const GRAVITY_CORRECTION_MS = 120000;
+export function gravityCorrection(records, realmId, player, day, now) {
+  let latest = null;
+  let mineToday = 0;
+  for (const r of records || []) {
+    if (!r || r.realmId !== realmId) continue;
+    if (r.dir !== 1 && r.dir !== -1) continue;
+    if (!latest || r.ts >= latest.ts) latest = r;
+    if (r.player === player && r.day === day) mineToday++;
+  }
+  if (!latest) return null;
+  if (latest.player !== player || latest.day !== day) return null;
+  if (mineToday !== 1) return null;
+  if (now - latest.ts > GRAVITY_CORRECTION_MS) return null;
+  return latest;
+}
+
 // ---------- wormhole tunnels (EE 1034, item 1) --------------------------------
 // Will (EE 1034): the tunnel mechanism was the right transit; it
 // "just lacked integration with the world's geometry" — and

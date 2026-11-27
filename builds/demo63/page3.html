@@ -189,6 +189,9 @@
     margin: 0 0 8px; font-family: Georgia, serif; font-size: 16.5px; line-height: 1.5; color: #e8f6ff;
   }
   #guide-hint { color: #7fd8ff; font-size: 13.5px; min-height: 18px; }
+  /* F-1 (EE 1129): during the opening exchange the way out stands
+     lit — a first-time player should not have to find a ghost. */
+  #guide-dismiss.skip-on { color: #ffd98a; border: 1px solid #ffd98a; opacity: 1; }
   .btnrow { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
   button.act {
     background: #00a3ff; color: #eaf7ff; border: 1px solid #00c8ff; font-weight: 700;
@@ -994,6 +997,7 @@
   <h2>Menu</h2>
   <div id="menu-items">
     <button class="menuitem" id="menu-newgame">Start a New Game</button>
+    <button class="menuitem" id="menu-unstick">Return to this realm's Arrival <span class="st">unstick</span></button>
     <button class="menuitem" id="menu-lan">Open to LAN <span class="st" id="menu-lan-state">closed</span></button>
     <button class="menuitem" id="menu-savephext">Save the world to .phext</button>
     <button class="menuitem" id="menu-merge">Merge the local game to fox.phext.io <span class="st" id="menu-merge-state"></span></button>

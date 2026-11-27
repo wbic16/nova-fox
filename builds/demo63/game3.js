@@ -681,6 +681,34 @@ const narration = {
     // starts at once. Other lines keep the breath.
     this.breath(id && id.startsWith("N-") ? 0 : undefined);
   },
+  // F-1 (Libby playtest, EE 1129): the voice follows the player.
+  // skipLine cuts the guide line speaking RIGHT NOW (the spine,
+  // N-* only — an event beat is a moment and is never cut) and
+  // moves the queue on; the line is recorded as skipped, not as
+  // heard. syncToGuide is the advance path: when the guide steps
+  // on, queued guide lines for steps already left are dropped and
+  // a speaking guide line for a left step is cut, so Joy never
+  // talks on for a minute about steps the fox has passed. Her
+  // words do not change; her timing obeys the player's hands.
+  skippedIds: [],
+  skipLine() {
+    if (!this.speaking || !this.speakingId || !this.speakingId.startsWith("N-")) return false;
+    const a = this.speaking, id = this.speakingId;
+    this.speaking = null;
+    this.speakingId = null;
+    this.speakingEntry = null;
+    try { a.pause(); } catch (e) { /* already silent */ }
+    this.skippedIds.push(id);
+    if (this.skippedIds.length > 64) this.skippedIds.shift();
+    this.breath(0);
+    return true;
+  },
+  syncToGuide(beatId) {
+    this.queue = this.queue.filter((q) => !q.id.startsWith("N-") || q.id === beatId);
+    if (this.speakingId && this.speakingId.startsWith("N-") && this.speakingId !== beatId) {
+      this.skipLine();
+    }
+  },
   breath(gapMs) {
     if (this.gapTimer) return;
     this.gapTimer = setTimeout(() => {
@@ -750,6 +778,7 @@ const narration = {
       paused: this.speaking ? this.speaking.paused : true,
       currentTime: this.speaking ? this.speaking.currentTime : 0,
       ended: [...this.endedIds],
+      skipped: [...this.skippedIds],
     };
   },
 };
@@ -3871,6 +3900,19 @@ function updatePlayer(dt) {
   }
 }
 
+// F-2 (EE 1129): the unstick. Whatever the realm's down, however
+// the fox got where it is, Arrival always answers: the same
+// recovery the fall-catch uses, offered as a verb (Esc menu +
+// this hook). It moves the fox, never the world — the realm
+// keeps its down, the day's shift stays spent; only position is
+// paid. Together with the correction window this is the
+// never-strand guarantee: correct in the window, return after it.
+function unstickToArrival() {
+  respawnAtArrival();
+  toast("Back at this realm's Arrival.", 4000);
+  syncHud();
+}
+
 function respawnAtArrival() {
   closeRift(); // a carried fox leaves no open rift behind
   endTransit(); // EE 995: and no walk through it, either
@@ -5910,11 +5952,17 @@ function flipGravityHere() {
   const day = todayStr();
   const known = gravityKnownRecords();
   const unlocked = dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
-  if (!gravityShiftAllowed(known, state.realm, playerName, day) && !unlocked) {
+  const dailyOpen = gravityShiftAllowed(known, state.realm, playerName, day);
+  // F-2 (EE 1129): the correction window (gravityCorrection,
+  // world.js — rationale there: no window = day-long softlock).
+  const correction = !dailyOpen && !unlocked
+    ? gravityCorrection(known, state.realm, playerName, day, Date.now()) : null;
+  if (!dailyOpen && !unlocked && !correction) {
     toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
     return;
   }
-  if (!writeGapOpen(known, playerName, state.realm, Date.now())) {
+  // A correction is exempt from the write gap (same shift, undone).
+  if (!writeGapOpen(known, playerName, state.realm, Date.now()) && !correction) {
     toast("The chart is still taking the last shift — give it a moment.", 3200);
     return;
   }
@@ -5937,6 +5985,9 @@ function flipGravityHere() {
   markScrollChunksDirty(state.realm, sx, sy);
   playBeat(dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up");
   toast(BEAT_LINES[dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up"], 5000);
+  if (correction) {
+    toast("Correction — the down you just left is restored. That was the same shift, undone; the day's shift is spent.", 6000);
+  }
   banterLastFlipAt = performance.now();
   banterFire({ type: "flip", toUp: dir < 0 });
   guideNotify("flip");
@@ -6143,6 +6194,12 @@ function renderGuide() {
     syncHud();
   }
   panel.style.display = "block";
+  // F-1: while the opening exchange runs, the way out of it is
+  // not a ghost — the dismiss stands lit until the handover.
+  {
+    const d = $("guide-dismiss");
+    if (d) d.classList.toggle("skip-on", !step.jit && step.id !== "done");
+  }
   let beat = GUIDE_BEATS[step.id];
   if (step.id === "move") {
     // N-03 was recorded in both schemes (NARRATION.md): the fox
@@ -6196,6 +6253,16 @@ function guideAdvance() {
   state.guideStep++;
   if (state.guideStep >= GUIDE.length) state.guideDone = true;
   saveGuide();
+  // F-1: the voice steps with the guide — lines for the step
+  // just left are dropped or cut before the new step speaks.
+  {
+    const nstep = guideCurrent();
+    let nbeat = nstep ? GUIDE_BEATS[nstep.id] : null;
+    if (nstep && nstep.id === "move") {
+      nbeat = state.scheme === "AWEF" ? "N-03-AWEF" : "N-03-WASD";
+    }
+    narration.syncToGuide(nbeat);
+  }
   renderGuide();
   syncHud();
 }
@@ -7697,7 +7764,7 @@ function syncMenuConfirm() {
 function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
-    return ["menu-newgame", "menu-lan", "menu-savephext", "menu-merge",
+    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-savephext", "menu-merge",
       "menu-keys", "menu-video", "menu-audio", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
@@ -7953,6 +8020,10 @@ $("audio-back").addEventListener("click", () => openPanel("menu"));
 // --- The menu's own rows ----------------------------------------------------
 $("btn-menu").addEventListener("click", () => toggleMenu());
 $("menu-close").addEventListener("click", () => { closeMenu(); lockPointer(); });
+$("menu-unstick").addEventListener("click", () => {
+  closeMenu();
+  unstickToArrival();
+});
 $("menu-newgame").addEventListener("click", () => {
   newGameArmed = true;
   syncMenuConfirm();
@@ -8451,6 +8522,16 @@ $("splash").addEventListener("click", () => dismissSplash());
 $("intro-close").addEventListener("click", () => closeIntroViewer());
 $("intro-viewer").addEventListener("click", (e) => {
   if (e.target === $("intro-viewer")) closeIntroViewer();
+});
+// F-1: an advance input cuts the line being spoken — clicking
+// Joy's lines, or Enter while her panel stands, skips the current
+// guide line's display and voice together.
+$("guide-lines").addEventListener("click", () => { narration.skipLine(); });
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Enter") return;
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  const panel = $("guide");
+  if (panel && panel.style.display !== "none" && !state.guideDone) narration.skipLine();
 });
 $("guide-btn").addEventListener("click", () => {
   const step = guideCurrent();
@@ -9671,6 +9752,8 @@ window.NOVA_FOX3 = {
   selectMaterial: (b) => { state.matSel = +b; return selectedMaterial(); },
   sellMaterialNow: (b, n) => sellMaterialFromPanel(+b, n),
   guideAdvance, guideCurrent: () => GUIDE[state.guideStep] || null,
+  // F-1/F-2 handles (EE 1129): the unstick verb, for the probe legs.
+  unstick: () => { unstickToArrival(); return { x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }; },
   // EE 995 handles: Joy's visible presence (item 8) and the
   // powerup announcement count (item 10), for the e2e legs.
   joyPos: () => (joyMesh ? { x: joyMesh.position.x, y: joyMesh.position.y, z: joyMesh.position.z } : null),
@@ -9781,6 +9864,7 @@ window.NOVA_FOX3 = {
     dir: sub.gravityOf(state.realm, 0, 0),
     known: gravityKnownRecords().length,
     allowed: gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, todayStr()),
+    correction: !!gravityCorrection(gravityKnownRecords(), state.realm, playerName, todayStr(), Date.now()),
   }),
   gravityReadback: (line) => {
     BACKEND.gravityRows.push(...parseGravityScroll(line));

@@ -12,7 +12,7 @@ import {
   REALMS, REALM_PALETTES, HOME_PALETTE, paletteFor,
   REALM_TERRAIN, deltaRiver, ITEM_SPOTS, ARRIVAL,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
-  gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
+  gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed, gravityCorrection, GRAVITY_CORRECTION_MS,
   TUNNEL_LEN, tunnelBlockFor, tunnelEndAt, makeTunnel, tunnelLine, tunnelRetireLine,
   parseTunnelScroll, resolveTunnels, tunnelKey, tunnelBlockAt, tunnelProgress, tunnelServes, tunnelServesLink,
   geometryLine, parseGeometryScroll, resolveGeometry, geoEditRefusal,
@@ -4292,6 +4292,45 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     (scrolls.get(gameCoord) || "").includes("renderShipLog"));
 }
 
+
+// F-2 (EE 1129): the gravity correction window — a flip back to
+// the direction that stood before your own shift, inside the
+// window, is a correction of that shift, not a new one.
+{
+  const DAY = "2026-11-27", NOW = 1000000;
+  const mine = { realmId: "nova", dir: -1, player: "fox-f", day: DAY, ts: NOW - 30000 };
+  const before = { realmId: "nova", dir: 1, player: "fox-other", day: "2026-11-26", ts: NOW - 900000 };
+  check("F-2 correction: own fresh shift, realm's latest, correctable",
+    gravityCorrection([before, mine], "nova", "fox-f", DAY, NOW) === mine);
+  check("F-2 correction: window edge still corrects",
+    gravityCorrection([mine], "nova", "fox-f", DAY, mine.ts + GRAVITY_CORRECTION_MS) === mine);
+  check("F-2 correction: past the window the day stands spent",
+    gravityCorrection([mine], "nova", "fox-f", DAY, mine.ts + GRAVITY_CORRECTION_MS + 1) === null);
+  check("F-2 correction: another fox's later line closes it",
+    gravityCorrection([mine, { realmId: "nova", dir: 1, player: "fox-g", day: DAY, ts: NOW - 5000 }],
+      "nova", "fox-f", DAY, NOW) === null);
+  check("F-2 correction: yesterday's shift is not correctable",
+    gravityCorrection([{ realmId: "nova", dir: -1, player: "fox-f", day: "2026-11-26", ts: NOW - 30000 }],
+      "nova", "fox-f", DAY, NOW) === null);
+  check("F-2 correction: a corrected shift cannot be re-corrected (no toggle loop)",
+    gravityCorrection([mine, { realmId: "nova", dir: 1, player: "fox-f", day: DAY, ts: NOW - 1000 }],
+      "nova", "fox-f", DAY, NOW) === null);
+  check("F-2 correction: another realm's record does not speak here",
+    gravityCorrection([{ realmId: "ashfall", dir: -1, player: "fox-f", day: DAY, ts: NOW - 30000 }],
+      "nova", "fox-f", DAY, NOW) === null);
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  check("F-1/F-2 shape: the view wires the correction, the skip and the unstick",
+    game.includes("gravityCorrection(known, state.realm, playerName, day, Date.now())") &&
+    game.includes("&& !correction") &&
+    game.includes("syncToGuide") && game.includes("skipLine()") &&
+    game.includes("unstickToArrival") && game.includes('id="menu-unstick"') === false);
+  check("F-2 shape: the Esc menu carries the unstick item",
+    page.includes('id="menu-unstick"'));
+  check("F-2 correction: the daily gate itself is unchanged by the window",
+    gravityShiftAllowed([mine], "nova", "fox-f", DAY) === false &&
+    gravityShiftAllowed([], "nova", "fox-f", DAY) === true);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
