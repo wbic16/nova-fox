@@ -1171,6 +1171,7 @@ const BACKEND = {
   ideaCoord: "1.1.1/1.1.7/1.1.1", // the ideas scroll: tellings at the door (demo8; coordinate allocated 1.1.7 by the scroll registry, EE 974 — forms keep 1.1.6)
   tunnelCoord: "1.1.1/1.1.8/1.1.1", // the tunnel scroll: wormholes foxes craft, shared, permanent until the crafter replaces one between the same pair (EE 1034; allocated 1.1.8 by the scroll registry)
   geoCoord: "1.1.1/1.1.9/1.1.1", // the geometry scroll: the shaped world itself, one line per cell a player shapes, shared, permanent (P-1, EE 1087 batch; allocated 1.1.9 by the scroll registry)
+  genCoord: "1.1.1/1.1.10/1.1.1", // the realmgen scroll: each realm's generation parameters (verticality, density, block-mix) recorded in the world record (P-5, EE 1087 batch; allocated 1.1.10 by the scroll registry)
   online: false,
   probed: false,
   boardRows: [], // rows actually read back from the shared chart
@@ -1181,6 +1182,7 @@ const BACKEND = {
   ideaRows: [], // ideas actually read back, resolved to their current state
   tunnelRows: [], // wormhole records actually read back from the shared chart
   geoRows: [], // geometry records actually read back from the shared chart
+  genRows: [], // realmgen records actually read back from the shared chart
   lastPostedScore: LS.get("nova-phox-posted", -1),
 };
 // ---------- login, for saving (Will, 2026-11-22 18:05) ----------------------
@@ -1485,6 +1487,15 @@ async function backendFlush() {
     } catch (e) { /* geometry keeps its last honest state */ }
     try {
       const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.genCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        BACKEND.genRows = parseRealmGenScroll(await r.text());
+        reconcileRealmGen();
+      }
+    } catch (e) { /* realmgen keeps its last honest state */ }
+    try {
+      const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.formCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.formRows = parseFormChart(await r.text());
@@ -1705,6 +1716,37 @@ function reconcileGeometry() {
   for (const k of chunks) {
     const [cx, cz] = k.split(",").map(Number);
     regenerateChunk(cx, cz);
+  }
+}
+
+// ---------- the world's character on the shared chart (P-5) -----------
+// The realmgen scroll is the world record's statement of how each
+// realm is generated (REALM_GEN in world.js). Generation derives
+// from realm identity and never reads the scroll; the reconcile
+// keeps the RECORD true: this fox's own queued lines count at
+// once, and any realm whose standing line is missing or disagrees
+// with the derived record gets the derived line queued — the
+// genesis recording, in identical bytes from every fox, so the
+// record converges and then stands. A tampered line is healed the
+// same way on the next boot; it never moves a hill.
+function genKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.genCoord) continue;
+    for (const r of parseRealmGenScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...BACKEND.genRows, ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+
+function reconcileRealmGen() {
+  if (!playerName) return; // a record is written under a fox's name, or not at all
+  const resolved = resolveRealmGen(genKnownRecords());
+  for (const r of REALMS) {
+    const line = resolved.get(r.id);
+    if (line && line.key === realmGenKey(realmGenParams(r.id))) continue;
+    queueEcoLine(BACKEND.genCoord, realmGenLine(r.id, playerName, Date.now()));
   }
 }
 
@@ -3941,27 +3983,6 @@ function tryChisel() {
       // not carved and not recorded, and its refusal names itself.
       const gRef = geoEditRefusal(state.realm, bx, by, bz, BLOCK.AIR);
       if (gRef) { if (!geoRefusal) geoRefusal = gRef; continue; }
-      // P-2: the stroke's yield is judged by the block that
-      // STANDS at the cell (world.js chiselYield — what you see
-      // break is what you carry). Where the geometry record
-      // speaks with a placed block, that block is what breaks,
-      // whatever the base buried under it: the break goes through
-      // the record path (override cleared, a carve line queued
-      // below with the rest of the stroke) and the placed type is
-      // yielded. This branch once fired only over base air, so a
-      // placed block re-filling a carved ground cell yielded the
-      // buried base type and the placed type vanished (the defect
-      // the P-2 probe named at EE 1101).
-      const judge = chiselYield(sub, state.realm, bx, by, bz);
-      if (judge.placed && solidAt(bx, by, bz)) {
-        sub.setOverride(state.realm, bx, by, bz, BLOCK.AIR);
-        broke++; carved.push([bx, by, bz]);
-        if (addMaterial(eco, judge.block, 1)) {
-          yielded[judge.block] = (yielded[judge.block] || 0) + 1;
-        }
-        dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
-        continue;
-      }
       const baseB = baseBlockAt(sub, state.realm, bx, by, bz);
       const r = sub.chiselBlock(state.realm, bx, by, bz);
       if (r.ok) {
@@ -3972,6 +3993,20 @@ function tryChisel() {
         }
         else { shaped++; lastLevel = r.level; }
         dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
+      } else if (!r.ok && r.reason === "air") {
+        // P-2: a block the geometry record raised over base air
+        // (a placed block) has no base to judge — the chisel
+        // judges the record instead, and the break is a record
+        // too: override cleared, a carve line queued below with
+        // the rest of the stroke, the placed type yielded.
+        const gb = sub.geo && sub.geo.get(state.realm)
+          ? sub.geo.get(state.realm).get(`${bx},${by},${bz}`) : undefined;
+        if (gb && gb !== BLOCK.AIR && solidAt(bx, by, bz)) {
+          sub.setOverride(state.realm, bx, by, bz, BLOCK.AIR);
+          broke++; carved.push([bx, by, bz]);
+          if (addMaterial(eco, gb, 1)) yielded[gb] = (yielded[gb] || 0) + 1;
+          dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
+        }
       } else if (!refusal && r.reason !== "air") {
         refusal = r.reason; // bedrock / deepstone / gone — named below
       }
@@ -8723,6 +8758,12 @@ window.NOVA_FOX3 = {
     return chunkBlock(genChunk(sub, realm, cx, cz), x - cx * CHUNK, y, z - cz * CHUNK);
   },
   geoRefusal: (realm, x, y, z, block) => geoEditRefusal(realm, x, y, z, block),
+  realmGenState: () => ({ online: BACKEND.online, rows: BACKEND.genRows.length,
+    known: genKnownRecords().length,
+    agrees: realmGenAgrees(genKnownRecords()) }),
+  genFingerprint: (realm) => realmFingerprint(realm),
+  realmRouteState: () => Object.fromEntries(
+    REALMS.map((r) => [r.id, realmRouteCheck(r.id)])),
   ecoState: () => ({ tokens: eco.tokens, credits: eco.credits, frac: { ...eco.frac }, generator: isGenerator(eco) }),
   ecoAccrue: (seconds) => accrue(eco, seconds),
   waypoint: () => ({ beacon: !!(hallBeacon && hallBeacon.visible),

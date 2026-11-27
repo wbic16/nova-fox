@@ -53997,21 +53997,82 @@ function vnoise(seedStr, x, z, cell) {
 // (mode + measures) read by heightAt, baseBlockAt and genChunk.
 // Nova Prime and Ashfall Haven keep their exact historical formulas
 // (their profiles encode them) — the played world does not move.
-const REALM_TERRAIN = {
-  nova:      { mode: "roll",    base: 11, amp: 7,   amp2: 2.5, s1: 18, s2: 5 },
-  ashfall:   { mode: "ridge",   base: 9,  amp: 13,  amp2: 3,   s1: 18, s2: 5 },
-  "ni-knight": { mode: "terrace", base: 12, amp: 9, amp2: 2,   s1: 22, s2: 6, step: 3 },
-  logos:     { mode: "terrace", base: 11, amp: 8,  amp2: 2,   s1: 30, s2: 8, step: 2 },
-  elven:     { mode: "roll",    base: 11, amp: 6,  amp2: 2.5, s1: 16, s2: 5 },
-  orchid:    { mode: "roll",    base: 11, amp: 3,  amp2: 1.5, s1: 20, s2: 6 },
-  halycon:   { mode: "roll",    base: 12, amp: 2,  amp2: 1,   s1: 34, s2: 10 },
-  delta:     { mode: "channel", base: 11, amp: 6,  amp2: 2.5, s1: 18, s2: 5 },
-  willow:    { mode: "roll",    base: 11, amp: 8,  amp2: 3,   s1: 20, s2: 6 },
-  plain:     { mode: "roll",    base: 12, amp: 1.2, amp2: 0.6, s1: 40, s2: 12 },
-  trust:     { mode: "ridge",   base: 8,  amp: 17,  amp2: 3.5, s1: 16, s2: 5 },
+// P-5 (EE 1087 batch, Feature 5): one generation record per realm —
+// REALM_GEN. Verticality (mode + measures), feature density and
+// tree form, and the block-mix character, in ONE table keyed by
+// realm identity, read by heightAt, baseBlockAt and genChunk. The
+// measures below are the EE 995 values verbatim — Nova Prime and
+// Ashfall Haven keep their exact historical formulas (their records
+// encode them) and no realm's heights move; what P-5 adds is the
+// record itself, the world-record scroll that carries it (the
+// realmgen section below), and the organic dressing in baseBlockAt
+// and genChunk. REALM_TERRAIN stays exported as REALM_GEN's
+// verticality slice, so its existing readers never move.
+const REALM_GEN = {
+  nova:      { mode: "roll",    base: 11, amp: 7,   amp2: 2.5, s1: 18, s2: 5, density: 0.011, trunk: 3, canopy: "oak",    mix: "meadow", lushT: 0.62, dryT: 0.66 },
+  ashfall:   { mode: "ridge",   base: 9,  amp: 13,  amp2: 3,   s1: 18, s2: 5, density: 0.004, trunk: 3, canopy: "none",   mix: "strata", strataPeriod: 11 },
+  "ni-knight": { mode: "terrace", base: 12, amp: 9, amp2: 2,   s1: 22, s2: 6, step: 3, density: 0.006, trunk: 0, canopy: "pillar", mix: "flags" },
+  logos:     { mode: "terrace", base: 11, amp: 8,  amp2: 2,   s1: 30, s2: 8, step: 2, density: 0.004, trunk: 3, canopy: "none", mix: "sand" },
+  elven:     { mode: "roll",    base: 11, amp: 6,  amp2: 2.5, s1: 16, s2: 5, density: 0.02,  trunk: 4, canopy: "oak",    mix: "meadow", lushT: 0.45, dryT: 0.66 },
+  orchid:    { mode: "roll",    base: 11, amp: 3,  amp2: 1.5, s1: 20, s2: 6, density: 0.005, trunk: 3, canopy: "oak",    mix: "meadow", lushT: 0.75, dryT: 0.66 },
+  halycon:   { mode: "roll",    base: 12, amp: 2,  amp2: 1,   s1: 34, s2: 10, density: 0,     trunk: 3, canopy: "none",   mix: "pale" },
+  delta:     { mode: "channel", base: 11, amp: 6,  amp2: 2.5, s1: 18, s2: 5, density: 0.009, trunk: 3, canopy: "oak",    mix: "meadow", lushT: 0.62, dryT: 0.66 },
+  willow:    { mode: "roll",    base: 11, amp: 8,  amp2: 3,   s1: 20, s2: 6, density: 0.011, trunk: 4, canopy: "willow", mix: "meadow", lushT: 0.55, dryT: 0.66 },
+  plain:     { mode: "roll",    base: 12, amp: 1.2, amp2: 0.6, s1: 40, s2: 12, density: 0.003, trunk: 3, canopy: "oak",   mix: "meadow", lushT: 0.62, dryT: 0.80 },
+  trust:     { mode: "ridge",   base: 8,  amp: 17,  amp2: 3.5, s1: 16, s2: 5, density: 0.004, trunk: 3, canopy: "none",   mix: "strata", strataPeriod: 9 },
 };
+function realmGenParams(realmId) {
+  return REALM_GEN[realmId] || REALM_GEN.nova;
+}
+const REALM_TERRAIN = Object.fromEntries(Object.entries(REALM_GEN)
+  .map(([id, g]) => {
+    const t = { mode: g.mode, base: g.base, amp: g.amp, amp2: g.amp2, s1: g.s1, s2: g.s2 };
+    if (g.step) t.step = g.step;
+    return [id, t];
+  }));
 function terrainFor(realmId) {
   return REALM_TERRAIN[realmId] || REALM_TERRAIN.nova;
+}
+// A strata realm's shale bands: the period is the realm's recorded
+// character (REALM_GEN.strataPeriod); the phase is derived from the
+// realm's seed — except Ashfall's, whose bands are historical
+// (period 11, rows 4–5) and pinned exactly where they always were.
+// Trust Fall wore Ashfall's bands verbatim until P-5; its period 9
+// and seed-derived phase are its own geology now.
+function strataBand(realmId, y) {
+  const g = realmGenParams(realmId);
+  const period = g.strataPeriod || 11;
+  const phase = realmId === "ashfall" ? 4
+    : kernels.hash(`${realmById(realmId).seed}|strata`) % period;
+  const m = ((y % period) + period) % period;
+  return m === phase || m === (phase + 1) % period;
+}
+// The two slow fields P-5's organic dressing reads (exported so
+// the suite can pin the dressing against the fields themselves):
+// the patch field (cell 26) that clusters the meadow mix and
+// Halycon's dusting, and the cluster field (cell 17) that gathers
+// the boulders. Pure functions of the realm's seed, as all
+// generation inputs are.
+function patchField(realmId, x, z) {
+  return vnoise(`${realmById(realmId).seed}|patch`, x, z, 26);
+}
+function clusterField(realmId, x, z) {
+  return vnoise(`${realmById(realmId).seed}|cluster`, x, z, 17);
+}
+// The worn path (nova, P-5): the walked way from the arrival pad
+// to the Hall's shaft mouth, worn into the surface dress — a pure
+// function of the two endpoints. Dress only: it never moves a
+// height, and it stops at the dungeon's edge (the Hall's own
+// ground is built, not worn).
+function hallPathWear(x, z) {
+  if (inDungeon(x, z)) return false;
+  const ax = ARRIVAL.nova.x, az = ARRIVAL.nova.z;
+  const bx = DUNGEON.shaftX + 1, bz = DUNGEON.shaftZ + 1;
+  const dx = bx - ax, dz = bz - az;
+  const t = Math.max(0, Math.min(1,
+    ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+  const px = ax + t * dx, pz = az + t * dz;
+  return Math.hypot(x - px, z - pz) <= 1.6;
 }
 // Delta Wood's river: the same noise read by heightAt (which carves
 // the channel) and baseBlockAt (which dresses its bed).
@@ -55209,24 +55270,6 @@ function resolveGeometry(records) {
   return by;
 }
 
-// The chisel's yield judge (P-2): what you see break is what you
-// carry. A stroke's yield is the block that STANDS at the cell.
-// Where the geometry record speaks with a placed block, that block
-// is what stands — whatever the base generation buried under it —
-// so the break belongs to the record path and the yield is the
-// placed type. Where the record is silent, or has carved the cell
-// away, the base block judges, exactly as the chisel always did.
-// (Named EE 1101 by the P-2 probe, build #8: the judge was
-// base-only, so a placed block re-filling a carved ground cell
-// yielded the buried base type and the placed type vanished —
-// ashfall (68,22,64), placed 7, pack +1 of 6, +0 of 7.)
-function chiselYield(sub, realmId, x, y, z) {
-  const gm = sub && sub.geo ? sub.geo.get(realmId) : undefined;
-  const gb = gm ? gm.get(`${x},${y},${z}`) : undefined;
-  if (gb !== undefined && gb !== BLOCK.AIR) return { block: gb, placed: true };
-  return { block: baseBlockAt(sub, realmId, x, y, z), placed: false };
-}
-
 // The write-time playability check (gravity's precedent, Will
 // 2026-11-26: "the world still needs to still be playable after
 // the inversion"). Judged BEFORE an edit is carved or recorded; a
@@ -55327,6 +55370,213 @@ function chordTarget(sub, realmId, sx, sy, chord, currentChord) {
   return { type: "pocket", realmId, sx: sx + dx, sy: sy + dy, chord: sorted };
 }
 
+// ---------- realmgen: the world's character, recorded (P-5) -----------------
+// Feature 5's record: each realm's generation parameters (REALM_GEN
+// above) stated on the shared chart, on the realmgen scroll
+// (1.1.1/1.1.10/1.1.1, allocated by the scroll registry). The grammar
+// mirrors the geometry scroll's discipline: one append-only line
+// per realm, a defensive parse, last line per realm wins on resolve.
+//
+// Generation NEVER reads this scroll. A realm's shape derives from
+// its identity (realmGenParams) — that derivation is why every
+// client generates the same realm, downloaded or hosted, online or
+// off. The scroll is the world's public statement of its own
+// character: any client can read it back and check it against the
+// derived record (realmGenAgrees), and the game's reconcile queues
+// the derived line for any realm whose standing line is missing or
+// disagrees — the record heals itself at boot, in identical bytes
+// from every fox. A forged line can dirty the record's agreement;
+// it can never move a hill.
+
+const GEN_MODES = new Set(["roll", "ridge", "terrace", "channel"]);
+const GEN_CANOPY_FORMS = new Set(["oak", "willow", "pillar", "none"]);
+// The canonical parameter string a realmgen line carries — the
+// record's comparable form (density in thousandths, the meadow
+// thresholds in hundredths, so the line is all integers and names).
+function realmGenKey(p) {
+  return [p.mode, p.base, p.amp, p.amp2,
+    Math.round((p.density || 0) * 1000),
+    Math.round((p.lushT || 0) * 100),
+    Math.round((p.dryT || 0) * 100),
+    p.strataPeriod || 0, p.canopy].join("|");
+}
+function realmGenLine(realmId, crafter, ts) {
+  return `rgen|${realmId}|${realmGenKey(realmGenParams(realmId))}|${crafter}|${ts}`;
+}
+function parseRealmGenScroll(text) {
+  const out = [];
+  for (const raw of String(text || "").split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("rgen|")) continue;
+    const f = line.split("|");
+    if (f.length !== 13) continue;
+    const realmId = f[1], mode = f[2], canopy = f[10];
+    const crafter = f[11];
+    if (!realmById(realmId) || !GEN_MODES.has(mode) ||
+        !GEN_CANOPY_FORMS.has(canopy) || !crafter) continue;
+    const nums = [f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[12]].map(Number);
+    if (nums.some((n) => !Number.isFinite(n))) continue;
+    out.push({
+      realmId,
+      key: [mode, nums[0], nums[1], nums[2], nums[3], nums[4], nums[5], nums[6], canopy].join("|"),
+      crafter, ts: nums[7],
+    });
+  }
+  return out;
+}
+function resolveRealmGen(records) {
+  const byRealm = new Map();
+  for (const r of records || []) byRealm.set(r.realmId, r);
+  return byRealm;
+}
+// Does the record, as resolved, state every realm's character
+// exactly as derived? The verification the probe runs in public.
+function realmGenAgrees(records) {
+  const resolved = resolveRealmGen(records);
+  for (const r of REALMS) {
+    const line = resolved.get(r.id);
+    if (!line || line.key !== realmGenKey(realmGenParams(r.id))) return false;
+  }
+  return true;
+}
+
+// A realm's fingerprint: over its home scroll, the hash of the
+// height stream and of the surface stream, with the surface mix —
+// a pure function of the realm's identity, computed against a
+// fresh Subspace. Two clients that agree on a fingerprint generate
+// the same realm; the suite pins the fingerprints so a realm's
+// character can never drift silently. (The surface stream reads
+// baseBlockAt raw — the dungeon's CARVE sentinel included, exactly
+// as generated; genChunk renders it as air.)
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+function realmFingerprint(realmId) {
+  const sub = new Subspace();
+  let hs = "", ss = "";
+  const mix = {};
+  for (let z = 0; z < SCROLL; z++) {
+    for (let x = 0; x < SCROLL; x++) {
+      const h = heightAt(realmId, x, z);
+      hs += h + ",";
+      const b = baseBlockAt(sub, realmId, x, h, z, h);
+      ss += b + ",";
+      mix[b] = (mix[b] || 0) + 1;
+    }
+  }
+  return { heights: fnv1a(hs), surface: fnv1a(ss), mix };
+}
+
+// The playability proof, per realm (P-5): the arrival stands on
+// solid ground with air to breathe; an on-foot walk (climb at most
+// 1, fall at most 4, over the heightfield) reaches the realm's
+// anchor — Ashfall's swift charm, open country at Chebyshev
+// distance 56 for the rest. Nova's anchor is stated as the terrain
+// itself dictates (measured, EE 1099: the least step up across the
+// barrow's ring is 6 — there is NO walk-up route onto the hill):
+// the walk reaches the barrow's apron, the ring's cliff face is
+// shapeable material the whole way round (the ascent is made by
+// shaping, as the game teaches), and a 3D air route runs from the
+// shaft mouth down the shaft and through the hall to the Deep
+// Stone's neighbour cell. Pure, against a fresh Subspace: this is
+// a claim about the GENERATED world, the same one every client
+// builds.
+function realmRouteCheck(realmId) {
+  const a = ARRIVAL[realmId] || ARRIVAL.nova;
+  const sub = new Subspace();
+  const hA = heightAt(realmId, a.x, a.z);
+  const stand = isSolid(baseBlockAt(sub, realmId, a.x, hA, a.z, hA)) &&
+    baseBlockAt(sub, realmId, a.x, hA + 1, a.z) === BLOCK.AIR &&
+    baseBlockAt(sub, realmId, a.x, hA + 2, a.z) === BLOCK.AIR;
+  const target = realmId === "ashfall"
+    ? { x: ITEM_SPOTS.swift.bx, z: ITEM_SPOTS.swift.bz } : null;
+  // Nova's reach test: a column of the barrow's apron — inside the
+  // apron box, outside the raised rect itself.
+  const inApron = (x, z) => realmId === "nova" &&
+    x >= DUNGEON.x0 - 5 && x <= DUNGEON.x1 + 5 &&
+    z >= DUNGEON.z0 - 5 && z <= DUNGEON.z1 + 5 &&
+    !(x >= DUNGEON.x0 - 2 && x <= DUNGEON.x1 + 2 &&
+      z >= DUNGEON.z0 - 2 && z <= DUNGEON.z1 + 2);
+  const seen = new Set([`${a.x},${a.z}`]);
+  const queue = [[a.x, a.z]];
+  let reached = false;
+  while (queue.length) {
+    const [x, z] = queue.shift();
+    if (target) {
+      if (x === target.x && z === target.z) { reached = true; break; }
+    } else if (realmId === "nova") {
+      if (inApron(x, z)) { reached = true; break; }
+    } else if (Math.max(Math.abs(x - a.x), Math.abs(z - a.z)) >= 56) {
+      reached = true; break;
+    }
+    const h = heightAt(realmId, x, z);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz, key = `${nx},${nz}`;
+      if (seen.has(key)) continue;
+      if (nx < a.x - 88 || nx > a.x + 88 || nz < a.z - 88 || nz > a.z + 88) continue;
+      const nh = heightAt(realmId, nx, nz);
+      if (nh - h > 1 || h - nh > 4) continue;
+      seen.add(key);
+      queue.push([nx, nz]);
+    }
+  }
+  let hall = null;
+  if (realmId === DUNGEON.realm) {
+    const sx = DUNGEON.shaftX + 1, sz = DUNGEON.shaftZ + 1;
+    const start = [sx, heightAt(realmId, sx, sz) + 1, sz];
+    const goal = [DUNGEON.deepStone.x - 2, DUNGEON.deepStone.y, DUNGEON.deepStone.z];
+    const airAt = (x, y, z) => {
+      const b = baseBlockAt(sub, realmId, x, y, z);
+      return b === BLOCK.AIR || b === CARVE;
+    };
+    const seen3 = new Set([start.join(",")]);
+    const q3 = [start];
+    hall = false;
+    while (q3.length) {
+      const [x, y, z] = q3.shift();
+      if (x === goal[0] && y === goal[1] && z === goal[2]) { hall = true; break; }
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        const nx = x + dx, ny = y + dy, nz = z + dz, key = `${nx},${ny},${nz}`;
+        if (seen3.has(key)) continue;
+        if (nx < 36 || nx >= 64 || ny < 0 || ny >= 30 || nz < 22 || nz >= 48) continue;
+        if (!airAt(nx, ny, nz)) continue;
+        seen3.add(key);
+        q3.push([nx, ny, nz]);
+      }
+    }
+  }
+  // Nova's cliff face (the ascent by shaping): sampled round the
+  // ring, every face cell between the apron's ground and the
+  // hill's top must be a shapeable block — dirt and stone, never
+  // bedrock, vault or brick.
+  let face = null;
+  if (realmId === "nova") {
+    const SHAPEABLE = new Set([BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE,
+      BLOCK.MOSS, BLOCK.SANDSTONE]);
+    face = true;
+    const ring = [];
+    for (let x = DUNGEON.x0 - 2; x <= DUNGEON.x1 + 2; x += 4) {
+      ring.push([x, DUNGEON.z0 - 2, 0, -1], [x, DUNGEON.z1 + 2, 0, 1]);
+    }
+    for (let z = DUNGEON.z0 - 2; z <= DUNGEON.z1 + 2; z += 4) {
+      ring.push([DUNGEON.x0 - 2, z, -1, 0], [DUNGEON.x1 + 2, z, 1, 0]);
+    }
+    for (const [x, z, ox, oz] of ring) {
+      const hIn = heightAt(realmId, x, z);
+      const hOut = heightAt(realmId, x + ox, z + oz);
+      for (let y = hOut + 1; y <= hIn && face; y++) {
+        if (!SHAPEABLE.has(baseBlockAt(sub, realmId, x, y, z, hIn))) face = false;
+      }
+    }
+  }
+  return { stand, reached, hall, face, ok: stand && reached && hall !== false && face !== false };
+}
+
 // ---------- generation: subspace state -> voxel chunks ----------------------
 
 // Block at a world position from the BASE generation only (terrain +
@@ -55351,6 +55601,9 @@ function baseBlockAt(sub, realmId, x, y, z, h = heightAt(realmId, x, z)) {
     const db = dungeonBlockAt(x, y, z, h);
     if (db !== null) return db;
   }
+  // P-5: the realm's recorded generation character (REALM_GEN) —
+  // the strata, surface and subsurface reads below all speak it.
+  const g = realmGenParams(realmId);
   if (y > h) {
     // The riftstone vault: generated only where the place's gravity
     // is turned — the ceiling exists because subspace says down is up.
@@ -55363,43 +55616,64 @@ function baseBlockAt(sub, realmId, x, y, z, h = heightAt(realmId, x, z)) {
   if (realmId === "ashfall") {
     if (y === h) return BLOCK.ASH;
     if (y >= h - 2) return BLOCK.REDROCK;
-    // v5 (feedback #10): shale bands cut the strata every eleven
-    // layers, so a cliff face reads as geology, not wallpaper.
-    if (y % 11 === 4 || y % 11 === 5) return BLOCK.SHALE;
+    // v5 (feedback #10): shale bands cut the strata, so a cliff
+    // face reads as geology, not wallpaper. P-5: the bands are the
+    // realm's recorded character now (strataBand) — Ashfall's are
+    // its historical period 11, rows 4–5, exactly as before.
+    if (strataBand(realmId, y)) return BLOCK.SHALE;
     return y % 7 < 3 ? BLOCK.BASALT : BLOCK.STONE;
   }
-  // Trust Fall wears Ashfall's strata in its own red (item 3).
+  // Trust Fall wears the strata form in its own red (item 3) —
+  // and, since P-5, its own bands: period 9, seed-derived phase,
+  // no longer Ashfall's geology copied verbatim. The REDROCK cap
+  // and the two layers under it are untouched, so Trust's surface
+  // and near-surface columns stand exactly as they did.
   if (realmId === "trust") {
     if (y === h) return BLOCK.REDROCK;
     if (y >= h - 2) return BLOCK.REDROCK;
-    if (y % 11 === 4 || y % 11 === 5) return BLOCK.SHALE;
+    if (strataBand(realmId, y)) return BLOCK.SHALE;
     return y % 7 < 3 ? BLOCK.BASALT : BLOCK.STONE;
   }
   if (y === h) {
     // v5 (feedback #10, #16): the meadow has character now — lush
     // patches wear moss, dry flats wear sandstone, and the two
     // noises disagree enough that the patches wander organically.
-    // EE 995 (item 3): the thresholds and caps are per-realm now —
-    // Ni-Knight is stone-flagged, Logos and Halycon wear sandstone
-    // (gold mesas; pale ice flats under their light), Delta's river
-    // bed is sandstone, Elven shade is moss-dominant.
+    // EE 995 (item 3): the thresholds and caps are per-realm —
+    // Ni-Knight is stone-flagged, Logos wears sandstone (gold
+    // mesas), Delta's river bed is sandstone, Elven shade is
+    // moss-dominant. P-5: the caps and thresholds are the realm's
+    // recorded mix (REALM_GEN) — the same values, one record —
+    // and the meadow reads are clustered by the patch field.
     const seed = realmById(realmId).seed;
-    if (realmId === "ni-knight") {
+    if (g.mix === "flags") {
       return (x + z) % 17 === 0 ? BLOCK.BRICK : BLOCK.STONE;
     }
-    if (realmId === "logos" || realmId === "halycon") return BLOCK.SANDSTONE;
+    if (g.mix === "sand") return BLOCK.SANDSTONE;
+    if (g.mix === "pale") {
+      // Halycon's pale flats: sandstone dusted with shale where
+      // the patch field rides high. (EE 995 left Halycon's surface
+      // byte-identical to Logos'; P-5 parts the mixes measurably.)
+      return patchField(realmId, x, z) > 0.55
+        ? BLOCK.SHALE : BLOCK.SANDSTONE;
+    }
     if (realmId === "delta" && deltaRiver(realmId, x, z) > 0) return BLOCK.SANDSTONE;
-    const lushT = realmId === "elven" ? 0.45 : realmId === "willow" ? 0.55
-      : realmId === "orchid" ? 0.75 : 0.62;
+    // The worn path (nova): the walk from the arrival pad to the
+    // Hall's shaft, worn into the dress. Surface only.
+    if (realmId === "nova" && hallPathWear(x, z)) return BLOCK.DIRT;
+    // The meadow mix, clustered (P-5): the slow patch field
+    // (cell 26) breathes on both thresholds, so moss gathers
+    // into meadows and dry sandstone into flats — no two
+    // stretches alike, and none of it static.
+    const patch = patchField(realmId, x, z) - 0.5;
     const lush = vnoise(`${seed}|lush`, x, z, 9);
-    if (lush > lushT) return BLOCK.MOSS;
+    if (lush > g.lushT + patch * 0.3) return BLOCK.MOSS;
     const dry = vnoise(`${seed}|dry`, x, z, 14);
-    if (dry > (realmId === "plain" ? 0.8 : 0.66)) return BLOCK.SANDSTONE;
+    if (dry > g.dryT - patch * 0.3) return BLOCK.SANDSTONE;
     return BLOCK.GRASS;
   }
   if (y >= h - 3) {
-    if (realmId === "ni-knight") return BLOCK.STONE;
-    if (realmId === "logos" || realmId === "halycon") return BLOCK.SANDSTONE;
+    if (g.mix === "flags") return BLOCK.STONE;
+    if (g.mix === "sand" || g.mix === "pale") return BLOCK.SANDSTONE;
     return BLOCK.DIRT;
   }
   return BLOCK.STONE;
@@ -55552,19 +55826,12 @@ function genChunk(sub, realmId, cx, cz) {
   // EE 995 (item 3): a realm's trees wear its own form — Elven
   // shade stands dense and tall, willows droop wide, Ni-Knight
   // raises stone pillars instead of trees, Halycon stands bare.
-  const TREE_STYLES = {
-    nova: { p: 0.011, trunk: 3, canopy: "oak" },
-    ashfall: { p: 0.004, trunk: 3, canopy: "none" },
-    "ni-knight": { p: 0.006, trunk: 0, canopy: "pillar" },
-    logos: { p: 0.004, trunk: 3, canopy: "none" },
-    elven: { p: 0.02, trunk: 4, canopy: "oak" },
-    orchid: { p: 0.005, trunk: 3, canopy: "oak" },
-    halycon: { p: 0, trunk: 3, canopy: "none" },
-    delta: { p: 0.009, trunk: 3, canopy: "oak" },
-    willow: { p: 0.011, trunk: 4, canopy: "willow" },
-    plain: { p: 0.003, trunk: 3, canopy: "oak" },
-    trust: { p: 0.004, trunk: 3, canopy: "none" },
-  };
+  // P-5: the styles are REALM_GEN's density + form, derived here
+  // so the record and the generator can never disagree.
+  const TREE_STYLES = Object.fromEntries(REALMS.map((r) => {
+    const gg = realmGenParams(r.id);
+    return [r.id, { p: gg.density, trunk: gg.trunk, canopy: gg.canopy }];
+  }));
   const tstyle = TREE_STYLES[realmId] || TREE_STYLES.nova;
   const treeP = tstyle.p;
   for (let z = z0 - 2; z < z0 + CHUNK + 2; z++) {
@@ -55621,6 +55888,11 @@ function genChunk(sub, realmId, cx, cz) {
       if (!clearOfArrival(x, z) || !clearOfItems(x, z)) continue;
       const roll = kernels.hash(`${realmById(realmId).seed}|rock|${x},${z}`) % 1000;
       if (roll >= 7) continue;
+      // P-5: boulders gather — the same roll, gated by the realm's
+      // cluster field, so the rocks clump along the field's ridges
+      // and clearings open between them (a uniform scatter reads
+      // as noise; a clustered one reads as a place).
+      if (clusterField(realmId, x, z) <= 0.42) continue;
       const h = heightAt(realmId, x, z);
       if (data[idx(lx, h + 1, lz)] !== BLOCK.AIR) continue;
       const rock = realmId === "ashfall" ? BLOCK.SHALE : BLOCK.STONE;
@@ -60154,6 +60426,7 @@ const BACKEND = {
   ideaCoord: "1.1.1/1.1.7/1.1.1", // the ideas scroll: tellings at the door (demo8; coordinate allocated 1.1.7 by the scroll registry, EE 974 — forms keep 1.1.6)
   tunnelCoord: "1.1.1/1.1.8/1.1.1", // the tunnel scroll: wormholes foxes craft, shared, permanent until the crafter replaces one between the same pair (EE 1034; allocated 1.1.8 by the scroll registry)
   geoCoord: "1.1.1/1.1.9/1.1.1", // the geometry scroll: the shaped world itself, one line per cell a player shapes, shared, permanent (P-1, EE 1087 batch; allocated 1.1.9 by the scroll registry)
+  genCoord: "1.1.1/1.1.10/1.1.1", // the realmgen scroll: each realm's generation parameters (verticality, density, block-mix) recorded in the world record (P-5, EE 1087 batch; allocated 1.1.10 by the scroll registry)
   online: false,
   probed: false,
   boardRows: [], // rows actually read back from the shared chart
@@ -60164,6 +60437,7 @@ const BACKEND = {
   ideaRows: [], // ideas actually read back, resolved to their current state
   tunnelRows: [], // wormhole records actually read back from the shared chart
   geoRows: [], // geometry records actually read back from the shared chart
+  genRows: [], // realmgen records actually read back from the shared chart
   lastPostedScore: LS.get("nova-phox-posted", -1),
 };
 // ---------- login, for saving (Will, 2026-11-22 18:05) ----------------------
@@ -60468,6 +60742,15 @@ async function backendFlush() {
     } catch (e) { /* geometry keeps its last honest state */ }
     try {
       const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.genCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        BACKEND.genRows = parseRealmGenScroll(await r.text());
+        reconcileRealmGen();
+      }
+    } catch (e) { /* realmgen keeps its last honest state */ }
+    try {
+      const r = await fetch(
         `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.formCoord}`,
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.formRows = parseFormChart(await r.text());
@@ -60688,6 +60971,37 @@ function reconcileGeometry() {
   for (const k of chunks) {
     const [cx, cz] = k.split(",").map(Number);
     regenerateChunk(cx, cz);
+  }
+}
+
+// ---------- the world's character on the shared chart (P-5) -----------
+// The realmgen scroll is the world record's statement of how each
+// realm is generated (REALM_GEN in world.js). Generation derives
+// from realm identity and never reads the scroll; the reconcile
+// keeps the RECORD true: this fox's own queued lines count at
+// once, and any realm whose standing line is missing or disagrees
+// with the derived record gets the derived line queued — the
+// genesis recording, in identical bytes from every fox, so the
+// record converges and then stands. A tampered line is healed the
+// same way on the next boot; it never moves a hill.
+function genKnownRecords() {
+  const queued = [];
+  for (const seg of ecoOutbox) {
+    if (seg.coord !== BACKEND.genCoord) continue;
+    for (const r of parseRealmGenScroll(seg.line)) { r.queued = true; queued.push(r); }
+  }
+  const all = [...BACKEND.genRows, ...queued];
+  all.sort((a, b) => (a.ts - b.ts) || ((a.queued ? 0 : 1) - (b.queued ? 0 : 1)));
+  return all;
+}
+
+function reconcileRealmGen() {
+  if (!playerName) return; // a record is written under a fox's name, or not at all
+  const resolved = resolveRealmGen(genKnownRecords());
+  for (const r of REALMS) {
+    const line = resolved.get(r.id);
+    if (line && line.key === realmGenKey(realmGenParams(r.id))) continue;
+    queueEcoLine(BACKEND.genCoord, realmGenLine(r.id, playerName, Date.now()));
   }
 }
 
@@ -62924,27 +63238,6 @@ function tryChisel() {
       // not carved and not recorded, and its refusal names itself.
       const gRef = geoEditRefusal(state.realm, bx, by, bz, BLOCK.AIR);
       if (gRef) { if (!geoRefusal) geoRefusal = gRef; continue; }
-      // P-2: the stroke's yield is judged by the block that
-      // STANDS at the cell (world.js chiselYield — what you see
-      // break is what you carry). Where the geometry record
-      // speaks with a placed block, that block is what breaks,
-      // whatever the base buried under it: the break goes through
-      // the record path (override cleared, a carve line queued
-      // below with the rest of the stroke) and the placed type is
-      // yielded. This branch once fired only over base air, so a
-      // placed block re-filling a carved ground cell yielded the
-      // buried base type and the placed type vanished (the defect
-      // the P-2 probe named at EE 1101).
-      const judge = chiselYield(sub, state.realm, bx, by, bz);
-      if (judge.placed && solidAt(bx, by, bz)) {
-        sub.setOverride(state.realm, bx, by, bz, BLOCK.AIR);
-        broke++; carved.push([bx, by, bz]);
-        if (addMaterial(eco, judge.block, 1)) {
-          yielded[judge.block] = (yielded[judge.block] || 0) + 1;
-        }
-        dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
-        continue;
-      }
       const baseB = baseBlockAt(sub, state.realm, bx, by, bz);
       const r = sub.chiselBlock(state.realm, bx, by, bz);
       if (r.ok) {
@@ -62955,6 +63248,20 @@ function tryChisel() {
         }
         else { shaped++; lastLevel = r.level; }
         dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
+      } else if (!r.ok && r.reason === "air") {
+        // P-2: a block the geometry record raised over base air
+        // (a placed block) has no base to judge — the chisel
+        // judges the record instead, and the break is a record
+        // too: override cleared, a carve line queued below with
+        // the rest of the stroke, the placed type yielded.
+        const gb = sub.geo && sub.geo.get(state.realm)
+          ? sub.geo.get(state.realm).get(`${bx},${by},${bz}`) : undefined;
+        if (gb && gb !== BLOCK.AIR && solidAt(bx, by, bz)) {
+          sub.setOverride(state.realm, bx, by, bz, BLOCK.AIR);
+          broke++; carved.push([bx, by, bz]);
+          if (addMaterial(eco, gb, 1)) yielded[gb] = (yielded[gb] || 0) + 1;
+          dirty.add(`${Math.floor(bx / CHUNK)},${Math.floor(bz / CHUNK)}`);
+        }
       } else if (!refusal && r.reason !== "air") {
         refusal = r.reason; // bedrock / deepstone / gone — named below
       }
@@ -67706,6 +68013,12 @@ window.NOVA_FOX3 = {
     return chunkBlock(genChunk(sub, realm, cx, cz), x - cx * CHUNK, y, z - cz * CHUNK);
   },
   geoRefusal: (realm, x, y, z, block) => geoEditRefusal(realm, x, y, z, block),
+  realmGenState: () => ({ online: BACKEND.online, rows: BACKEND.genRows.length,
+    known: genKnownRecords().length,
+    agrees: realmGenAgrees(genKnownRecords()) }),
+  genFingerprint: (realm) => realmFingerprint(realm),
+  realmRouteState: () => Object.fromEntries(
+    REALMS.map((r) => [r.id, realmRouteCheck(r.id)])),
   ecoState: () => ({ tokens: eco.tokens, credits: eco.credits, frac: { ...eco.frac }, generator: isGenerator(eco) }),
   ecoAccrue: (seconds) => accrue(eco, seconds),
   waypoint: () => ({ beacon: !!(hallBeacon && hallBeacon.visible),
