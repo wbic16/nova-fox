@@ -64892,8 +64892,7 @@ function flipGravityHere() {
   // judged against every record known here — read back from the
   // gravity scroll or still queued for it — so a shift counts from
   // the moment it is made, not from when it lands. A refused shift
-  // does not happen; the toast below is a placeholder line in the
-  // game's comms style, flagged for Will's wording.
+  // does not happen.
   const day = todayStr();
   if (!gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, day)) {
     toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
