@@ -189,6 +189,9 @@
     margin: 0 0 8px; font-family: Georgia, serif; font-size: 16.5px; line-height: 1.5; color: #e8f6ff;
   }
   #guide-hint { color: #7fd8ff; font-size: 13.5px; min-height: 18px; }
+  /* F-1 (EE 1129): during the opening exchange the way out stands
+     lit — a first-time player should not have to find a ghost. */
+  #guide-dismiss.skip-on { color: #ffd98a; border: 1px solid #ffd98a; opacity: 1; }
   .btnrow { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
   button.act {
     background: #00a3ff; color: #eaf7ff; border: 1px solid #00c8ff; font-weight: 700;
@@ -228,6 +231,9 @@
     display: inline-block; width: 10px; height: 10px; border-radius: 50%;
     margin-right: 9px; box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
   }
+  /* W-4: gear tier markers — the shape channel beside the color one,
+     drawn only by economy.js's tier helper (class tiermark). */
+  .tiermark { vertical-align: -1px; margin-right: 3px; }
   .realmrow[data-portal] { cursor: pointer; }
   .realmrow[data-portal]:hover .realmname2 { color: #7fd8ff; }
   .realmrow.shut .realmname2 { color: #7186ab; }
@@ -518,6 +524,19 @@
     min-height: 14px; white-space: nowrap; overflow: hidden;
     transition: opacity 0.6s ease;
   }
+  /* The ship log (W-5): recent builds, lettered on the start panel
+     under the trail line, in the splash's own dress. The rows box
+     scrolls in place, so the whole headline is one scroll away. */
+  #shiplog { margin: 16px auto 0; max-width: 460px; text-align: left; }
+  .shiplog-head {
+    color: #7fd8ff; letter-spacing: 0.32em; font-size: 11px;
+    text-transform: uppercase; text-align: center; margin-bottom: 4px;
+  }
+  #shiplog-rows { max-height: 172px; overflow-y: auto; }
+  .shiplog-row {
+    padding: 5px 2px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
+    font-size: 12.5px; color: #c8d6f2; line-height: 1.45;
+  }
   /* Lite (demo30): the honest progress element that rides with the
      trail — its width is real fetched bytes of the guide-voice
      prefetch set, counted by the narration seam in game3.js. */
@@ -642,6 +661,10 @@
     <div style="margin-top:12px"><button class="ghost" id="btn-scheme-splash">Controls: WASD</button></div>
     <div class="splash-hint">or click anywhere, or press any key — the panel steps aside</div>
     <div id="trail-line"></div>
+    <div id="shiplog">
+      <div class="shiplog-head">Recent builds</div>
+      <div id="shiplog-rows"></div>
+    </div>
   </div>
 </div>
 <div id="nf-progress" hidden><div id="nf-progress-track"><div id="nf-progress-bar"></div></div><div id="nf-progress-note"></div></div>
@@ -977,12 +1000,14 @@
   <h2>Menu</h2>
   <div id="menu-items">
     <button class="menuitem" id="menu-newgame">Start a New Game</button>
+    <button class="menuitem" id="menu-unstick">Return to this realm's Arrival <span class="st">unstick</span></button>
     <button class="menuitem" id="menu-lan">Open to LAN <span class="st" id="menu-lan-state">closed</span></button>
     <button class="menuitem" id="menu-savephext">Save the world to .phext</button>
     <button class="menuitem" id="menu-merge">Merge the local game to fox.phext.io <span class="st" id="menu-merge-state"></span></button>
     <button class="menuitem" id="menu-keys">Key bindings</button>
     <button class="menuitem" id="menu-video">Video settings</button>
     <button class="menuitem" id="menu-audio">Audio settings</button>
+    <button class="menuitem" id="menu-feedback">Send feedback / playtest notes</button>
     <button class="menuitem" id="menu-quit">Quit</button>
   </div>
   <div id="menu-confirm">
@@ -56222,6 +56247,39 @@ function gravityShiftAllowed(records, realmId, player, day) {
   return true;
 }
 
+// F-2 (Libby playtest, EE 1129): the correction window. Will's
+// standing rule — "the world still needs to still be playable
+// after the inversion" — outranks the no-free-reversal shape of
+// the daily rule where the two collide: a fox who flips into a
+// landing that strands them (the Hall's ceiling, a pit's
+// underside) had NO legal way back until tomorrow, because the
+// flip itself spent the day. So: flipping back to the direction
+// that stood before your own shift, within the window below, is
+// a CORRECTION of that shift, not a new one. Judged purely from
+// the records: the realm's latest line must be yours, from
+// today, inside the window, and it must be your ONLY line in
+// this realm today — after a correction the day is spent either
+// way, so no toggle loop exists. Because direction is binary
+// and yours is the realm's latest line, the correction
+// necessarily restores the pre-shift direction. Returns the
+// record being corrected, or null.
+const GRAVITY_CORRECTION_MS = 120000;
+function gravityCorrection(records, realmId, player, day, now) {
+  let latest = null;
+  let mineToday = 0;
+  for (const r of records || []) {
+    if (!r || r.realmId !== realmId) continue;
+    if (r.dir !== 1 && r.dir !== -1) continue;
+    if (!latest || r.ts >= latest.ts) latest = r;
+    if (r.player === player && r.day === day) mineToday++;
+  }
+  if (!latest) return null;
+  if (latest.player !== player || latest.day !== day) return null;
+  if (mineToday !== 1) return null;
+  if (now - latest.ts > GRAVITY_CORRECTION_MS) return null;
+  return latest;
+}
+
 // ---------- wormhole tunnels (EE 1034, item 1) --------------------------------
 // Will (EE 1034): the tunnel mechanism was the right transit; it
 // "just lacked integration with the world's geometry" — and
@@ -58189,6 +58247,55 @@ const LADDER_RUNGS = [
 ];
 function rungById(id) { return LADDER_RUNGS.find((r) => r.id === id) || null; }
 function ownsRung(eco, id) { return !!eco.ladder[id]; }
+
+// ---------- W-4: gear tier markers (colorblind-safe tiers) ----------
+// Gear progression speaks in color — trash (white) below common
+// (grey), then green, red, blue (Will's canon order). Color alone
+// locks out red-green colorblind foxes, so every tier ALSO carries
+// a shape: one marker per tier, drawn the same way everywhere tier
+// is communicated. This helper is the ONLY hand that draws them —
+// the shop, the field guide, and every later surface call here, so
+// the shapes can never drift apart. Color stays exactly as it was;
+// the marker is a second channel, never a replacement. A rung's
+// `tiers` scope names its band's tiers (Band 1 spans white AND
+// grey — the docs state no per-rung split inside the band, so a
+// Band 1 rung wears both markers, in canon order).
+const GEAR_TIERS = [
+  { id: "white", color: "#f2f2f2", shape: "circle" },
+  { id: "grey", color: "#9aa0a6", shape: "square" },
+  { id: "green", color: "#57d957", shape: "triangle" },
+  { id: "red", color: "#e5484d", shape: "diamond" },
+  { id: "blue", color: "#5b8def", shape: "hexagon" },
+];
+const TIER_MARKER_SHAPES = Object.fromEntries(GEAR_TIERS.map((t) => [t.id, t.shape]));
+const TIER_MARKER_BODY = {
+  circle: (c) => `<circle cx="6" cy="6" r="4" fill="none" stroke="${c}" stroke-width="1.6"/>`,
+  square: (c) => `<rect x="2.2" y="2.2" width="7.6" height="7.6" fill="${c}"/>`,
+  triangle: (c) => `<path d="M6 1.8 L10.6 9.8 L1.4 9.8 Z" fill="${c}"/>`,
+  diamond: (c) => `<path d="M6 1.4 L10.4 6 L6 10.6 L1.6 6 Z" fill="${c}"/>`,
+  hexagon: (c) => `<path d="M6 1.2 L10.2 3.6 L10.2 8.4 L6 10.8 L1.8 8.4 L1.8 3.6 Z" fill="${c}"/>`,
+};
+function gearTier(id) { return GEAR_TIERS.find((t) => t.id === id) || null; }
+function tierMarkerSVG(id) {
+  const t = gearTier(id);
+  if (!t) return "";
+  return `<svg class="tiermark" data-tier="${t.id}" data-shape="${t.shape}" width="11" height="11" viewBox="0 0 12 12" role="img" aria-label="${t.id} tier"><title>${t.id}</title>${TIER_MARKER_BODY[t.shape](t.color)}</svg>`;
+}
+function tierMarkersForScope(scope) {
+  return String(scope || "").split("/").map((s) => s.trim()).filter(Boolean)
+    .map((id) => tierMarkerSVG(id)).join("");
+}
+function rungTierMarkers(rung) { return tierMarkersForScope(rung && rung.tiers); }
+function bandTierMarkers(band) {
+  const seen = [];
+  for (const r of LADDER_RUNGS) {
+    if (r.band !== band) continue;
+    for (const id of String(r.tiers).split("/").map((s) => s.trim())) {
+      if (id && !seen.includes(id)) seen.push(id);
+    }
+  }
+  return seen.map((id) => tierMarkerSVG(id)).join("");
+}
 
 // Buying a rung: one-time per player, exact-once. Every refusal
 // leaves the purse and the ladder exactly as they were. The order
@@ -61777,6 +61884,79 @@ function joyMorseCue(deck, now, ctx) {
   return { kind: "quiet", text: "", speak: false };
 }
 
+// ===== the ship log: recent builds, as shipped (data: SHIPLOG.md baked; helpers: shiplog.js) =====
+const SHIP_LOG = [{"ee": 0, "name": "build 42", "note": "The sell-ready build: mutable geometry and digging with a point, monsters that search, fight skills tier two, realms with character, the Solver, the gravity dial."}, {"ee": 1081, "name": "demo41", "note": "The roadmap panel stands in the game: what is on the way, and what already landed with its epoch on it."}, {"ee": 1073, "name": "demo35", "note": "The EE 1037 batch: the Heart drawn as a heart; the Shadow behind the Heart's gate, six hits and real phases; dash, charged strike, and ward; Joy's fight lines re-recorded."}, {"ee": 1046, "name": "demo34", "note": "The EE 1034 batch: wormhole tunnels bored through the world's own geometry, permanent and shared by every fox; item uses written plainly; monsters hunt in packs; the purse shows your coins; flight for paid foxes and dragon-slayers."}, {"ee": 1037, "name": "demo32", "note": "Two downloads from one build: the Full build, and the nimble Lite under its cap, its assets riding by manifest."}, {"ee": 1034, "name": "demo31", "note": "The EE 1023 batch: rift transit woven into the world itself; monsters aggro and flash red; opening lines at 1.4x; the sword equips and shows on the swing; waypoints to the hall; single-click carve."}, {"ee": 1032, "name": "demo30", "note": "The phone fix: gravity made reversible under the ruling, the console closable on touch, phone controls repaired."}, {"ee": 1023, "name": "demo29", "note": "The EE 995 batch: the intro plays once; realms take their own colours of the rainbow; the portal panel and the walk-through wormhole; Joy rides visible as the aperture wisp; the Small Sword at spawn."}];
+// ---------- the ship log: recent builds, as shipped (W-5) ----------
+// The start screen's "Recent builds" panel is a read-only view of
+// SHIP_LOG — the rows build3.py bakes in from SHIPLOG.md, the repo
+// source of record. The log players see is the log that shipped
+// them: no fetching, no chart traffic, nothing written. These are
+// the pure pieces (the roadmapSplit idiom): validate the rows,
+// newest first, cap the headline, letter a row for display. A row
+// is { ee, name, note } — ee is the epoch the build shipped within,
+// and ee 0 is the build being made itself ("this" in SHIPLOG.md),
+// whose line takes the running build's own stamp at display time.
+
+// How many ships the panel headlines. The source keeps every row;
+// older ships rest below the cap, one scroll of the panel away.
+const SHIPLOG_MAX = 8;
+
+function shipLogValid(row) {
+  return !!row && Number.isInteger(row.ee) && row.ee >= 0 &&
+    typeof row.name === "string" && row.name.length > 0 &&
+    typeof row.note === "string" && row.note.length > 0;
+}
+
+// The rows of the log, newest first. The build being made (ee 0)
+// stands at the head whatever its stamp will be; the rest order by
+// epoch, highest first. Rows that are not rows are dropped — a
+// malformed line in the source must never reach the panel.
+function shipLogRows(log) {
+  const rows = (Array.isArray(log) ? log : []).filter(shipLogValid);
+  return rows.sort((a, b) =>
+    (b.ee === 0) - (a.ee === 0) || b.ee - a.ee);
+}
+
+// The headline: the newest SHIPLOG_MAX ships.
+function shipLogHeadline(log) {
+  return shipLogRows(log).slice(0, SHIPLOG_MAX);
+}
+
+// One row lettered for the panel: "EE 1081 · demo41 · <the line>".
+// The build being made shows the running build's own epoch — the
+// same number the title's version row shows — or, before any stamp
+// exists, simply "this build".
+function shipLogLine(row, currentEE) {
+  if (!shipLogValid(row)) return "";
+  const cur = Number(currentEE) || 0;
+  const head = row.ee > 0 ? `EE ${row.ee}`
+    : cur > 0 ? `EE ${cur}` : "this build";
+  return `${head} · ${row.name} · ${row.note}`;
+}
+
+// ===== the feedback door: to the wiki, with the stamp (source: feedback.js) =====
+// ---------- the feedback door (build 42, W-2) ------------------------------
+// One action from inside the game to the Nova Wiki's feedback page:
+// the player tells us what the build did, in their own words, and
+// the build's ship epoch rides along so the note lands on the build
+// that was actually played. The game glue (game3.js) owns the
+// window; this module is pure — no DOM, no storage, no clock —
+// exactly like ideas.js / gdial.js, and tests drive it directly.
+//
+// The wiki's home is Will's call and not yet named: the URL below
+// is a working default on the game's own domain, held in ONE named
+// constant so the ship leg can point the door at the real wiki
+// with a one-line change. UNCONFIRMED default (W-2 MR).
+
+const WIKI_FEEDBACK_URL = "https://fox.phext.io/wiki/feedback";
+
+// The door's URL for a build: the wiki page, the source marked as
+// the game, and the build's ship epoch — the artifact's own stamp,
+// read at runtime by the glue, never a literal here.
+function feedbackUrl(shipEe) {
+  return WIKI_FEEDBACK_URL + "?from=game&ee=" + shipEe;
+}
+
 // ===== game (source: game3.js) =====
 // Nova Fox demo3 — view + input + game loop.
 //
@@ -62461,6 +62641,34 @@ const narration = {
     // starts at once. Other lines keep the breath.
     this.breath(id && id.startsWith("N-") ? 0 : undefined);
   },
+  // F-1 (Libby playtest, EE 1129): the voice follows the player.
+  // skipLine cuts the guide line speaking RIGHT NOW (the spine,
+  // N-* only — an event beat is a moment and is never cut) and
+  // moves the queue on; the line is recorded as skipped, not as
+  // heard. syncToGuide is the advance path: when the guide steps
+  // on, queued guide lines for steps already left are dropped and
+  // a speaking guide line for a left step is cut, so Joy never
+  // talks on for a minute about steps the fox has passed. Her
+  // words do not change; her timing obeys the player's hands.
+  skippedIds: [],
+  skipLine() {
+    if (!this.speaking || !this.speakingId || !this.speakingId.startsWith("N-")) return false;
+    const a = this.speaking, id = this.speakingId;
+    this.speaking = null;
+    this.speakingId = null;
+    this.speakingEntry = null;
+    try { a.pause(); } catch (e) { /* already silent */ }
+    this.skippedIds.push(id);
+    if (this.skippedIds.length > 64) this.skippedIds.shift();
+    this.breath(0);
+    return true;
+  },
+  syncToGuide(beatId) {
+    this.queue = this.queue.filter((q) => !q.id.startsWith("N-") || q.id === beatId);
+    if (this.speakingId && this.speakingId.startsWith("N-") && this.speakingId !== beatId) {
+      this.skipLine();
+    }
+  },
   breath(gapMs) {
     if (this.gapTimer) return;
     this.gapTimer = setTimeout(() => {
@@ -62530,6 +62738,7 @@ const narration = {
       paused: this.speaking ? this.speaking.paused : true,
       currentTime: this.speaking ? this.speaking.currentTime : 0,
       ended: [...this.endedIds],
+      skipped: [...this.skippedIds],
     };
   },
 };
@@ -62948,7 +63157,7 @@ const BINDING_ACTIONS = [
   { id: "equip", label: "Equip weapon", def: "KeyZ" },
   { id: "fly", label: "Fly", def: "KeyH" }, // EE 1034 (item 5): H is no note key and no scheme key
   { id: "dash", label: "Dash", def: "KeyJ" }, // EE 1037 (item 4): J likewise — no note, no scheme key
-  { id: "feint", label: "Gravity feint", def: "KeyK" }, // P-4 (tier 2): K likewise — home row, beside the dash
+  { id: "feint", label: "Gravity feint", def: "Slash" }, // P-4 (tier 2): K was claimed by P-2's place in the composed stack — Slash is free in the store (consumer composition, build 42; T-1's resolution)
   { id: "shapeStrike", label: "Shaping strike", def: "BracketRight" }, // P-4 (tier 2): "]" — its left twin plays a note; this one shapes
 ];
 const BIND = (() => {
@@ -65651,6 +65860,19 @@ function updatePlayer(dt) {
   }
 }
 
+// F-2 (EE 1129): the unstick. Whatever the realm's down, however
+// the fox got where it is, Arrival always answers: the same
+// recovery the fall-catch uses, offered as a verb (Esc menu +
+// this hook). It moves the fox, never the world — the realm
+// keeps its down, the day's shift stays spent; only position is
+// paid. Together with the correction window this is the
+// never-strand guarantee: correct in the window, return after it.
+function unstickToArrival() {
+  respawnAtArrival();
+  toast("Back at this realm's Arrival.", 4000);
+  syncHud();
+}
+
 function respawnAtArrival() {
   closeRift(); // a carried fox leaves no open rift behind
   endTransit(); // EE 995: and no walk through it, either
@@ -67690,11 +67912,17 @@ function flipGravityHere() {
   const day = todayStr();
   const known = gravityKnownRecords();
   const unlocked = dialRangeUnlocked(isGenerator(eco), !!sub.dragonKilled).ok;
-  if (!gravityShiftAllowed(known, state.realm, playerName, day) && !unlocked) {
+  const dailyOpen = gravityShiftAllowed(known, state.realm, playerName, day);
+  // F-2 (EE 1129): the correction window (gravityCorrection,
+  // world.js — rationale there: no window = day-long softlock).
+  const correction = !dailyOpen && !unlocked
+    ? gravityCorrection(known, state.realm, playerName, day, Date.now()) : null;
+  if (!dailyOpen && !unlocked && !correction) {
     toast("This realm's gravity has already been shifted today — one shift per realm per day.", 5000);
     return;
   }
-  if (!writeGapOpen(known, playerName, state.realm, Date.now())) {
+  // A correction is exempt from the write gap (same shift, undone).
+  if (!writeGapOpen(known, playerName, state.realm, Date.now()) && !correction) {
     toast("The chart is still taking the last shift — give it a moment.", 3200);
     return;
   }
@@ -67717,6 +67945,9 @@ function flipGravityHere() {
   markScrollChunksDirty(state.realm, sx, sy);
   playBeat(dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up");
   toast(BEAT_LINES[dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up"], 5000);
+  if (correction) {
+    toast("Correction — the down you just left is restored. That was the same shift, undone; the day's shift is spent.", 6000);
+  }
   banterLastFlipAt = performance.now();
   banterFire({ type: "flip", toUp: dir < 0 });
   guideNotify("flip");
@@ -67923,6 +68154,12 @@ function renderGuide() {
     syncHud();
   }
   panel.style.display = "block";
+  // F-1: while the opening exchange runs, the way out of it is
+  // not a ghost — the dismiss stands lit until the handover.
+  {
+    const d = $("guide-dismiss");
+    if (d) d.classList.toggle("skip-on", !step.jit && step.id !== "done");
+  }
   let beat = GUIDE_BEATS[step.id];
   if (step.id === "move") {
     // N-03 was recorded in both schemes (NARRATION.md): the fox
@@ -67976,6 +68213,16 @@ function guideAdvance() {
   state.guideStep++;
   if (state.guideStep >= GUIDE.length) state.guideDone = true;
   saveGuide();
+  // F-1: the voice steps with the guide — lines for the step
+  // just left are dropped or cut before the new step speaks.
+  {
+    const nstep = guideCurrent();
+    let nbeat = nstep ? GUIDE_BEATS[nstep.id] : null;
+    if (nstep && nstep.id === "move") {
+      nbeat = state.scheme === "AWEF" ? "N-03-AWEF" : "N-03-WASD";
+    }
+    narration.syncToGuide(nbeat);
+  }
   renderGuide();
   syncHud();
 }
@@ -68308,7 +68555,7 @@ function renderFieldGuide() {
   }
   for (const r of LADDER_RUNGS) {
     const held = ownsRung(eco, r.id);
-    html += `<div class="realmrow ${held ? "here" : ""}"><span class="realmname2">${r.name}</span>` +
+    html += `<div class="realmrow ${held ? "here" : ""}"><span class="realmname2">${rungTierMarkers(r)}${r.name}</span>` +
       `<span class="realmstatus">${r.effect}</span>` +
       `<span class="realmstatus">${held ? "yours" : `${r.price} credits — the ladder shop, below`}</span></div>`;
   }
@@ -68493,7 +68740,7 @@ function renderShop() {
   if (!el) return;
   let html = "";
   for (const band of [1, 2, 3, 4]) {
-    html += `<div class="sub" style="margin-top:10px">${LADDER_BAND_TITLES[band]}</div>`;
+    html += `<div class="sub" style="margin-top:10px">${bandTierMarkers(band)} ${LADDER_BAND_TITLES[band]}</div>`;
     for (const r of LADDER_RUNGS.filter((x) => x.band === band)) {
       const owned = ownsRung(eco, r.id);
       const locked = r.beat > LADDER_BEAT;
@@ -68507,7 +68754,7 @@ function renderShop() {
               ? `${r.price} credits · after ${rungById(r.requires).name}`
               : `${r.price} credits`;
       html +=
-        `<div class="realmrow ${owned ? "here" : ""}"><span class="realmname2">${r.name}</span>` +
+        `<div class="realmrow ${owned ? "here" : ""}"><span class="realmname2">${rungTierMarkers(r)}${r.name}</span>` +
         `<span class="realmstatus">${r.effect}</span>` +
         `<span class="realmstatus">${status}</span>` +
         (!owned && !r.granted && !locked
@@ -68590,6 +68837,22 @@ function ideaEmptyEl(text) {
   st.textContent = text;
   row.append(st);
   return row;
+}
+// ---------- the ship log (W-5): recent builds, on the start panel ------
+// SHIP_LOG is baked by build3.py from SHIPLOG.md — the log players
+// see is the log that shipped them. Filled once at boot, while the
+// splash is up; starting steps the panel aside with the splash.
+// Text nodes only: a build's line is data, never markup.
+function renderShipLog() {
+  const el = document.getElementById("shiplog-rows");
+  if (!el) return;
+  el.replaceChildren();
+  for (const row of shipLogHeadline(SHIP_LOG)) {
+    const div = document.createElement("div");
+    div.className = "shiplog-row";
+    div.textContent = shipLogLine(row, SHIP_EE);
+    el.append(div);
+  }
 }
 // ---------- the road ahead (Item #3, EE 1068 design) ---------------------------
 // A read-only section inside the board, under Place of the day:
@@ -69461,8 +69724,8 @@ function syncMenuConfirm() {
 function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
-    return ["menu-newgame", "menu-lan", "menu-savephext", "menu-merge",
-      "menu-keys", "menu-video", "menu-audio", "menu-quit", "menu-close"].map($);
+    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-savephext", "menu-merge",
+      "menu-keys", "menu-video", "menu-audio", "menu-feedback", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
     return [...$("bindings-list").querySelectorAll("button"),
@@ -69716,7 +69979,22 @@ $("audio-back").addEventListener("click", () => openPanel("menu"));
 
 // --- The menu's own rows ----------------------------------------------------
 $("btn-menu").addEventListener("click", () => toggleMenu());
+// --- The feedback door (build 42, W-2) -----------------------------------
+// One action from the Esc menu to the Nova Wiki's feedback page:
+// the player tells us what the build did, in their own words. The
+// URL is feedback.js's named constant; the epoch attached is this
+// artifact's own runtime stamp (SHIP_EE), so a note always lands
+// on the build that was played. No sign-in, no token: the door
+// works signed out and in — the wiki keeps its own door policy.
+function openFeedbackDoor() {
+  window.open(feedbackUrl(SHIP_EE), "_blank", "noopener");
+  menuNote("The wiki's feedback page opens in a new tab — this build's epoch rides along, so your words land on the build you played.");
+}
 $("menu-close").addEventListener("click", () => { closeMenu(); lockPointer(); });
+$("menu-unstick").addEventListener("click", () => {
+  closeMenu();
+  unstickToArrival();
+});
 $("menu-newgame").addEventListener("click", () => {
   newGameArmed = true;
   syncMenuConfirm();
@@ -69742,6 +70020,7 @@ $("menu-merge").addEventListener("click", () => { mergeToHosted(); });
 $("menu-keys").addEventListener("click", () => openPanel("bindings-panel"));
 $("menu-video").addEventListener("click", () => openPanel("video-panel"));
 $("menu-audio").addEventListener("click", () => openPanel("audio-panel"));
+$("menu-feedback").addEventListener("click", () => openFeedbackDoor());
 $("menu-quit").addEventListener("click", () => quitToTitle());
 
 // ---------- the load panel (feedback #15) --------------------------------------
@@ -70199,6 +70478,7 @@ $("btn-keys").addEventListener("click", () => {
 // the title toggles it (the tap is claimed here, so it never
 // falls through to the world's tap-as-click).
 $("ver-line1").textContent = `Nova Fox — EE ${SHIP_EE}`;
+renderShipLog();
 $("ee-line").textContent = `EE ${SHIP_EE}`;
 {
   const title = $("realm-big"), top = $("topcenter");
@@ -70214,6 +70494,16 @@ $("splash").addEventListener("click", () => dismissSplash());
 $("intro-close").addEventListener("click", () => closeIntroViewer());
 $("intro-viewer").addEventListener("click", (e) => {
   if (e.target === $("intro-viewer")) closeIntroViewer();
+});
+// F-1: an advance input cuts the line being spoken — clicking
+// Joy's lines, or Enter while her panel stands, skips the current
+// guide line's display and voice together.
+$("guide-lines").addEventListener("click", () => { narration.skipLine(); });
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Enter") return;
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  const panel = $("guide");
+  if (panel && panel.style.display !== "none" && !state.guideDone) narration.skipLine();
 });
 $("guide-btn").addEventListener("click", () => {
   const step = guideCurrent();
@@ -71434,6 +71724,8 @@ window.NOVA_FOX3 = {
   selectMaterial: (b) => { state.matSel = +b; return selectedMaterial(); },
   sellMaterialNow: (b, n) => sellMaterialFromPanel(+b, n),
   guideAdvance, guideCurrent: () => GUIDE[state.guideStep] || null,
+  // F-1/F-2 handles (EE 1129): the unstick verb, for the probe legs.
+  unstick: () => { unstickToArrival(); return { x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }; },
   // EE 995 handles: Joy's visible presence (item 8) and the
   // powerup announcement count (item 10), for the e2e legs.
   joyPos: () => (joyMesh ? { x: joyMesh.position.x, y: joyMesh.position.y, z: joyMesh.position.z } : null),
@@ -71544,6 +71836,7 @@ window.NOVA_FOX3 = {
     dir: sub.gravityOf(state.realm, 0, 0),
     known: gravityKnownRecords().length,
     allowed: gravityShiftAllowed(gravityKnownRecords(), state.realm, playerName, todayStr()),
+    correction: !!gravityCorrection(gravityKnownRecords(), state.realm, playerName, todayStr(), Date.now()),
   }),
   gravityReadback: (line) => {
     BACKEND.gravityRows.push(...parseGravityScroll(line));
@@ -71766,6 +72059,10 @@ window.NOVA_FOX3 = {
   }),
   mergeToHosted: () => mergeToHosted(),
   worldPhext: () => downloadWorldPhext(),
+  // W-2: the feedback door — the URL this build would open, and
+  // the door itself, so probes exercise the real path.
+  feedbackUrl: () => feedbackUrl(SHIP_EE),
+  openFeedbackDoor: () => openFeedbackDoor(),
 
 };
 // The test console's handle (2026-11-26): the same surface the

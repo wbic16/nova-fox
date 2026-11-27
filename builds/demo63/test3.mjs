@@ -3373,7 +3373,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     check("P-4: no write stands in the feint's body — no queue, no line, no log, no shift",
       !!feintBody && !/queueEcoLine|geometryLine|gravityShiftLine|queueIdeaLine|sub\.log\(/.test(feintBody[0]));
     check("P-4: the tier-2 bindings stand in the one store, and the dispatch consults them",
-      game.includes('{ id: "feint", label: "Gravity feint", def: "KeyK" }') &&
+      game.includes('{ id: "feint", label: "Gravity feint", def: "Slash" }') &&
       game.includes('{ id: "shapeStrike", label: "Shaping strike", def: "BracketRight" }') &&
       game.includes("e.code === BIND.feint") && game.includes("e.code === BIND.shapeStrike"));
     check("P-4: the shaping strike writes through the geometry path — one line, the record's own shape",
