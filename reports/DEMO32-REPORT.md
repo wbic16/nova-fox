@@ -234,3 +234,69 @@ rebase stands; only the landing name changes. Staging sequence: demo31 (rebased)
 stages first as the single file; demo32 staging follows with the two-artifact
 layout (Lite default + assets/<EE>/ + Full). If demo31 has not staged by the time
 demo32's gates are green, demo32 staging HOLDS and says so here.
+
+## Stage 8 — demo32 landed in the repo (2026-11-27 ~00:55 CST)
+
+Commit **4d14b3b** on exo (ls-remote verified): builds/demo32 + engine/integration
+sync + docs/FEATURE-STATUS.md row (BUILT — STAGING HELD) + reports/DEMO32-REPORT.md.
+The tracked builds/demo30 (phone fix) was restored untouched before commit.
+Remaining, in order, when demo31's rebased staging lands: NF_EE ship rebuild →
+post-stamp unit → stamp commit (FEATURE-STATUS → SHIPPED-STAGED + three hashes) →
+push → stage Lite/assets/Full to awsbox → Will's two install commands.
+
+## Stage 9 — Absorption onto demo31 (EE 1034) + re-gates (2026-11-27 ~00:47 CST)
+
+demo31 shipped to staging at EE 1034 (exo c769f6f, staged sha256 4a8abd9f…),
+unblocking this sequence. Absorption finding: demo31's commit is stacked on
+4d14b3b, so engine/integration @ c769f6f already carries the merged source —
+demo32's packaging layer (build3.py --lite identical, narration seam in
+game3.js, #nf-progress + GTM in page3.html) WITH demo31's eight items on top.
+Absorption was therefore a re-seed, not a hand-port: builds/demo32 re-seeded
+from engine/integration @ c769f6f in ~/nf30-repo (build3/game3/page3 verified
+in sync; GTM exactly 1 in page3.html — verified, not duplicated), rebuilt via
+build3.py --lite.
+
+Pre-stamp absorbed sizes: Full 7,153,063 B; **Lite 1,884,390 B raw — inside
+the 1.9 MB hard cap** (demo31's items spent ~15 KB of the remaining headroom;
+~15.6 KB left). Unit on the absorbed tree: **507/507** (demo31's full count —
+488 + 19 phone pins — on the packaging tree; no packaging pin lost).
+
+Gates (all Jenkins REST as builders, token hub-side):
+- Lite job nova-fox-e2e-demo30-lite **#7: SUCCESS — unit 507/507 in-job;
+  lite e2e 16 passed / 0 failed** (legs A/B/D/T on the absorbed tree).
+- Combined job nova-fox-e2e-demo30 **#6: SUCCESS — unit 507/507; full suite
+  79 passed / 8 failed = the named baseline set** (failure names checked:
+  keys-cross-home, door subspace span, door far side, monster crossed,
+  same-door-home, one-link-two-crossings, portal veer regression, harness
+  page-exception abort — identical family to demo29/demo31); lite probe
+  16/16 in-job. No new failure.
+
+## Stage 10 — SHIPPED TO STAGING at EE 1037 (2026-11-27 ~00:53 CST)
+
+Stamp: NF_SHIP_EE:1037, exactly once in each artifact; GTM exactly once in
+each. Rebuilt via build3.py --lite at the stamp EE in both builds/demo32 and
+engine/integration (trees identical; stale assets/1032 + assets/1034 dirs
+retired — the tree carries only assets/1037). Post-stamp unit: **507/507**.
+
+Three hashes of record:
+- Lite: 1,884,390 B raw (inside the 1.9 MB hard cap),
+  sha256 17f90b299f42bd1a5e4d4c9a487a23b75a0d23c9a0745cfc5a808021a7d3550e
+- Full: 7,153,063 B,
+  sha256 9c6a1e7cf6c63c3f05695dcf4e9af7da4756c09ed976c98c83a9f214dfc484b7
+- assets/1037/manifest.json:
+  sha256 81465c1056a185dcbb12ca25b6a0cd1b68ec35a522d2599fcd3a4a450ab1118d
+
+Staged at awsbox ~/fox-phext-launch/site/ (supersedes demo31's single file):
+Lite as index.html, Full as nova-fox-full.html, assets/1037/ alongside
+(38 files, 3,958,766 B) — sha256 verified at both ends for Lite, Full, and
+the manifest; asset file count and byte total identical both ends.
+
+**Will's two install commands (run on awsbox):**
+
+```
+sudo install -o www-data -g www-data -m 644 ~/fox-phext-launch/site/index.html /sites/web/fox.phext.io/index.html
+sudo rsync -a --mkpath ~/fox-phext-launch/site/assets/ /sites/web/fox.phext.io/assets/
+```
+
+(nova-fox-full.html stays in the staging dir as the Gumroad Full download;
+it is not the site default.)

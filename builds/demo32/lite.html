@@ -336,6 +336,15 @@
   }
   #powercard.show { animation: powercard 2.6s ease-out both; }
   #powercard.show #power-name { animation: warpname 0.9s ease-out both; }
+  /* EE 1023 (item 6): the Hall waypoint diamond. */
+  #waypoint {
+    position: absolute; z-index: 6; pointer-events: none;
+    transform: translate(-50%, -50%);
+    color: #ffd76a; font: 700 15px/1 ui-monospace, monospace;
+    text-shadow: 0 0 8px rgba(255, 190, 60, .8), 0 1px 2px #000;
+    display: none; white-space: nowrap;
+  }
+  #waypoint.edge { opacity: .85; }
   @keyframes powercard {
     0% { opacity: 0; transform: translateX(-50%) scale(0.92); }
     10% { opacity: 1; transform: translateX(-50%) scale(1); }
@@ -613,6 +622,7 @@
 <div class="overlay" id="wardline"></div>
 <div class="overlay" id="doorline"></div>
 <div class="overlay" id="dmgnum"></div>
+<div id="waypoint"></div>
 <div class="overlay" id="striker"><div id="striker-cap"></div><div id="striker-word">strike</div></div>
 <div class="overlay" id="introcard">
   <div class="rule"></div>
@@ -54416,11 +54426,11 @@ const NOVA_CORE_WASM_B64 = "AGFzbQEAAAABHAZgA39/fwBgAX8AYAF/AX9gAAF/YAJ/fwBgAAAD
 // ===== narration audio (embedded base64, by beat ID) =====
 const NARRATION_AUDIO = {};
 const NARRATION_MANIFEST = {"N-01": {"file": "n-01.mp3", "seconds": 12.43}, "N-02": {"file": "n-02.mp3", "seconds": 13.32}, "N-03-WASD": {"file": "n-03-wasd.mp3", "seconds": 15.0}, "N-03-AWEF": {"file": "n-03-awef.mp3", "seconds": 24.6}, "N-04": {"file": "n-04.mp3", "seconds": 7.37}, "N-05": {"file": "n-05.mp3", "seconds": 19.15}, "N-06": {"file": "n-06.mp3", "seconds": 22.75}, "N-07": {"file": "n-07.mp3", "seconds": 24.77}, "N-08": {"file": "n-08.mp3", "seconds": 21.41}, "N-09": {"file": "n-09.mp3", "seconds": 13.61}, "BEAT-arrival": {"file": "beat-arrival.mp3", "seconds": 4.99}, "BEAT-cross-ashfall": {"file": "beat-cross-ashfall.mp3", "seconds": 6.0}, "BEAT-cross-nova": {"file": "beat-cross-nova.mp3", "seconds": 5.64}, "BEAT-pocket": {"file": "beat-pocket.mp3", "seconds": 5.88}, "BEAT-stay": {"file": "beat-stay.mp3", "seconds": 1.44}, "BEAT-flip-up": {"file": "beat-flip-up.mp3", "seconds": 5.47}, "BEAT-flip-down": {"file": "beat-flip-down.mp3", "seconds": 1.15}, "BEAT-border-up": {"file": "beat-border-up.mp3", "seconds": 2.28}, "BEAT-barrow": {"file": "beat-barrow.mp3", "seconds": 7.51}, "BEAT-quest": {"file": "beat-quest.mp3", "seconds": 8.88}, "BEAT-guardian-contact": {"file": "beat-guardian-contact.mp3", "seconds": 5.81}, "BEAT-strike-kill": {"file": "beat-strike-kill.mp3", "seconds": 1.99}, "BEAT-guardian-kill": {"file": "beat-guardian-kill.mp3", "seconds": 11.28}, "BEAT-death": {"file": "beat-death.mp3", "seconds": 5.11}, "BEAT-fall": {"file": "beat-fall.mp3", "seconds": 1.92}};
-const NF_LITE = {"ee": "1032", "base": "assets/1032/", "files": {"JOY-001": {"file": "banter-01.mp3", "bytes": 39102, "sha256": "267978c95c90857326e3c7b49c58d8ef83078e70c58832feac40af29b92b3069"}, "JOY-003": {"file": "banter-03.mp3", "bytes": 48318, "sha256": "ade95e649d607ca5076ef25f6fce9ace03eb9684938ff7862ad92aea52d891f3"}, "JOY-004": {"file": "banter-04.mp3", "bytes": 49662, "sha256": "84f76f4fed02467abbd55ae13edb8f7fcb2838fba47eebaa10ffc3627530786b"}, "JOY-007": {"file": "banter-07.mp3", "bytes": 41406, "sha256": "1e9cc118abd2ebf309cf02cbbb3a61fa50408da3d7a52127c98f2f1bdad80a3a"}, "JOY-020": {"file": "banter-20.mp3", "bytes": 28542, "sha256": "3de8d3537949b68bfa9732c797c9823c3541cb577a5433d1bc95608e1c3a19fe"}, "JOY-029": {"file": "banter-29.mp3", "bytes": 25662, "sha256": "9805bc49dde1b1f5ca71c7387edbf98da8e736c91dfa1bdfc0abbf4fb6669a7a"}, "JOY-036": {"file": "banter-36.mp3", "bytes": 49278, "sha256": "139a682734f7c31a97af989d816b21fb2d37793cde44cdfd031d0ac5f55ee70f"}, "JOY-051": {"file": "banter-51.mp3", "bytes": 46206, "sha256": "37e4247c0a116aecccef816401399f0011f2701062b24c7f5ce03bc0b694ad15"}, "JOY-070": {"file": "banter-70.mp3", "bytes": 41598, "sha256": "f16bb7c8cf9ca640ec26c6eb064b263312195f7c75a3df03b9b10680776552b4"}, "JOY-081": {"file": "banter-81.mp3", "bytes": 47166, "sha256": "080c4eaf871bfac07376646477fb69171b23f5f67d76840c914c76ee03d17d10"}, "BEAT-arrival": {"file": "beat-arrival.mp3", "bytes": 58878, "sha256": "7a66483bf452c50d77a416f377c99aea43d25a780884d097e7cc3fcd1225561a"}, "BEAT-barrow": {"file": "beat-barrow.mp3", "bytes": 79038, "sha256": "8901035481df6b71730fa496aac3fa231b004186af10ee7a612864bb00d942a0"}, "BEAT-border-up": {"file": "beat-border-up.mp3", "bytes": 37182, "sha256": "418ce676fc7c7e5ca787e5ac0428ff1a235609b6c6174d8a4dd640e6be81f0b3"}, "BEAT-cross-ashfall": {"file": "beat-cross-ashfall.mp3", "bytes": 66942, "sha256": "fdb78316d8e5c970d94df4a2bca1f5c719ffab70c956c85a517c2420eb1e95ef"}, "BEAT-cross-nova": {"file": "beat-cross-nova.mp3", "bytes": 64062, "sha256": "be18bbe86507c5de5e0a464f0fdf7510255d6a549695c102f67fc525c7ba514a"}, "BEAT-death": {"file": "beat-death.mp3", "bytes": 59838, "sha256": "c106610dc09270a43e11489d83031a6750c7388fc6492ed7f04d8c2f4b1f50ab"}, "BEAT-fall": {"file": "beat-fall.mp3", "bytes": 34302, "sha256": "19f0714d27eb05bdf1b7ad07a77a1dd90e674e441500f70715f8b24074f5d568"}, "BEAT-flip-down": {"file": "beat-flip-down.mp3", "bytes": 28158, "sha256": "3f2b5fe25fa8f3fa3dcd99a37870d5aa976daf4e3193a27fc99f41f1ea4be1ba"}, "BEAT-flip-up": {"file": "beat-flip-up.mp3", "bytes": 62718, "sha256": "94c00e3dbfb2e8d5755587c73cad51f5c9c1ab0163cff7fe160f50c3f0aab0d5"}, "BEAT-guardian-contact": {"file": "beat-guardian-contact.mp3", "bytes": 65406, "sha256": "fa263edbeb7c8ffe80c5e2ee61cf64db840eff73c6b3d1650080cd88f730822d"}, "BEAT-guardian-kill": {"file": "beat-guardian-kill.mp3", "bytes": 109182, "sha256": "fbaed0c8a2f5f8bebae426803d20baf6770cc4542db505b8033b09584162d0bd"}, "BEAT-pocket": {"file": "beat-pocket.mp3", "bytes": 65982, "sha256": "511e12acbc83d62a361bb55713290b8fc17ad30974d9376c212184e224887217"}, "BEAT-quest": {"file": "beat-quest.mp3", "bytes": 89982, "sha256": "8f7dc95506ae8b0f05bf83068971e7261c07ddf0bab2aee8f63eb549dd2bb9f1"}, "BEAT-stay": {"file": "beat-stay.mp3", "bytes": 30462, "sha256": "78521c2931c9857f8698c252934a5661e7fcb1d6c1f3c54c32c3983f5fcbe055"}, "BEAT-strike-kill": {"file": "beat-strike-kill.mp3", "bytes": 34878, "sha256": "cc0bbb3da2d2438e10a04cd85b1745aca14970bf3c3bf91247d80705a2ac13bd"}, "N-01": {"file": "n-01.mp3", "bytes": 118398, "sha256": "3a8cb5332f6c628a7a798ba79f179623f23c3b3d6bb22488efc8dbdb768c34f8"}, "N-02": {"file": "n-02.mp3", "bytes": 125502, "sha256": "66118ca0511e4df3685494f9242a102b75b9c39d5353a2245694532c05f6e42c"}, "N-03-AWEF": {"file": "n-03-awef.mp3", "bytes": 215742, "sha256": "09538cc67350353e8a7db9b1d77aa83fcf5e522a0c3fc84c4c324c86665c0c3b"}, "N-03-WASD": {"file": "n-03-wasd.mp3", "bytes": 138942, "sha256": "c6cdc35b940ce9748974331d45bee1e9392b753e24fc7e598df8717fabe07753"}, "N-04": {"file": "n-04.mp3", "bytes": 77886, "sha256": "e1ae7af073cf59856608f8468f822dc4ef320b32d29edc46baf4d13065ff6227"}, "N-05": {"file": "n-05.mp3", "bytes": 172158, "sha256": "130d0e26536dcb89880e95331734f1caaf0a83c7daad51f7b1143c42654b08e4"}, "N-06": {"file": "n-06.mp3", "bytes": 200958, "sha256": "0b56b6ab3d8a0f4dd98ebd864ce634bb791253967615811691aab60c56f00f82"}, "N-07": {"file": "n-07.mp3", "bytes": 217086, "sha256": "7b4b0e7c979848ee13c54facec105b2231f03d12c7cdff34f53a84de050a7820"}, "N-08": {"file": "n-08.mp3", "bytes": 190206, "sha256": "35dea1a017a27f5aab600082bba20ac8a2ef7d9217700b8c99beec7f7e87a0df"}, "N-09": {"file": "n-09.mp3", "bytes": 127806, "sha256": "adc34d5df9f810810889a3859b23d648350e1bb562c9e7a26e43136b6987b1a0"}}};
+const NF_LITE = {"ee": "1037", "base": "assets/1037/", "files": {"JOY-001": {"file": "banter-01.mp3", "bytes": 39102, "sha256": "267978c95c90857326e3c7b49c58d8ef83078e70c58832feac40af29b92b3069"}, "JOY-003": {"file": "banter-03.mp3", "bytes": 48318, "sha256": "ade95e649d607ca5076ef25f6fce9ace03eb9684938ff7862ad92aea52d891f3"}, "JOY-004": {"file": "banter-04.mp3", "bytes": 49662, "sha256": "84f76f4fed02467abbd55ae13edb8f7fcb2838fba47eebaa10ffc3627530786b"}, "JOY-007": {"file": "banter-07.mp3", "bytes": 41406, "sha256": "1e9cc118abd2ebf309cf02cbbb3a61fa50408da3d7a52127c98f2f1bdad80a3a"}, "JOY-020": {"file": "banter-20.mp3", "bytes": 28542, "sha256": "3de8d3537949b68bfa9732c797c9823c3541cb577a5433d1bc95608e1c3a19fe"}, "JOY-029": {"file": "banter-29.mp3", "bytes": 25662, "sha256": "9805bc49dde1b1f5ca71c7387edbf98da8e736c91dfa1bdfc0abbf4fb6669a7a"}, "JOY-036": {"file": "banter-36.mp3", "bytes": 49278, "sha256": "139a682734f7c31a97af989d816b21fb2d37793cde44cdfd031d0ac5f55ee70f"}, "JOY-051": {"file": "banter-51.mp3", "bytes": 46206, "sha256": "37e4247c0a116aecccef816401399f0011f2701062b24c7f5ce03bc0b694ad15"}, "JOY-070": {"file": "banter-70.mp3", "bytes": 41598, "sha256": "f16bb7c8cf9ca640ec26c6eb064b263312195f7c75a3df03b9b10680776552b4"}, "JOY-081": {"file": "banter-81.mp3", "bytes": 47166, "sha256": "080c4eaf871bfac07376646477fb69171b23f5f67d76840c914c76ee03d17d10"}, "BEAT-arrival": {"file": "beat-arrival.mp3", "bytes": 58878, "sha256": "7a66483bf452c50d77a416f377c99aea43d25a780884d097e7cc3fcd1225561a"}, "BEAT-barrow": {"file": "beat-barrow.mp3", "bytes": 79038, "sha256": "8901035481df6b71730fa496aac3fa231b004186af10ee7a612864bb00d942a0"}, "BEAT-border-up": {"file": "beat-border-up.mp3", "bytes": 37182, "sha256": "418ce676fc7c7e5ca787e5ac0428ff1a235609b6c6174d8a4dd640e6be81f0b3"}, "BEAT-cross-ashfall": {"file": "beat-cross-ashfall.mp3", "bytes": 66942, "sha256": "fdb78316d8e5c970d94df4a2bca1f5c719ffab70c956c85a517c2420eb1e95ef"}, "BEAT-cross-nova": {"file": "beat-cross-nova.mp3", "bytes": 64062, "sha256": "be18bbe86507c5de5e0a464f0fdf7510255d6a549695c102f67fc525c7ba514a"}, "BEAT-death": {"file": "beat-death.mp3", "bytes": 59838, "sha256": "c106610dc09270a43e11489d83031a6750c7388fc6492ed7f04d8c2f4b1f50ab"}, "BEAT-fall": {"file": "beat-fall.mp3", "bytes": 34302, "sha256": "19f0714d27eb05bdf1b7ad07a77a1dd90e674e441500f70715f8b24074f5d568"}, "BEAT-flip-down": {"file": "beat-flip-down.mp3", "bytes": 28158, "sha256": "3f2b5fe25fa8f3fa3dcd99a37870d5aa976daf4e3193a27fc99f41f1ea4be1ba"}, "BEAT-flip-up": {"file": "beat-flip-up.mp3", "bytes": 62718, "sha256": "94c00e3dbfb2e8d5755587c73cad51f5c9c1ab0163cff7fe160f50c3f0aab0d5"}, "BEAT-guardian-contact": {"file": "beat-guardian-contact.mp3", "bytes": 65406, "sha256": "fa263edbeb7c8ffe80c5e2ee61cf64db840eff73c6b3d1650080cd88f730822d"}, "BEAT-guardian-kill": {"file": "beat-guardian-kill.mp3", "bytes": 109182, "sha256": "fbaed0c8a2f5f8bebae426803d20baf6770cc4542db505b8033b09584162d0bd"}, "BEAT-pocket": {"file": "beat-pocket.mp3", "bytes": 65982, "sha256": "511e12acbc83d62a361bb55713290b8fc17ad30974d9376c212184e224887217"}, "BEAT-quest": {"file": "beat-quest.mp3", "bytes": 89982, "sha256": "8f7dc95506ae8b0f05bf83068971e7261c07ddf0bab2aee8f63eb549dd2bb9f1"}, "BEAT-stay": {"file": "beat-stay.mp3", "bytes": 30462, "sha256": "78521c2931c9857f8698c252934a5661e7fcb1d6c1f3c54c32c3983f5fcbe055"}, "BEAT-strike-kill": {"file": "beat-strike-kill.mp3", "bytes": 34878, "sha256": "cc0bbb3da2d2438e10a04cd85b1745aca14970bf3c3bf91247d80705a2ac13bd"}, "N-01": {"file": "n-01.mp3", "bytes": 118398, "sha256": "3a8cb5332f6c628a7a798ba79f179623f23c3b3d6bb22488efc8dbdb768c34f8"}, "N-02": {"file": "n-02.mp3", "bytes": 125502, "sha256": "66118ca0511e4df3685494f9242a102b75b9c39d5353a2245694532c05f6e42c"}, "N-03-AWEF": {"file": "n-03-awef.mp3", "bytes": 215742, "sha256": "09538cc67350353e8a7db9b1d77aa83fcf5e522a0c3fc84c4c324c86665c0c3b"}, "N-03-WASD": {"file": "n-03-wasd.mp3", "bytes": 138942, "sha256": "c6cdc35b940ce9748974331d45bee1e9392b753e24fc7e598df8717fabe07753"}, "N-04": {"file": "n-04.mp3", "bytes": 77886, "sha256": "e1ae7af073cf59856608f8468f822dc4ef320b32d29edc46baf4d13065ff6227"}, "N-05": {"file": "n-05.mp3", "bytes": 172158, "sha256": "130d0e26536dcb89880e95331734f1caaf0a83c7daad51f7b1143c42654b08e4"}, "N-06": {"file": "n-06.mp3", "bytes": 200958, "sha256": "0b56b6ab3d8a0f4dd98ebd864ce634bb791253967615811691aab60c56f00f82"}, "N-07": {"file": "n-07.mp3", "bytes": 217086, "sha256": "7b4b0e7c979848ee13c54facec105b2231f03d12c7cdff34f53a84de050a7820"}, "N-08": {"file": "n-08.mp3", "bytes": 190206, "sha256": "35dea1a017a27f5aab600082bba20ac8a2ef7d9217700b8c99beec7f7e87a0df"}, "N-09": {"file": "n-09.mp3", "bytes": 127806, "sha256": "adc34d5df9f810810889a3859b23d648350e1bb562c9e7a26e43136b6987b1a0"}}};
 
 // ===== the intro film (embedded base64) =====
-window.__INTRO_VIDEO = "assets/1032/phext-intro.mp4";
-window.__INTRO_POSTER = "assets/1032/phext-intro-poster.png";
+window.__INTRO_VIDEO = "assets/1037/phext-intro.mp4";
+window.__INTRO_POSTER = "assets/1037/phext-intro-poster.png";
 
 // ===== subspace + generator (source: world.js) =====
 // Nova Fox demo2 — the world module: subspace physics + generation.
@@ -54709,6 +54719,9 @@ function inDungeon(x, z) {
 // the physics tick hunts within (see tick()). One constant, two
 // readers — the hunt and the Vision can never drift apart.
 const FAMILIAR_RANGE_CELLS = 48;
+const AGGRO_TICKS = 300; // EE 1023: a struck familiar's grudge, in physics ticks (~3 min)
+const TRAVERSAL_GROWTH_FLOOR = 0.34; // EE 1023: growth lent to cells around a moving fox
+const TRAVERSAL_CELLS = 10; // EE 1023: the traversal lend's reach, in Life cells
 
 // Inside The Unexpected Hall: within the footprint AND down in
 // the hall's own air. The hill above the hall shares the
@@ -55008,7 +55021,8 @@ class Subspace {
     this.genesisLife = null; // total alive cells when the first scrolls opened
     this._monsterSeq = 0;
     this._nextSpawnTick = 0; // EE 995: the random-rise clock (item 9)
-    this.transitPocket = null; // EE 995: the wormhole's room (items 5+6)
+    this.transitPocket = null; // EE 995: the wormhole's room (items 5+6) — retired EE 1023, nothing sets it
+    this.riftLinks = new Map(); // EE 1023: standing rift links, registered by the view (item 1)
     this.log("genesis", "the chart", "the world is loaded; the dark is counted, not empty");
   }
 
@@ -55160,8 +55174,20 @@ class Subspace {
       const psx = scrollOfBlock(player.bx), psy = scrollOfBlock(player.bz);
       const active = [];
       for (const s of live) {
-        const near = s.realmId === player.realmId &&
+        let near = s.realmId === player.realmId &&
           Math.abs(s.sx - psx) <= 1 && Math.abs(s.sy - psy) <= 1;
+        if (!near && this.riftLinks.size) {
+          // EE 1023 (item 1): a stitched scroll — an end of a
+          // standing rift — steps too, though it is nowhere near
+          // the fox. The door keeps both its ends alive.
+          for (const L of this.riftLinks.values()) {
+            if ((s.realmId === L.aRealm && s.sx === L.asx && s.sy === L.asy) ||
+                (s.realmId === L.bRealm && s.sx === L.bsx && s.sy === L.bsy)) {
+              near = true;
+              break;
+            }
+          }
+        }
         if (near) {
           // Catch-up: a scroll that slept steps its own Life forward
           // in bounded strides (its borders read as they are now —
@@ -55212,6 +55238,8 @@ class Subspace {
       }
       s.grid = next;
     }
+    const pcxG = player ? cellOfBlock(player.bx) : 0;
+    const pcyG = player ? cellOfBlock(player.bz) : 0;
     // Growth: the accelerator, not the switch (feedback #6). Every
     // living cell carries a growth level that leans a few percent
     // per tick toward what the local pattern would support — dense
@@ -55229,6 +55257,17 @@ class Subspace {
           let target = Math.max(0, (density - 3) / 4);
           const pressure = borderPressure(this, s.realmId, gx, gy, pcache);
           if (pressure >= 0.45) target = Math.max(target, pressure);
+          // EE 1023 (item 7): the overworld's geometry shifts
+          // subtly as the fox TRAVERSES it. A moving fox lends the
+          // cells around his path a growth floor — bloom and
+          // crystal creep up along the walked country through this
+          // same ramp and the same mesher, and ebb once he has
+          // passed. Standing still lends nothing.
+          if (player && player.pace > 0 && s.realmId === player.realmId &&
+              Math.max(Math.abs(gx - pcxG), Math.abs(gy - pcyG)) <= TRAVERSAL_CELLS) {
+            const lend = TRAVERSAL_GROWTH_FLOOR * Math.min(1, player.pace / 3);
+            if (lend > target) target = lend;
+          }
           const key = `${s.realmId}|${gx},${gy}`;
           const cur = this.growth.get(key) || 0;
           if (target === 0 && cur === 0) continue;
@@ -55267,6 +55306,7 @@ class Subspace {
     for (const m of this.monsters) {
       if (!m.alive) continue;
       if (m.kind === "wisp") continue; // it waits where it was set; it is for learning on
+      if (m.aggro && m.aggroTicks !== undefined && --m.aggroTicks <= 0) m.aggro = false;
       if (!m.engaged) m.phase = (m.phase + 1) % 3; // engaged things hold their phase: they are THERE
       if (!player || player.realmId !== m.realmId) continue;
       if (m.hx === undefined) { m.hx = m.gx; m.hy = m.gy; }
@@ -55283,8 +55323,11 @@ class Subspace {
         this.log("engage", `${realmById(m.realmId).name} ${m.gx * 2 + 1},${m.gy * 2 + 1}`,
           "the dark thing has entered the fox's sphere — it will not fade now");
       }
-      if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS) {
-        for (let step = 0; step < speed; step++) this._monsterStep(m, pcx, pcy);
+      // EE 1023 (item 3): an aggroed thing hunts from ANY range —
+      // the haunt radius is for the unprovoked — and steps faster.
+      if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS || m.aggro) {
+        const steps = speed + (m.aggro ? 1 : 0);
+        for (let step = 0; step < steps; step++) this._monsterStep(m, pcx, pcy);
       } else if (m.gx !== m.hx || m.gy !== m.hy) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, m.hx, m.hy);
       }
@@ -55464,6 +55507,16 @@ class Subspace {
     if (!m.alive) return false;
     m.hp--;
     if (m.hp > 0) {
+      // EE 1023 (item 3): a struck thing AGGROES. It engages —
+      // phase pinned, there to be struck at — and hunts the fox
+      // past its haunt until the grudge cools (the monster step
+      // keeps the clock). The training wisp is exempt: it waits
+      // where it was set, for learning on.
+      if (m.kind !== "wisp") {
+        m.aggro = true;
+        m.aggroTicks = AGGRO_TICKS;
+        if (!m.engaged) { m.engaged = true; m.phase = 0; }
+      }
       this.log("strike", realmById(m.realmId).name,
         `the ${m.kind === "guardian" ? "guardian" : "dark thing"} is struck and holds (${m.hp} left)`);
       return false;
@@ -55542,6 +55595,23 @@ class Subspace {
     const m = this.chisel.get(realmId);
     return m ? m.get(`${x},${y},${z}`) || 0 : 0;
   }
+  // EE 1023 (item 1): rift links REGISTER in subspace. While a link
+  // stands, the tick steps the far end's scroll alongside the
+  // player's neighborhood — the two ends of a rift are stitched in
+  // the simulation, so the world across the door stays alive while
+  // the door stands. (Before EE 1023 a rift was a view-layer object
+  // only; subspace now accommodates it.) Ends arrive in the view's
+  // riftEnd shape; their scrolls are precomputed here.
+  noteRiftLink(id, a, b) {
+    this.riftLinks.set(id, {
+      aRealm: a.realmId, asx: scrollOfBlock(a.landX), asy: scrollOfBlock(a.landZ),
+      bRealm: b.realmId, bsx: scrollOfBlock(b.landX), bsy: scrollOfBlock(b.landZ),
+    });
+  }
+  clearRiftLink(id) {
+    this.riftLinks.delete(id);
+  }
+
   chiselBlock(realmId, x, y, z) {
     const b = baseBlockAt(this, realmId, x, y, z);
     // v5 (feedback #11): a refusal now NAMES itself. There is no
@@ -55553,23 +55623,18 @@ class Subspace {
     if (this.getOverride(realmId, x, y, z) === BLOCK.AIR) {
       return { ok: false, level: 3, broke: true, reason: "gone" };
     }
+    // EE 1023 (item 8): single click to carve. One stroke now does
+    // what three did — the block breaks through, and the break is
+    // the inscription, exactly as the third stroke's was. (The
+    // degrees remain in the mesh for marks the older world already
+    // carries; a fresh stroke finishes any degree it finds.)
     if (!this.chisel.has(realmId)) this.chisel.set(realmId, new Map());
     const m = this.chisel.get(realmId);
-    const key = `${x},${y},${z}`;
-    const level = (m.get(key) || 0) + 1;
-    if (level >= 3) {
-      m.delete(key);
-      this.setOverride(realmId, x, y, z, BLOCK.AIR);
-      this.log("break", `${realmById(realmId).name} ${x},${y},${z}`,
-        "shaped down and broken through — the mark stays");
-      return { ok: true, level: 3, broke: true };
-    }
-    m.set(key, level);
-    if (level === 1) {
-      this.log("chisel", `${realmById(realmId).name} ${x},${y},${z}`,
-        "a finer mark than a block: the chisel shapes the world by degrees");
-    }
-    return { ok: true, level, broke: false };
+    m.delete(`${x},${y},${z}`);
+    this.setOverride(realmId, x, y, z, BLOCK.AIR);
+    this.log("break", `${realmById(realmId).name} ${x},${y},${z}`,
+      "carved through in a single stroke — the mark stays");
+    return { ok: true, level: 3, broke: true };
   }
 
   // --- the quest ----------------------------------------------------------------
@@ -58225,9 +58290,9 @@ const BANTER_BY_N = new Map(BANTER_LINES.map((l) => [l.n, l]));
 
 // ---------- the discipline (tunables — stated, never hidden) ---------------
 const BANTER_TUNABLES = {
-  startGraceMs: 20000,    // the scripted opening owns the first moments
-  globalGapMs: 45000,     // minimum ms between any two banter lines
-  groupGapMs: 90000,      // minimum ms between two lines of one group
+  startGraceMs: 12000,    // the scripted opening owns the first moments (EE 1023: the opening is brisker now)
+  globalGapMs: 20000,     // minimum ms between any two banter lines (EE 1023, item 2: more frequent random dialogue — was 45000)
+  groupGapMs: 40000,      // minimum ms between two lines of one group (EE 1023, item 2 — was 90000)
   poolLockPlays: 60,      // a played line sits out until 60 other lines have played
   longAbsenceMs: 8 * 3600 * 1000, // #29: "a long absence" before a return
   quietAfter100Ms: 180000,        // #100: the quiet she saved, protected
@@ -59031,7 +59096,7 @@ const parseIdeaScroll = parseIdeas;
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:1032";
+const NF_SHIP_EE = "NF_SHIP_EE:1037";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -59066,10 +59131,11 @@ const state = {
   invertFxOn: false, // the degauss treatment is on screen right now
   guideStep: 0,
   guideDone: false,
-  transit: null, // EE 995: the rift walk in progress, or null
-  transitVisuals: null,
+  transit: null, // the rift crossing in progress, or null (EE 1023: a warp, in the world itself)
   // v3 state
   weapon: null, // null = bare strike; "lance" = the Star Lance
+  ownsSword: false, // EE 1023 (item 5): picked up, whether or not in hand
+  ownsLance: false,
   charms: { swift: false, ward: false, bright: false },
   wardCharge: 0, // the Ward Charm's one turned blow
   firstJumpDone: false, // invulnerable until the first jump lands (feedback #4)
@@ -59351,6 +59417,7 @@ const narration = {
   gapTimer: 0,     // the breath between beats, while scheduled
   endedIds: [],    // beats heard through to their end, in order
   BREATH_MS: 240,
+  OPENING_RATE: 1.4, // EE 1023 (item 4): the opening lines play ~40% faster
   EVENT_MAX_AGE_MS: 10000,
   EVENT_KEEP: new Set([ // durable announcements; never stale
     "BEAT-cross-ashfall", "BEAT-cross-nova", "BEAT-pocket",
@@ -59509,6 +59576,9 @@ const narration = {
       this.speakingId = entry.id;
       this.speakingEntry = entry;
       a.currentTime = 0;
+      // EE 1023 (item 4): the opening lines (the guide's spine,
+      // N-*) play ~40% faster; every other voice keeps its pace.
+      try { a.playbackRate = entry.id && entry.id.startsWith("N-") ? this.OPENING_RATE : 1; } catch (e) { /* the rate is a grace, never a gate */ }
       const pr = a.play();
       if (pr && typeof pr.catch === "function") {
         pr.catch((err) => {
@@ -59545,14 +59615,16 @@ const narration = {
       this.endedIds.push(id);
       if (this.endedIds.length > 64) this.endedIds.shift();
     }
-    this.breath();
+    // EE 1023 (item 4): no gap after an opening line — the next
+    // starts at once. Other lines keep the breath.
+    this.breath(id && id.startsWith("N-") ? 0 : undefined);
   },
-  breath() {
+  breath(gapMs) {
     if (this.gapTimer) return;
     this.gapTimer = setTimeout(() => {
       this.gapTimer = 0;
       this.pump();
-    }, this.BREATH_MS);
+    }, gapMs === undefined ? this.BREATH_MS : gapMs);
   },
   unlock() {
     if (this.unlocked) return;
@@ -60017,6 +60089,7 @@ const BINDING_ACTIONS = [
   { id: "board", label: "The board", def: "KeyB" },
   { id: "realms", label: "Map of realms", def: "KeyM" },
   { id: "log", label: "Log", def: "KeyL" },
+  { id: "equip", label: "Equip weapon", def: "KeyZ" },
 ];
 const BIND = (() => {
   const stored = LS.get("nova-phox-bindings", {});
@@ -60768,6 +60841,7 @@ const GLOW_BLOCKS = new Set([BLOCK.EMBER, BLOCK.DEEPSTONE, BLOCK.CRYSTAL]);
 // ---------- three.js scene -------------------------------------------------
 
 let scene, camera, renderer, hemi, sun, swoosh = null;
+let swordView = null; // EE 1023 (item 5): the held sword, when the hand holds it
 let lampLight = null; // the fox's lamp (v5, feedback #12)
 let introScreen = null, introScreenMesh = null; // the Arrival memory screen (v5, feedback #14)
 const chunkStore = new Map(); // "realm|cx,cz" -> {data, group, meshKey}
@@ -60799,6 +60873,27 @@ function initThree() {
   swoosh.position.set(0.18, -0.12, -0.7);
   swoosh.visible = false;
   camera.add(swoosh);
+  buildWarpPass(); // EE 1023 (item 1): the warp pass + hyperspace streaks
+  // EE 1023 (item 5): the held Small Sword — the world item's own
+  // construction, carried by the camera; it shows only mid-swing.
+  swordView = new THREE.Group();
+  {
+    const inner = new THREE.Group();
+    buildSwordInto(inner, (color) => new THREE.MeshLambertMaterial({
+      color, emissive: color, emissiveIntensity: 0.85, transparent: true, opacity: 0.95,
+    }));
+    inner.position.y = -0.45;
+    inner.scale.setScalar(0.55);
+    swordView.add(inner);
+  }
+  swordView.traverse((o) => {
+    if (o.material) o.material.depthTest = false;
+    o.renderOrder = 999;
+  });
+  swordView.position.set(0.44, -0.46, -0.8);
+  swordView.rotation.set(0.6, 0, -0.6);
+  swordView.visible = false;
+  camera.add(swordView);
   // The fox's lamp (feedback #12): a spotlight riding the camera,
   // off until V. The Bright Charm, once held, stretches it.
   lampLight = new THREE.SpotLight(0xd8ecff, 0, 46, 0.55, 0.45, 0.8);
@@ -60807,6 +60902,7 @@ function initThree() {
   lampLight.target.position.set(0, -0.1, -8);
   camera.add(lampLight.target);
   buildIntroScreen();
+  buildHallBeacon(); // EE 1023 (item 6): the way to the Hall
   buildTellingDoor();
   applyRealmSky();
   window.addEventListener("resize", onResize);
@@ -60995,6 +61091,10 @@ function onResize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+  if (warpRT) { // EE 1023: the warp's canvas follows the stage
+    const db = renderer.getDrawingBufferSize(new THREE.Vector2());
+    warpRT.setSize(Math.max(2, db.x), Math.max(2, db.y));
+  }
 }
 
 // ---------- chunk store: generate, mesh, rebuild ---------------------------
@@ -61262,6 +61362,11 @@ function chunkMaintenance() {
 // ---------- monsters in the view -------------------------------------------
 
 const monsterMeshes = new Map(); // monster id -> THREE.Group
+// EE 1023 (item 3): when the fox's blow last landed on each thing —
+// the view's half of "they turn red when attacked".
+const monsterHitAt = new Map();
+const RED_HOT = new THREE.Color(0xff2418);
+
 function buildMonsterMesh(kind) {
   // Brick-built (feedback #7): the dark things are assembled from
   // blocks and studs like everything else in the world — plastic,
@@ -61306,6 +61411,12 @@ function buildMonsterMesh(kind) {
     studMat.color.set(0xf2faff);
   }
   if (kind === "guardian") g.scale.setScalar(1.7);
+  // EE 1023 (item 3): each material's true colors, kept so a struck
+  // thing can burn red and then be itself again.
+  for (const mt of mats) {
+    mt.userData.baseColor = mt.color.clone();
+    mt.userData.baseEmissive = mt.emissive.clone();
+  }
   g.userData.mats = mats;
   g.userData.opacity = 0;
   return g;
@@ -61351,6 +61462,35 @@ function monsterWorldPos(m) {
     : heightAt(m.realmId, bx, bz) + 1;
   return { x: bx + 0.5, y, z: bz + 0.5 };
 }
+// EE 1023 (item 3): the cute interactions. When nothing is wrong —
+// no grudge, no featured introduction, no crossing — neighbours
+// sometimes turn to each other and hop in turns, and a thing near
+// the fox sometimes twirls, pleased with itself. Deterministic
+// windows off the tick hash, so every client sees the same charm.
+function cuteMotion(m, mesh, now, dt) {
+  if (m.aggro || state.transit || now < state.introUntil) return;
+  const win = Math.floor(now / 2600);
+  const h = kernels.hash(`cute|${m.id}|${win}`) % 100;
+  if (m.kind !== "wisp") {
+    // A neighbour within about five blocks: face it, and hop.
+    let near = null;
+    for (const o of sub.monsters) {
+      if (o === m || !o.alive || o.realmId !== m.realmId || o.kind === "wisp") continue;
+      const d = Math.hypot(o.gx - m.gx, o.gy - m.gy);
+      if (d > 0 && d <= 2.6) { near = o; break; }
+    }
+    if (near && h < 30) {
+      mesh.rotation.y = Math.atan2(near.gx - m.gx, near.gy - m.gy) - Math.PI / 2;
+      const ph = (now % 2600) / 2600;
+      if (ph > 0.55) mesh.position.y += Math.abs(Math.sin(ph * Math.PI * 4)) * 0.16;
+      return;
+    }
+  }
+  // A lone familiar near the fox, feeling fine: a slow twirl.
+  const dFox = Math.hypot(m.gx * 2 + 1 - state.pos.x, m.gy * 2 + 1 - state.pos.z);
+  if (dFox < 9 && h >= 30 && h < 42) mesh.rotation.y += dt * 1.6;
+}
+
 function syncMonsterMeshes(dt) {
   const seen = new Set();
   const now = performance.now();
@@ -61424,6 +61564,21 @@ function syncMonsterMeshes(dt) {
       // nothing new is painted on the thing.
       mt.emissiveIntensity = (mt.userData.baseEI ?? 1) * (revealed ? 2.4 : 1);
     }
+    // EE 1023 (item 3): red when attacked — a struck thing burns
+    // hot for a breath; an aggroed one keeps an ember until its
+    // grudge cools in subspace.
+    const hitAge = now - (monsterHitAt.get(m.id) ?? -Infinity);
+    const heat = Math.max(hitAge < 700 ? 1 - hitAge / 700 : 0, m.aggro ? 0.38 : 0);
+    for (const mt of mesh.userData.mats) {
+      if (!mt.userData.baseColor) continue;
+      if (heat > 0) {
+        mt.color.copy(mt.userData.baseColor).lerp(RED_HOT, heat * 0.55);
+        mt.emissive.copy(mt.userData.baseEmissive).lerp(RED_HOT, heat * 0.85);
+      } else {
+        mt.color.copy(mt.userData.baseColor);
+        mt.emissive.copy(mt.userData.baseEmissive);
+      }
+    }
     mesh.visible = next > 0.03;
     if (mesh.visible) {
       const p = monsterWorldPos(m);
@@ -61434,6 +61589,7 @@ function syncMonsterMeshes(dt) {
       const s = (m.kind === "guardian" ? 1.7 : 1) * (1 + Math.sin(now / 260) * 0.05);
       mesh.scale.setScalar(s);
       mesh.rotation.y = Math.atan2(state.pos.x - p.x, state.pos.z - p.z) - Math.PI / 2;
+      cuteMotion(m, mesh, now, dt); // EE 1023 (item 3): charm, when nothing is wrong
       // Featured introduction, once per kind (feedback #8).
       if (target === 1 && next > 0.6 && !state.introduced.has(introKindKey(m.kind))) {
         const d = Math.hypot(state.pos.x - p.x, state.pos.z - p.z);
@@ -61452,6 +61608,26 @@ function syncMonsterMeshes(dt) {
 // ---------- placed things in the view: the Lance and the charms --------------
 
 const itemMeshes = new Map(); // item id -> THREE.Group
+// The Small Sword's form (EE 995, item 11): bright blade, gold
+// guard, dark grip — the Lance's glow idiom at a smaller scale.
+// One construction, two homes: the world item, and (EE 1023, item
+// 5) the sword the fox's own hand shows when it swings.
+function buildSwordInto(g, glow) {
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.8, 0.17), glow(0xdfe9ff));
+  blade.position.y = 1.02;
+  g.add(blade);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 4), glow(0xffffff));
+  tip.position.y = 1.53;
+  g.add(tip);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.22), glow(0xffd23f));
+  guard.position.y = 0.6;
+  g.add(guard);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.09),
+    new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.9 }));
+  grip.position.y = 0.42;
+  g.add(grip);
+}
+
 function buildItemMesh(it) {
   const g = new THREE.Group();
   const glow = (color) => new THREE.MeshLambertMaterial({
@@ -61473,21 +61649,7 @@ function buildItemMesh(it) {
     beam.position.y = 3.5;
     g.add(beam);
   } else if (it.kind === "sword") {
-    // The Small Sword (EE 995, item 11): bright blade, gold guard,
-    // dark grip — the Lance's glow idiom at a smaller scale.
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.8, 0.17), glow(0xdfe9ff));
-    blade.position.y = 1.02;
-    g.add(blade);
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 4), glow(0xffffff));
-    tip.position.y = 1.53;
-    g.add(tip);
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.22), glow(0xffd23f));
-    guard.position.y = 0.6;
-    g.add(guard);
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.09),
-      new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.9 }));
-    grip.position.y = 0.42;
-    g.add(grip);
+    buildSwordInto(g, glow);
   } else {
     const colors = { swift: 0x00e5ff, ward: 0x2979ff, bright: 0xb3f1ff };
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.34), glow(colors[it.kind] || 0xffffff));
@@ -61531,6 +61693,66 @@ function buildJoy() {
   scene.add(g);
   joyMesh = g;
 }
+// ---------- the way to the Hall (EE 1023, item 6) ---------------------------
+// Will: "waypoints to the hall." A pillar of golden light stands
+// over the Unexpected Hall's entrance shaft while the quest is
+// unfinished — visible across Nova, gone once the fox has stood
+// at the Deep Stone — and a diamond rides the screen pointing the
+// way, with the distance in blocks.
+let hallBeacon = null;
+function buildHallBeacon() {
+  const g = new THREE.Group();
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0xffd76a, transparent: true, opacity: 0.16,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.6, 60, 12, 1, true), beamMat);
+  beam.position.y = 30;
+  g.add(beam);
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.9),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8 }));
+  gem.position.y = 13;
+  g.add(gem);
+  g.userData = { beamMat, gem };
+  g.position.set(DUNGEON.shaftX + 0.5, DUNGEON.surfaceY, DUNGEON.shaftZ + 0.5);
+  g.visible = false;
+  scene.add(g);
+  hallBeacon = g;
+}
+
+const _wpV = new THREE.Vector3();
+function stepWaypoint(now) {
+  const el = $("waypoint");
+  const show = state.realm === "nova" && !sub.questDone && !playerInHall();
+  if (hallBeacon) {
+    hallBeacon.visible = show;
+    if (show) {
+      hallBeacon.userData.gem.rotation.y = now / 700;
+      hallBeacon.userData.gem.position.y = 13 + Math.sin(now / 600) * 0.5;
+      hallBeacon.userData.beamMat.opacity = 0.13 + 0.05 * Math.sin(now / 900);
+    }
+  }
+  if (!el) return;
+  if (!show) { el.style.display = "none"; return; }
+  const tx = DUNGEON.shaftX + 0.5, tz = DUNGEON.shaftZ + 0.5;
+  const dist = Math.hypot(state.pos.x - tx, state.pos.z - tz);
+  if (dist < 7) { el.style.display = "none"; return; }
+  _wpV.set(tx, state.pos.y + 6, tz).project(camera);
+  const holder = $("stage");
+  const w = holder.clientWidth, h = holder.clientHeight;
+  let nx = _wpV.x * 0.5 + 0.5, ny = -_wpV.y * 0.5 + 0.5;
+  const behind = _wpV.z > 1;
+  if (behind) { nx = 1 - nx; ny = 1; }
+  const mgn = 0.07;
+  const cxp = Math.min(Math.max(nx, mgn), 1 - mgn);
+  const cyp = Math.min(Math.max(ny, mgn), 1 - mgn);
+  el.style.display = "block";
+  el.style.left = (cxp * w) + "px";
+  el.style.top = (cyp * h) + "px";
+  el.textContent = `◆ ${Math.round(dist)}`;
+  el.classList.toggle("edge", behind || cxp !== nx || cyp !== ny);
+}
+
 function stepJoy(now, dt) {
   if (!joyMesh) return;
   const u = joyMesh.userData;
@@ -61587,10 +61809,15 @@ function syncItemMeshes(now) {
   }
 }
 function applyItemEffect(def) {
-  if (def.kind === "lance") state.weapon = "lance";
+  if (def.kind === "lance") { state.ownsLance = true; state.weapon = "lance"; }
   // The Small Sword fills an empty hand; it never takes the
   // Star Lance's place (and the Lance, once held, is kept).
-  if (def.kind === "sword" && state.weapon !== "lance") state.weapon = "sword";
+  // EE 1023 (item 5): ownership is remembered either way — which
+  // weapon the hand holds is the equip action's business now.
+  if (def.kind === "sword") {
+    state.ownsSword = true;
+    if (state.weapon !== "lance") state.weapon = "sword";
+  }
   if (def.kind === "swift") state.charms.swift = true;
   if (def.kind === "bright") state.charms.bright = true;
   if (def.kind === "ward") { state.charms.ward = true; state.wardCharge = 1; }
@@ -62014,6 +62241,29 @@ function damagePopup(text, color = "#aee6ff") {
   void el.offsetWidth;
   el.classList.add("pop");
 }
+// EE 1023 (item 5): the equip action. The hand holds one weapon;
+// the equip key takes the other owned one into it, and says which.
+// Ownership comes from pickup (applyItemEffect); the swing shows
+// what the hand holds (the sword view-model in the frame step).
+function equipWeapon() {
+  const owned = [];
+  if (state.ownsSword) owned.push("sword");
+  if (state.ownsLance) owned.push("lance");
+  if (!owned.length) {
+    toast("Nothing to equip yet — your strike is your own.", 1800);
+    return;
+  }
+  const next = owned.find((w) => w !== state.weapon) || owned[0];
+  if (next === state.weapon) {
+    toast(next === "sword" ? "The Small Sword is already in hand."
+      : "The Star Lance is already in hand.", 1600);
+    return;
+  }
+  state.weapon = next;
+  toast(next === "sword" ? "You take the Small Sword in hand."
+    : "You take the Star Lance in hand.", 1800);
+}
+
 function tryStrike() {
   if (state.dead) return false;
   showSwing();
@@ -62043,6 +62293,7 @@ function tryStrike() {
   if (!best) return false;
   let killed = false;
   for (let d = 0; d < damage && !killed; d++) killed = sub.strikeMonster(best);
+  monsterHitAt.set(best.id, performance.now()); // EE 1023: it turns red (syncMonsterMeshes)
   if (killed) {
     sfx.strikeKill();
     playBeat(best.kind === "guardian" ? "BEAT-guardian-kill" : "BEAT-strike-kill");
@@ -62078,9 +62329,9 @@ function tryStrike() {
 
 // ---------- the chisel (feedback #10, #4, #11) ------------------------------
 // Granular deformation: aim at a block and shape it down by degrees
-// (C, or a click that isn't a strike — feedback #3). Two strokes
-// shrink it in the mesh; the third breaks it through, and the break
-// is an inscription. v5: the chisel works at the brush's size
+// (C, or a click that isn't a strike — feedback #3). EE 1023 (item
+// 8): Will ruled "single click to carve, not 3x" — one stroke now
+// carves through, and the break is an inscription, as it always was. v5: the chisel works at the brush's size
 // (feedback #4 — , and . change it), a whole volume per stroke,
 // each block judged on its own merits; and a refusal NAMES itself
 // (feedback #11): there is no depth limit and never was — the old
@@ -62425,6 +62676,7 @@ function closeRift() {
     scene.remove(state.rift.mesh);
     state.rift = null;
   }
+  if (state.riftLink) sub.clearRiftLink(state.riftLink.id); // EE 1023: the stitch ends with the door
   state.riftLink = null;
   disposePortalView();
 }
@@ -62543,6 +62795,7 @@ function openRift(target) {
   const b = riftEnd(target.realmId, dest.bx + 0.5, dest.bz + 0.5,
     state.yaw, undefined, true);
   state.riftLink = { id: ++riftSeq, target, a, b, crosses: 0 };
+  sub.noteRiftLink(state.riftLink.id, a, b); // EE 1023 (item 1): subspace accommodates the rift
   showRiftEnd("a");
   sfx.portal();
   toast(target.type === "realm"
@@ -62617,64 +62870,27 @@ function crossThroughRift(carriedPre) {
   showRiftEnd(fromEnd === "a" ? "b" : "a");
 }
 
-// ---------- walking through the rift (EE 995, items 5+6) -------------------
-// Will's words: "it should be a warp/wormhole implemented as a
-// cylinder that curves spacetime around it — a kaleidoscope of fun
-// house mirrors" and "players walk through the rift, like walking
-// through an underground aquarium."
+// ---------- walking through the rift (EE 1023, item 1) ----------------------
+// Will (EE 995): "it should be a warp/wormhole implemented as a
+// cylinder that curves spacetime around it" — and (EE 1023):
+// "transitionary portals ... need to be completely integrated
+// with the world - more hyperspace effects and screen warpings -
+// no sprite fakery - actually change the nature of subspace and
+// the game world to accommodate the rifts."
 //
-// The design (recorded in full in FEEDBACK-995-REPORT.md): stepping
-// into a standing ring's disc no longer teleports. It begins a
-// TRANSIT. The passage is a pocket in the departure realm's
-// reserved scroll (512,512): while the pocket is set, subspace
-// generates a straight vault corridor there, and a glass cylinder
-// stands inside it — a kaleidoscope canvas (mirrored rainbow
-// wedges) blending the entry realm's band into the destination's,
-// three rings along its length, the far disc showing the landing
-// through the ring's own portal view, and a drifting mote field
-// outside the glass: the aquarium. The fox walks the corridor
-// under the game's own physics; stepping into the far disc
-// completes the crossing through crossThroughRift itself — the
-// same arrival a crossing always took (carried monsters, the far
-// ring re-armed at his back) — and the near disc takes him back
-// out the way he came, uncrossed. The tune-summoned portals are
-// untouched; the rift itself is now the traversable object.
-// Monsters keep their instant blunder-crossing (riftStep, below).
-
-const TRANSIT_SCROLL = { sx: 512, sy: 512 };
-const TRANSIT_MS = 90000; // the passage's patience, then it sets you back
-let transitGroup = null;
-
-function kaleidoTexture(hex) {
-  const c = document.createElement("canvas");
-  c.width = 512; c.height = 256;
-  const g = c.getContext("2d");
-  const base = new THREE.Color(hex);
-  const cols = [];
-  for (let i = 0; i < 6; i++) {
-    const cc = base.clone();
-    cc.offsetHSL(i * 0.055 - 0.14, 0, (i % 2) * 0.13 - 0.06);
-    cols.push(`#${cc.getHexString()}`);
-  }
-  g.fillStyle = "#05060a"; g.fillRect(0, 0, 512, 256);
-  const cx = 256, cy = 128;
-  for (let k = 0; k < 24; k++) {
-    const a0 = (k / 24) * Math.PI * 2, a1 = ((k + 1) / 24) * Math.PI * 2;
-    g.fillStyle = cols[k % cols.length];
-    g.globalAlpha = 0.5 + (k % 3) * 0.16;
-    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 195, a0, a1); g.closePath(); g.fill();
-    // the funhouse mirror: every wedge again, flipped in its neighbour
-    g.save(); g.translate(cx, cy); g.scale(1, -1); g.translate(-cx, -cy);
-    g.globalAlpha = 0.28;
-    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 118, a0, a1); g.closePath(); g.fill();
-    g.restore();
-  }
-  g.globalAlpha = 1;
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(3, 1);
-  return tex;
-}
+// The EE 995 pocket-scroll passage is GONE. Stepping into the
+// ring now starts a WARP TRANSIT where the fox stands: over ~2.6 s
+// the rendered world itself warps (the post pass below), hyperspace
+// streaks rush through the scene, the field of view stretches —
+// and at the envelope's peak the crossing executes through
+// crossThroughRift, the same arrival every crossing has always
+// taken (carried monsters, the far ring at the fox's back, the
+// arrival beats). Step back out of the disc before the peak and
+// the crossing is unmade. The rift's link is registered in
+// subspace for as long as it stands (openRift/closeRift), so the
+// far end's world stays alive in the tick: subspace accommodates
+// the rift, and the world bends around it (the standing shimmer
+// in renderFrame).
 
 function beginTransit() {
   if (state.transit || !state.rift || !state.riftLink) return;
@@ -62682,166 +62898,58 @@ function beginTransit() {
   const fromEnd = r.end;
   const other = link[fromEnd === "a" ? "b" : "a"];
   const carried = computeCarried(r);
-  const bx0 = TRANSIT_SCROLL.sx * SCROLL, bz0 = TRANSIT_SCROLL.sy * SCROLL;
-  const tp = {
-    realmId: state.realm, sx: TRANSIT_SCROLL.sx, sy: TRANSIT_SCROLL.sy,
-    x0: bx0 + 6, x1: bx0 + 36, z0: bz0 + 29, z1: bz0 + 35, floorY: 19, ceilY: 25,
-  };
-  tp.zc = (tp.z0 + tp.z1) / 2;
-  sub.transitPocket = tp;
-  ensureNeighborhood(state.realm, tp.sx, tp.sy);
-  // The passage stands empty: whatever the pocket scroll's genesis
-  // seeded is swept out of the tube's road.
-  for (const m of sub.monsters) {
-    if (m.alive && m.realmId === state.realm &&
-        Math.floor(m.gx / 32) === tp.sx && Math.floor(m.gy / 32) === tp.sy) m.alive = false;
-  }
-  buildTransitMeshes(other, tp);
-  state.transit = {
-    link, fromEnd, other, carried, t0: performance.now(), pocket: tp,
-    home: { x: state.pos.x, y: state.pos.y, z: state.pos.z, yaw: state.yaw, pitch: state.pitch },
-  };
-  // The wormhole's own frame: down is down inside the passage,
-  // whatever the realm outside is doing (an inverted realm stays
-  // traversable — Will's ruling — and so does its rift).
-  state.gravDir = 1;
-  state.pos.set(tp.x0 + 3.5, tp.floorY + 1.01, tp.zc);
-  state.vel.set(0, 0, 0);
-  state.yaw = -Math.PI / 2; state.pitch = 0;
+  // Which side the fox came in by — the threshold it can still
+  // back out of (transitStep). At the rim it is where the fox
+  // stands; dead-center, it is the side at the fox's back.
+  const ex = state.pos.x - r.x, ez = state.pos.z - r.z;
+  const ed = Math.hypot(ex, ez);
+  const entryDir = ed > 0.5 ? { x: ex / ed, z: ez / ed }
+    : { x: Math.sin(state.yaw), z: Math.cos(state.yaw) };
+  state.transit = { link, fromEnd, other, carried, entryDir, t0: performance.now(), crossed: false };
   flashPortal();
   sfx.portal();
-  sub.log("transit", `${realmName(state.realm)} ${tp.sx},${tp.sy}`,
-    "the fox steps into the rift — the walk through begins");
-}
-
-function buildTransitMeshes(other, tp) {
-  endTransitMeshes();
-  transitGroup = new THREE.Group();
-  const midX = (tp.x0 + tp.x1) / 2, len = tp.x1 - tp.x0 - 8, yC = tp.floorY + 2.6;
-  const fromPal = paletteFor(state.realm), toPal = paletteFor(other.realmId);
-  const texA = kaleidoTexture(fromPal.accent), texB = kaleidoTexture(toPal.accent);
-  const mkTube = (tex, cx, l) => {
-    const m = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.3, 2.3, l, 24, 1, true),
-      new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, transparent: true, opacity: 0.94 }));
-    m.rotation.z = Math.PI / 2;
-    m.position.set(cx, yC, tp.zc);
-    transitGroup.add(m);
-    return m;
-  };
-  const tubeA = mkTube(texA, tp.x0 + 4 + len / 4, len / 2);
-  const tubeB = mkTube(texB, tp.x1 - 4 - len / 4, len / 2);
-  const ribs = [];
-  [[tp.x0 + 4.5, fromPal.accent], [midX, 0xffffff], [tp.x1 - 4.5, toPal.accent]].forEach(([x, col]) => {
-    const rib = new THREE.Mesh(new THREE.TorusGeometry(2.32, 0.07, 8, 32),
-      new THREE.MeshBasicMaterial({ color: col }));
-    rib.rotation.y = Math.PI / 2;
-    rib.position.set(x, yC, tp.zc);
-    transitGroup.add(rib); ribs.push(rib);
-  });
-  // The aquarium: motes drifting outside the glass, in both
-  // realms' colors. (Positions relative to the passage's center,
-  // so the whole field can slowly wheel around the tube.)
-  const N = 260, posArr = new Float32Array(N * 3), colArr = new Float32Array(N * 3);
-  const cA = new THREE.Color(fromPal.accent), cB = new THREE.Color(toPal.accent);
-  for (let i = 0; i < N; i++) {
-    const h1 = kernels.hash(`mote|${i}|a`), h2 = kernels.hash(`mote|${i}|b`);
-    const a = (h1 % 628) / 100, r = 3 + (h2 % 220) / 100;
-    posArr[i * 3] = -len / 2 + ((h1 >> 4) % Math.max(1, Math.floor(len)));
-    posArr[i * 3 + 1] = Math.sin(a) * r;
-    posArr[i * 3 + 2] = Math.cos(a) * r;
-    const c = i % 2 ? cA : cB;
-    colArr[i * 3] = c.r; colArr[i * 3 + 1] = c.g; colArr[i * 3 + 2] = c.b;
-  }
-  const moteGeo = new THREE.BufferGeometry();
-  moteGeo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
-  moteGeo.setAttribute("color", new THREE.BufferAttribute(colArr, 3));
-  const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({
-    size: 0.16, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
-  motes.position.set(midX, yC, tp.zc);
-  transitGroup.add(motes);
-  // The far disc: the destination, through the ring's own portal
-  // view — the same living picture the ring itself wears.
-  const discMat = (portalRT && state.rift && state.rift.viewOk)
-    ? new THREE.MeshBasicMaterial({ map: portalRT.texture, side: THREE.DoubleSide })
-    : new THREE.MeshBasicMaterial({
-        color: RIFT_TINT[other.realmId] ?? 0x0e4d8f,
-        transparent: true, opacity: 0.6, side: THREE.DoubleSide });
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(2.15, 32), discMat);
-  disc.position.set(tp.x1 - 1.2, yC, tp.zc);
-  transitGroup.add(disc);
-  // The near disc: home, behind the fox — step back out any time.
-  const back = new THREE.Mesh(new THREE.CircleGeometry(2.15, 32),
-    new THREE.MeshBasicMaterial({
-      color: fromPal.accent, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
-  back.position.set(tp.x0 + 1.2, yC, tp.zc);
-  transitGroup.add(back);
-  scene.add(transitGroup);
-  state.transitVisuals = { texA, texB, tubeA, tubeB, ribs, motes, started: performance.now() };
+  sub.log("transit", `${realmName(state.realm)} — the walk through begins`,
+    "the world warps around the ring; the crossing is the warp's peak");
 }
 
 function transitStep(now, dt) {
   const T = state.transit;
   if (!T) return;
-  const V = state.transitVisuals;
-  if (V) {
-    const t = (now - V.started) / 1000;
-    V.texA.offset.x = (t * 0.045) % 1;
-    V.texB.offset.x = (t * 0.045) % 1;
-    V.tubeA.material.color.setHSL(0.55 + 0.08 * Math.sin(t * 0.23), 0.35, 0.82);
-    V.tubeB.material.color.setHSL(0.55 + 0.08 * Math.sin(t * 0.23 + 1.7), 0.35, 0.82);
-    V.ribs.forEach((r, i) => { r.scale.setScalar(1 + 0.05 * Math.sin(t * 2 + i * 2.1)); });
-    V.motes.rotation.x = t * 0.05;
-  }
   if (state.dead) { endTransit(); return; }
-  if (now - T.t0 > TRANSIT_MS) {
-    abortTransit("the passage tires, and sets the fox back at its mouth");
-    return;
+  const p = (now - T.t0) / WARP_TRANSIT_MS;
+  if (!T.crossed) {
+    const r = state.rift;
+    if (!r || !state.riftLink) { endTransit(); return; }
+    // The threshold and the grip: back out the way you came,
+    // before the peak, and the crossing is unmade — but push on
+    // through, or veer, and the wormhole HOLDS its traveler at
+    // the rim until the peak. Walking through the rift is the
+    // game's own verb; the warp does not let go of what it has
+    // taken hold of. (Gate evidence, EE 1023: a plain disc-exit
+    // abort unmade every walk-through crossing.)
+    const dx = state.pos.x - r.x, dz = state.pos.z - r.z;
+    const d2 = dx * dx + dz * dz, R = r.geo.disc;
+    if (d2 > R * R) {
+      const d = Math.sqrt(d2);
+      const backOut = (dx * T.entryDir.x + dz * T.entryDir.z) / d;
+      if (backOut > 0.55 && d2 > R * R * 1.44) {
+        endTransit();
+        toast("The rift lets go — the crossing unmade.", 2200);
+        return;
+      }
+      state.pos.x = r.x + (dx / d) * R * 0.98;
+      state.pos.z = r.z + (dz / d) * R * 0.98;
+    }
+    if (p >= 0.5) {
+      T.crossed = true;
+      crossThroughRift(T.carried); // the arrival is the crossing's own
+    }
   }
-  if (state.pos.x >= T.pocket.x1 - 3) completeTransit();
-  else if (state.pos.x <= T.pocket.x0 + 2.5) abortTransit();
-}
-
-function completeTransit() {
-  const T = state.transit;
-  if (!T) return;
-  const carried = T.carried;
-  endTransit();
-  crossThroughRift(carried); // the arrival is the crossing's own
-}
-
-function abortTransit(note) {
-  const T = state.transit;
-  if (!T) return;
-  endTransit();
-  state.pos.set(T.home.x, T.home.y, T.home.z);
-  state.vel.set(0, 0, 0);
-  state.yaw = T.home.yaw; state.pitch = T.home.pitch;
-  enterRealmGravity(state.realm); // the realm's own down, restored
-  if (state.rift) state.rift.armed = false; // step clear to re-arm the door
-  flashPortal();
-  if (note) toast(note, 3200);
+  if (p >= 1) endTransit();
 }
 
 function endTransit() {
-  if (!state.transit) return;
   state.transit = null;
-  state.transitVisuals = null;
-  if (sub.transitPocket) sub.transitPocket = null;
-  endTransitMeshes();
-}
-
-function endTransitMeshes() {
-  if (!transitGroup) return;
-  scene.remove(transitGroup);
-  transitGroup.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material) {
-      if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
-      o.material.dispose();
-    }
-  });
-  transitGroup = null;
 }
 
 function riftStep(now, dt) {
@@ -63242,10 +63350,10 @@ const GUIDE = [
     when: () => state.wispKills >= 1,
     lines: [
       "Look at the ground where the wisp fell. See the dark scar? It's still there. This place remembers every mark made in it.",
-      "Now make one of your own. Aim at any block and press C — that's your chisel. Three strokes shape a block down and break it through — and that break stays, too.",
+      "Now make one of your own. Aim at any block and press C — that's your chisel. One stroke carves it through — and that break stays, too.",
     ],
     until: () => sub.wal.some((s) => s.op === "break"),
-    hint: "Aim at a block. Press C — three strokes.",
+    hint: "Aim at a block. Press C — one stroke.",
   },
   {
     id: "gravity",
@@ -65184,6 +65292,7 @@ document.addEventListener("keydown", (e) => {
     el.style.display = el.style.display === "none" ? "block" : "none";
     return;
   }
+  if (e.code === BIND.equip) { equipWeapon(); return; }
   switch (e.code) {
     case "Escape":
       if (state.introOpen) closeIntroViewer(); else toggleMenu();
@@ -65596,19 +65705,34 @@ function animate() {
   syncMonsterMeshes(dt);
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place
+  stepWaypoint(now); // EE 1023 (item 6): the way to the Hall
   formStep(dt);
   // The swing arc (feedback #2): a bright wedge sweeping the view
   // for a quarter second — the blow is something you SEE.
+  // EE 1023 (item 5): with the Small Sword in hand, the SWORD is
+  // what you see — a held blade that lifts and sweeps on the same
+  // clock; the wedge stands down for it.
   if (swoosh) {
     if (state.swingT < 1) {
       state.swingT = Math.min(1, state.swingT + dt / 0.26);
-      swoosh.visible = true;
-      swoosh.rotation.z = -0.7 + state.swingT * 1.9;
-      swoosh.material.opacity = 0.75 * (1 - state.swingT);
-      const sc = state.weapon === "lance" ? 1.5 : 1;
-      swoosh.scale.setScalar(sc * (0.8 + state.swingT * 0.5));
+      if (state.weapon === "sword" && swordView) {
+        swoosh.visible = false;
+        swordView.visible = true;
+        const t = state.swingT, lift = Math.sin(t * Math.PI);
+        swordView.rotation.z = -0.6 - lift * 1.05;
+        swordView.rotation.x = 0.6 - t * 0.8;
+        swordView.position.y = -0.46 + lift * 0.2;
+      } else {
+        if (swordView) swordView.visible = false;
+        swoosh.visible = true;
+        swoosh.rotation.z = -0.7 + state.swingT * 1.9;
+        swoosh.material.opacity = 0.75 * (1 - state.swingT);
+        const sc = state.weapon === "lance" ? 1.5 : 1;
+        swoosh.scale.setScalar(sc * (0.8 + state.swingT * 0.5));
+      }
     } else {
       swoosh.visible = false;
+      if (swordView) swordView.visible = false;
     }
   }
   // The ward, stated while it holds (feedback #4).
@@ -65674,19 +65798,174 @@ function animate() {
   }
   if (introScreen) introScreen.visible = state.realm === "nova";
   doorStep();
+  renderFrame(now, dt);
+}
+
+// ---------- the warp (EE 1023, item 1) ---------------------------------------
+// The transit's visible half, and the standing rift's: the scene
+// renders into a target and a fullscreen pass warps it — swirl
+// and pinch around the ring's projected position, chromatic
+// fringing, a breath of the far realm's color — with the warp's
+// strength driven by the transit envelope (and, faintly, by
+// standing near a live rift: the world bends around the door at
+// all times). Hyperspace streaks ride the camera through the
+// warp, and the field of view punches 74 -> 90 -> 74.
+const WARP_TRANSIT_MS = 2600;
+let warpRT = null, warpScene = null, warpCam = null, warpMat = null;
+let warpLevelNow = 0; // the envelope's current strength (the e2e handle reads it)
+let streaks = null, streakData = null;
+
+function buildWarpPass() {
+  const db = renderer.getDrawingBufferSize(new THREE.Vector2());
+  warpRT = new THREE.WebGLRenderTarget(Math.max(2, db.x), Math.max(2, db.y));
+  warpScene = new THREE.Scene();
+  warpCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  warpMat = new THREE.ShaderMaterial({
+    uniforms: {
+      tDiffuse: { value: warpRT.texture },
+      uWarp: { value: 0 },
+      uTime: { value: 0 },
+      uTint: { value: new THREE.Color(0x0e4d8f) },
+      uCenter: { value: new THREE.Vector2(0.5, 0.5) },
+      uAspect: { value: 1 },
+    },
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+    fragmentShader: [
+      "uniform sampler2D tDiffuse; uniform float uWarp; uniform float uTime;",
+      "uniform vec3 uTint; uniform vec2 uCenter; uniform float uAspect;",
+      "varying vec2 vUv;",
+      "void main(){",
+      "  vec2 c = vUv - uCenter; c.x *= uAspect;",
+      "  float r = length(c);",
+      "  float ang = uWarp * (0.9 * exp(-r * 1.35) + 0.10 * sin(uTime * 1.7 + r * 16.0));",
+      "  float ca = cos(ang), sa = sin(ang);",
+      "  c = mat2(ca, -sa, sa, ca) * c;",
+      "  c *= 1.0 - uWarp * 0.20 * (1.0 - smoothstep(0.0, 1.1, r));",
+      "  vec2 uv = uCenter + vec2(c.x / uAspect, c.y);",
+      "  vec2 ab = (r > 1e-4 ? c / r : vec2(0.0)) * uWarp * 0.010 * r;",
+      "  vec3 col;",
+      "  col.r = texture2D(tDiffuse, uv + ab).r;",
+      "  col.g = texture2D(tDiffuse, uv).g;",
+      "  col.b = texture2D(tDiffuse, uv - ab).b;",
+      "  col = mix(col, uTint, uWarp * 0.16 * max(0.0, 1.0 - r * 0.7));",
+      "  col *= 1.0 - uWarp * 0.22 * r * r;",
+      "  gl_FragColor = vec4(col, 1.0);",
+      "}",
+    ].join("\n"),
+    depthTest: false, depthWrite: false,
+  });
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), warpMat);
+  quad.frustumCulled = false;
+  warpScene.add(quad);
+  buildStreaks();
+}
+
+function buildStreaks() {
+  const N = 420;
+  const pos = new Float32Array(N * 6);
+  streakData = [];
+  for (let i = 0; i < N; i++) {
+    const a = (kernels.hash(`streak|${i}|a`) % 628) / 100;
+    const rad = 0.4 + (kernels.hash(`streak|${i}|b`) % 300) / 100;
+    streakData.push({
+      x: Math.cos(a) * rad, y: Math.sin(a) * rad,
+      z: -2 - (kernels.hash(`streak|${i}|c`) % 2600) / 100,
+      sp: 0.7 + (kernels.hash(`streak|${i}|d`) % 60) / 100,
+    });
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  streaks = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+    color: 0xbfe9ff, transparent: true, opacity: 0, depthWrite: false,
+  }));
+  streaks.frustumCulled = false;
+  streaks.visible = false;
+  camera.add(streaks);
+}
+
+function stepStreaks(dt, warp) {
+  if (!streaks) return;
+  const on = warp > 0.02;
+  streaks.visible = on;
+  if (!on) return;
+  streaks.material.opacity = Math.min(0.85, warp * 1.1);
+  const pos = streaks.geometry.attributes.position;
+  const stretch = 0.3 + warp * 2.6;
+  for (let i = 0; i < streakData.length; i++) {
+    const s = streakData[i];
+    s.z += dt * (4 + warp * 26) * s.sp;
+    if (s.z > -0.4) s.z = -28;
+    pos.setXYZ(i * 2, s.x, s.y, s.z);
+    pos.setXYZ(i * 2 + 1, s.x, s.y, s.z - stretch * s.sp);
+  }
+  pos.needsUpdate = true;
+}
+
+function warpEnvelope(now) {
+  const T = state.transit;
+  if (!T) return 0;
+  const p = Math.min(1, Math.max(0, (now - T.t0) / WARP_TRANSIT_MS));
+  return Math.sin(Math.PI * Math.pow(p, 0.9));
+}
+
+const _warpV = new THREE.Vector3();
+function renderFrame(now, dt) {
+  let warp = warpEnvelope(now);
+  let cx = 0.5, cy = 0.5;
+  const ring = state.rift;
+  if (ring && warpMat) {
+    _warpV.set(ring.x, ring.feetY + 1.7, ring.z).project(camera);
+    if (_warpV.z < 1) { cx = _warpV.x * 0.5 + 0.5; cy = _warpV.y * 0.5 + 0.5; }
+    if (state.transit && state.transit.other) {
+      warpMat.uniforms.uTint.value.setHex(RIFT_TINT[state.transit.other.realmId] ?? 0x0e4d8f);
+    } else if (ring.target) {
+      warpMat.uniforms.uTint.value.setHex(RIFT_TINT[ring.target.realmId] ?? 0x0e4d8f);
+    }
+  }
+  if (!state.transit && ring) {
+    // A standing rift bends the picture around it, a little, always.
+    const d = Math.hypot(state.pos.x - ring.x, state.pos.z - ring.z);
+    if (d < RIFT_RANGE && _warpV.z < 1) {
+      warp = Math.max(warp,
+        0.05 + 0.075 * (1 - d / RIFT_RANGE) + 0.012 * Math.sin(now / 300));
+    }
+  }
+  warpLevelNow = warp;
+  const targetFov = 74 + warp * 16;
+  if (Math.abs(camera.fov - targetFov) > 0.05) {
+    camera.fov = targetFov;
+    camera.updateProjectionMatrix();
+  }
+  stepStreaks(dt, warp);
+  if (warp <= 0.004 || !warpRT) { renderer.render(scene, camera); return; }
+  warpMat.uniforms.uWarp.value = warp;
+  warpMat.uniforms.uTime.value = now / 1000;
+  warpMat.uniforms.uCenter.value.set(cx, cy);
+  const size = renderer.getSize(new THREE.Vector2());
+  warpMat.uniforms.uAspect.value = size.y ? size.x / size.y : 1;
+  renderer.setRenderTarget(warpRT);
   renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  renderer.render(warpScene, warpCam);
 }
 
 // ---------- subspace physics tick -------------------------------------------------------------
 
+let lastTickPos = null;
 setInterval(() => {
   // During a featured introduction the things hold their places —
   // presented, not hunting (feedback #8). Life and growth go on.
   const presented = performance.now() < state.introUntil;
+  // EE 1023 (item 7): how far the fox has travelled since the last
+  // tick — the traversal the growth lend in subspace reads.
+  const pace = lastTickPos
+    ? Math.hypot(state.pos.x - lastTickPos.x, state.pos.z - lastTickPos.z) : 0;
+  lastTickPos = { x: state.pos.x, z: state.pos.z };
   sub.tick(presented ? null : {
     realmId: state.realm,
     bx: Math.floor(state.pos.x),
     bz: Math.floor(state.pos.z),
+    pace,
   });
   // Life moved: the chunk signature sweep in the frame loop notices
   // which loaded chunks' inputs drifted and re-derives only those.
@@ -66459,6 +66738,14 @@ window.NOVA_FOX3 = {
   // powerup announcement count (item 10), for the e2e legs.
   joyPos: () => (joyMesh ? { x: joyMesh.position.x, y: joyMesh.position.y, z: joyMesh.position.z } : null),
   powerShown: () => powerShown,
+  // EE 1023 handles: the warp's strength and the crossing, the
+  // equip state, and the Hall waypoint — for the e2e legs.
+  warpLevel: () => warpLevelNow,
+  inTransit: () => !!state.transit,
+  foxPos: () => ({ x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }),
+  equipState: () => ({ weapon: state.weapon, ownsSword: state.ownsSword, ownsLance: state.ownsLance }),
+  waypoint: () => ({ beacon: !!(hallBeacon && hallBeacon.visible),
+    hud: (() => { const el = $("waypoint"); return el ? el.style.display : "none"; })() }),
   isWarded, classifyStroke, boardData, scoreNow: () => totalScore(sub),
   narration: {
     ready: (id) => narration.ready(id),

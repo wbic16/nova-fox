@@ -284,6 +284,9 @@ export function inDungeon(x, z) {
 // the physics tick hunts within (see tick()). One constant, two
 // readers — the hunt and the Vision can never drift apart.
 export const FAMILIAR_RANGE_CELLS = 48;
+export const AGGRO_TICKS = 300; // EE 1023: a struck familiar's grudge, in physics ticks (~3 min)
+export const TRAVERSAL_GROWTH_FLOOR = 0.34; // EE 1023: growth lent to cells around a moving fox
+export const TRAVERSAL_CELLS = 10; // EE 1023: the traversal lend's reach, in Life cells
 
 // Inside The Unexpected Hall: within the footprint AND down in
 // the hall's own air. The hill above the hall shares the
@@ -583,7 +586,8 @@ export class Subspace {
     this.genesisLife = null; // total alive cells when the first scrolls opened
     this._monsterSeq = 0;
     this._nextSpawnTick = 0; // EE 995: the random-rise clock (item 9)
-    this.transitPocket = null; // EE 995: the wormhole's room (items 5+6)
+    this.transitPocket = null; // EE 995: the wormhole's room (items 5+6) — retired EE 1023, nothing sets it
+    this.riftLinks = new Map(); // EE 1023: standing rift links, registered by the view (item 1)
     this.log("genesis", "the chart", "the world is loaded; the dark is counted, not empty");
   }
 
@@ -735,8 +739,20 @@ export class Subspace {
       const psx = scrollOfBlock(player.bx), psy = scrollOfBlock(player.bz);
       const active = [];
       for (const s of live) {
-        const near = s.realmId === player.realmId &&
+        let near = s.realmId === player.realmId &&
           Math.abs(s.sx - psx) <= 1 && Math.abs(s.sy - psy) <= 1;
+        if (!near && this.riftLinks.size) {
+          // EE 1023 (item 1): a stitched scroll — an end of a
+          // standing rift — steps too, though it is nowhere near
+          // the fox. The door keeps both its ends alive.
+          for (const L of this.riftLinks.values()) {
+            if ((s.realmId === L.aRealm && s.sx === L.asx && s.sy === L.asy) ||
+                (s.realmId === L.bRealm && s.sx === L.bsx && s.sy === L.bsy)) {
+              near = true;
+              break;
+            }
+          }
+        }
         if (near) {
           // Catch-up: a scroll that slept steps its own Life forward
           // in bounded strides (its borders read as they are now —
@@ -787,6 +803,8 @@ export class Subspace {
       }
       s.grid = next;
     }
+    const pcxG = player ? cellOfBlock(player.bx) : 0;
+    const pcyG = player ? cellOfBlock(player.bz) : 0;
     // Growth: the accelerator, not the switch (feedback #6). Every
     // living cell carries a growth level that leans a few percent
     // per tick toward what the local pattern would support — dense
@@ -804,6 +822,17 @@ export class Subspace {
           let target = Math.max(0, (density - 3) / 4);
           const pressure = borderPressure(this, s.realmId, gx, gy, pcache);
           if (pressure >= 0.45) target = Math.max(target, pressure);
+          // EE 1023 (item 7): the overworld's geometry shifts
+          // subtly as the fox TRAVERSES it. A moving fox lends the
+          // cells around his path a growth floor — bloom and
+          // crystal creep up along the walked country through this
+          // same ramp and the same mesher, and ebb once he has
+          // passed. Standing still lends nothing.
+          if (player && player.pace > 0 && s.realmId === player.realmId &&
+              Math.max(Math.abs(gx - pcxG), Math.abs(gy - pcyG)) <= TRAVERSAL_CELLS) {
+            const lend = TRAVERSAL_GROWTH_FLOOR * Math.min(1, player.pace / 3);
+            if (lend > target) target = lend;
+          }
           const key = `${s.realmId}|${gx},${gy}`;
           const cur = this.growth.get(key) || 0;
           if (target === 0 && cur === 0) continue;
@@ -842,6 +871,7 @@ export class Subspace {
     for (const m of this.monsters) {
       if (!m.alive) continue;
       if (m.kind === "wisp") continue; // it waits where it was set; it is for learning on
+      if (m.aggro && m.aggroTicks !== undefined && --m.aggroTicks <= 0) m.aggro = false;
       if (!m.engaged) m.phase = (m.phase + 1) % 3; // engaged things hold their phase: they are THERE
       if (!player || player.realmId !== m.realmId) continue;
       if (m.hx === undefined) { m.hx = m.gx; m.hy = m.gy; }
@@ -858,8 +888,11 @@ export class Subspace {
         this.log("engage", `${realmById(m.realmId).name} ${m.gx * 2 + 1},${m.gy * 2 + 1}`,
           "the dark thing has entered the fox's sphere — it will not fade now");
       }
-      if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS) {
-        for (let step = 0; step < speed; step++) this._monsterStep(m, pcx, pcy);
+      // EE 1023 (item 3): an aggroed thing hunts from ANY range —
+      // the haunt radius is for the unprovoked — and steps faster.
+      if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS || m.aggro) {
+        const steps = speed + (m.aggro ? 1 : 0);
+        for (let step = 0; step < steps; step++) this._monsterStep(m, pcx, pcy);
       } else if (m.gx !== m.hx || m.gy !== m.hy) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, m.hx, m.hy);
       }
@@ -1039,6 +1072,16 @@ export class Subspace {
     if (!m.alive) return false;
     m.hp--;
     if (m.hp > 0) {
+      // EE 1023 (item 3): a struck thing AGGROES. It engages —
+      // phase pinned, there to be struck at — and hunts the fox
+      // past its haunt until the grudge cools (the monster step
+      // keeps the clock). The training wisp is exempt: it waits
+      // where it was set, for learning on.
+      if (m.kind !== "wisp") {
+        m.aggro = true;
+        m.aggroTicks = AGGRO_TICKS;
+        if (!m.engaged) { m.engaged = true; m.phase = 0; }
+      }
       this.log("strike", realmById(m.realmId).name,
         `the ${m.kind === "guardian" ? "guardian" : "dark thing"} is struck and holds (${m.hp} left)`);
       return false;
@@ -1117,6 +1160,23 @@ export class Subspace {
     const m = this.chisel.get(realmId);
     return m ? m.get(`${x},${y},${z}`) || 0 : 0;
   }
+  // EE 1023 (item 1): rift links REGISTER in subspace. While a link
+  // stands, the tick steps the far end's scroll alongside the
+  // player's neighborhood — the two ends of a rift are stitched in
+  // the simulation, so the world across the door stays alive while
+  // the door stands. (Before EE 1023 a rift was a view-layer object
+  // only; subspace now accommodates it.) Ends arrive in the view's
+  // riftEnd shape; their scrolls are precomputed here.
+  noteRiftLink(id, a, b) {
+    this.riftLinks.set(id, {
+      aRealm: a.realmId, asx: scrollOfBlock(a.landX), asy: scrollOfBlock(a.landZ),
+      bRealm: b.realmId, bsx: scrollOfBlock(b.landX), bsy: scrollOfBlock(b.landZ),
+    });
+  }
+  clearRiftLink(id) {
+    this.riftLinks.delete(id);
+  }
+
   chiselBlock(realmId, x, y, z) {
     const b = baseBlockAt(this, realmId, x, y, z);
     // v5 (feedback #11): a refusal now NAMES itself. There is no
@@ -1128,23 +1188,18 @@ export class Subspace {
     if (this.getOverride(realmId, x, y, z) === BLOCK.AIR) {
       return { ok: false, level: 3, broke: true, reason: "gone" };
     }
+    // EE 1023 (item 8): single click to carve. One stroke now does
+    // what three did — the block breaks through, and the break is
+    // the inscription, exactly as the third stroke's was. (The
+    // degrees remain in the mesh for marks the older world already
+    // carries; a fresh stroke finishes any degree it finds.)
     if (!this.chisel.has(realmId)) this.chisel.set(realmId, new Map());
     const m = this.chisel.get(realmId);
-    const key = `${x},${y},${z}`;
-    const level = (m.get(key) || 0) + 1;
-    if (level >= 3) {
-      m.delete(key);
-      this.setOverride(realmId, x, y, z, BLOCK.AIR);
-      this.log("break", `${realmById(realmId).name} ${x},${y},${z}`,
-        "shaped down and broken through — the mark stays");
-      return { ok: true, level: 3, broke: true };
-    }
-    m.set(key, level);
-    if (level === 1) {
-      this.log("chisel", `${realmById(realmId).name} ${x},${y},${z}`,
-        "a finer mark than a block: the chisel shapes the world by degrees");
-    }
-    return { ok: true, level, broke: false };
+    m.delete(`${x},${y},${z}`);
+    this.setOverride(realmId, x, y, z, BLOCK.AIR);
+    this.log("break", `${realmById(realmId).name} ${x},${y},${z}`,
+      "carved through in a single stroke — the mark stays");
+    return { ok: true, level: 3, broke: true };
   }
 
   // --- the quest ----------------------------------------------------------------

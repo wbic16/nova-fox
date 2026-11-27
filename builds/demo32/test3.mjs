@@ -11,6 +11,7 @@ import {
   REALM_TERRAIN, deltaRiver, ITEM_SPOTS, ARRIVAL,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
   gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
+  AGGRO_TICKS, TRAVERSAL_GROWTH_FLOOR, TRAVERSAL_CELLS,
   TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
   inTheHall, foxVisionToggle, foxVisionReveals, FAMILIAR_RANGE_CELLS,
   PHEXT_LEVEL_BYTES, phextImplode, worldToPhext,
@@ -346,19 +347,15 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const x = 24, z = 24, y = heightAt("nova", x, z) - 6; // deep enough to be stone
   check("target is stone", baseBlockAt(s, "nova", x, y, z) === BLOCK.STONE);
   const r1 = s.chiselBlock("nova", x, y, z);
-  check("first stroke shapes (level 1)", r1.ok && r1.level === 1 && !r1.broke);
-  check("the level is world truth", s.chiselLevel("nova", x, y, z) === 1);
-  const r2 = s.chiselBlock("nova", x, y, z);
-  check("second stroke shapes (level 2)", r2.ok && r2.level === 2);
-  const r3 = s.chiselBlock("nova", x, y, z);
-  check("third stroke breaks through", r3.ok && r3.broke);
+  check("EE 1023: a single stroke carves through", r1.ok && r1.broke && r1.level === 3);
+  check("EE 1023: no degree is left behind", s.chiselLevel("nova", x, y, z) === 0);
   check("the break is an AIR inscription", s.getOverride("nova", x, y, z) === BLOCK.AIR);
   const chunk = genChunk(s, "nova", 1, 1);
   check("the broken block is air in the regenerated chunk",
     chunkBlock(chunk, x - 16, y, z - 16) === BLOCK.AIR);
   check("the bedrock refuses the chisel", s.chiselBlock("nova", x, 0, z).ok === false);
-  check("chisel and break are in the log",
-    s.wal.some((w) => w.op === "chisel") && s.wal.some((w) => w.op === "break"));
+  check("the break is in the log",
+    s.wal.some((w) => w.op === "break"));
 }
 
 // --- scoring: the board counts what the log can prove -----------------------
@@ -477,9 +474,84 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("open air refuses as air",
     s.chiselBlock("nova", 24, heightAt("nova", 24, 24) + 5, 24).reason === "air");
   const x = 28, z = 28, y = heightAt("nova", x, z) - 6;
-  s.chiselBlock("nova", x, y, z); s.chiselBlock("nova", x, y, z); s.chiselBlock("nova", x, y, z);
+  s.chiselBlock("nova", x, y, z); // EE 1023: one stroke breaks it through
   check("a broken-through block refuses as already gone",
     s.chiselBlock("nova", x, y, z).reason === "gone");
+}
+
+// --- EE 1023 (item 2): banter cadence — more frequent random dialogue -------
+{
+  check("EE 1023: banter global gap is 20 s (was 45 s)",
+    BANTER_TUNABLES.globalGapMs === 20000);
+  check("EE 1023: banter group gap is 40 s (was 90 s)",
+    BANTER_TUNABLES.groupGapMs === 40000);
+  check("EE 1023: banter opening grace is 12 s (was 20 s)",
+    BANTER_TUNABLES.startGraceMs === 12000);
+}
+
+// --- EE 1023 (item 3): a struck thing aggroes --------------------------------
+{
+  const s = new Subspace();
+  s.getScroll("nova", 0, 0); s.getScroll("nova", 1, 0); s.getScroll("nova", 2, 0);
+  s.monsters.length = 0;
+  const m = s.spawnMonster("nova", 70, 12, "surface");
+  m.hp = 3; // a tough hide, so the thing lives to hold a grudge
+  check("the strike lands and the thing holds", s.strikeMonster(m) === false && m.alive);
+  check("EE 1023: being struck aggroes it", m.aggro === true && m.aggroTicks === AGGRO_TICKS);
+  check("EE 1023: aggro engages it (phase pinned, present)", m.engaged === true && m.phase === 0);
+  const player = { realmId: "nova", bx: 25, bz: 25, pace: 0 }; // cell (12,12): 58 cells west — outside the haunt
+  const gx0 = m.gx;
+  s.tick(player);
+  check("EE 1023: an aggroed thing hunts from beyond its haunt", m.gx < gx0, `gx ${gx0} -> ${m.gx}`);
+  m.aggroTicks = 2;
+  s.tick(player); s.tick(player);
+  check("EE 1023: the grudge cools", m.aggro === false);
+  const w = s.spawnMonster("nova", 9, 6, "wisp");
+  s.strikeMonster(w);
+  check("EE 1023: the training wisp never aggroes (it waits, for learning on)",
+    w.alive && !w.aggro);
+}
+
+// --- EE 1023 (item 7): traversal lends the walked country growth ------------
+{
+  const mk = () => { const s = new Subspace(); s.getScroll("nova", 0, 0); return s; };
+  const a = mk(), b = mk();
+  const walker = { realmId: "nova", bx: 24, bz: 24, pace: 3 };
+  const stander = { realmId: "nova", bx: 24, bz: 24, pace: 0 };
+  for (let i = 0; i < 60; i++) { a.tick(walker); b.tick(stander); }
+  check("EE 1023: the walked country's growth rises to bloom level",
+    a.growthAt("nova", 12, 12) > 0.25, `a=${a.growthAt("nova", 12, 12)}`);
+  check("EE 1023: standing still lends nothing (the walker's growth leads)",
+    a.growthAt("nova", 12, 12) > b.growthAt("nova", 12, 12),
+    `a=${a.growthAt("nova", 12, 12)} b=${b.growthAt("nova", 12, 12)}`);
+  const c = mk();
+  for (let i = 0; i < 3; i++) c.tick(walker);
+  check("EE 1023: the lend ramps gradually — three ticks in, still only a creep",
+    c.growthAt("nova", 12, 12) > 0 && c.growthAt("nova", 12, 12) < TRAVERSAL_GROWTH_FLOOR * 0.5,
+    `c=${c.growthAt("nova", 12, 12)} floor=${TRAVERSAL_GROWTH_FLOOR}`);
+}
+
+// --- EE 1023 (item 1): a standing rift stitches its far end into the tick ---
+{
+  const s = new Subspace();
+  s.getScroll("nova", 0, 0);
+  const far = s.getScroll("ashfall", 5, 5);
+  const player = { realmId: "nova", bx: 24, bz: 24, pace: 0 };
+  for (let i = 0; i < 3; i++) s.tick(player);
+  check("an unstitched far scroll sleeps (missed ticks accrue)",
+    (far.missedTicks || 0) >= 3, `missed=${far.missedTicks}`);
+  s.noteRiftLink(7, { realmId: "nova", landX: 10, landZ: 10 },
+    { realmId: "ashfall", landX: 330, landZ: 330 });
+  check("EE 1023: the link registers with both ends' scrolls precomputed",
+    s.riftLinks.get(7).aRealm === "nova" && s.riftLinks.get(7).bsx === 5 &&
+    s.riftLinks.get(7).bsy === 5);
+  s.tick(player);
+  check("EE 1023: while the rift stands, its far end steps with the tick",
+    (far.missedTicks || 0) === 0, `missed=${far.missedTicks}`);
+  s.clearRiftLink(7);
+  s.tick(player); s.tick(player);
+  check("EE 1023: a folded rift's far end sleeps again",
+    (far.missedTicks || 0) >= 2, `missed=${far.missedTicks}`);
 }
 
 // --- v5: brushes shape a volume per stroke (feedback #4) -------------------
@@ -2293,15 +2365,36 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     g.includes("wasLocked && !pointerLocked") && g.includes("closeMenu(); lockPointer();"));
   check("portal panel: choosing a realm brings up its portal where you stand",
     g.includes("data-portal") && g.includes("openRift({ type: \"realm\", realmId: row.dataset.portal })"));
-  check("the rift is walked: stepping in begins a transit through a kaleidoscope cylinder",
-    g.includes("function beginTransit()") && g.includes("kaleidoTexture") &&
-    g.includes("CylinderGeometry(2.3, 2.3"));
+  check("the rift is walked: stepping in begins the warp transit (EE 1023: in the world, not a pocket)",
+    g.includes("function beginTransit()") && g.includes("crossThroughRift(T.carried)") &&
+    !g.includes("kaleidoTexture") && !g.includes("TRANSIT_SCROLL"));
   check("Joy is present: a visible companion, built and stepped every frame",
     g.includes("function buildJoy()") && g.includes("stepJoy(now, dt)"));
   check("powerups announce: a sound and a center-screen card",
     g.includes("sfx.powerup();") && g.includes("showPowerup(def.name)") && pg.includes('id="powercard"'));
   check("the sword strikes at its own reach in the fox's hand",
     g.includes('state.weapon === "sword" ? ITEM_DEFS.sword : null'));
+
+  // EE 1023 view-side pins (items 1, 3, 4, 5, 6, 7, 8).
+  check("the warp is real: the frame renders through the warp pass, streaks and all",
+    g.includes("function renderFrame(now, dt)") && g.includes("uWarp") &&
+    g.includes("buildStreaks()") && g.includes("WARP_TRANSIT_MS = 2600"));
+  check("subspace accommodates the rift: the link registers at birth and clears at death",
+    g.includes("sub.noteRiftLink(state.riftLink.id, a, b)") && g.includes("sub.clearRiftLink(state.riftLink.id)"));
+  check("monsters turn red when attacked, and charm when nothing is wrong",
+    g.includes("monsterHitAt") && g.includes("RED_HOT") && g.includes("function cuteMotion("));
+  check("the opening lines run ~40% faster, with no gap after them",
+    g.includes("OPENING_RATE: 1.4") && g.includes('id.startsWith("N-") ? 0 : undefined'));
+  check("the sword equips: a binding, an equip verb, ownership, and a held blade",
+    g.includes('id: "equip"') && g.includes('"KeyZ"') && g.includes("function equipWeapon()") &&
+    g.includes("function buildSwordInto(") && g.includes("swordView"));
+  check("waypoints to the hall: a beacon in the world and a diamond on the screen",
+    g.includes("function buildHallBeacon()") && g.includes("function stepWaypoint(now)") &&
+    pg.includes('id="waypoint"'));
+  check("the tick carries the fox's pace (item 7's view half)",
+    g.includes("lastTickPos") && g.includes("pace,"));
+  check("one stroke carves: the guide teaches the single stroke now",
+    g.includes("One stroke carves it through"));
 }
 
 
