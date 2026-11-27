@@ -86,15 +86,15 @@ export function isSolid(b) {
 export const REALMS = [
   { id: "nova", name: "Nova Prime", seed: "nova-prime", open: true, coord: [1, 1, 1, 1, 1, 1, 1, 1, 1] },
   { id: "ashfall", name: "Ashfall Haven", seed: "ashfall-haven", open: true, coord: [10, 10, 1, 1, 1, 1, 1, 10, 10] },
-  { id: "ni-knight", name: "Ni-Knight", seed: "ni-knight", open: false, coord: [10, 10, 2, 1, 1, 1, 1, 10, 10] },
-  { id: "logos", name: "Logos Prime", seed: "logos-prime", open: false, coord: [10, 10, 3, 1, 1, 1, 1, 10, 10] },
-  { id: "elven", name: "Elven Path", seed: "elven-path", open: false, coord: [10, 1, 1, 1, 2, 1, 1, 10, 1] },
-  { id: "orchid", name: "Orchid Flow", seed: "orchid-flow", open: false, coord: [1, 10, 1, 1, 2, 1, 1, 10, 1] },
-  { id: "halycon", name: "Halycon Vector", seed: "halycon-vector", open: false, coord: [2, 10, 1, 1, 2, 1, 1, 10, 1] },
-  { id: "delta", name: "Delta Wood", seed: "delta-wood", open: false, coord: [3, 10, 1, 1, 2, 1, 1, 10, 1] },
-  { id: "willow", name: "Best Willow", seed: "best-willow", open: false, coord: [90, 1, 1, 1, 1, 1, 1, 1, 1] },
-  { id: "plain", name: "Plain View", seed: "plain-view", open: false, coord: [3, 1, 1, 1, 1, 1, 7, 7, 7] },
-  { id: "trust", name: "Trust Fall", seed: "trust-fall", open: false, coord: [7, 1, 1, 1, 1, 1, 1, 1, 1] },
+  { id: "ni-knight", name: "Ni-Knight", seed: "ni-knight", open: true, coord: [10, 10, 2, 1, 1, 1, 1, 10, 10] },
+  { id: "logos", name: "Logos Prime", seed: "logos-prime", open: true, coord: [10, 10, 3, 1, 1, 1, 1, 10, 10] },
+  { id: "elven", name: "Elven Path", seed: "elven-path", open: true, coord: [10, 1, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "orchid", name: "Orchid Flow", seed: "orchid-flow", open: true, coord: [1, 10, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "halycon", name: "Halycon Vector", seed: "halycon-vector", open: true, coord: [2, 10, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "delta", name: "Delta Wood", seed: "delta-wood", open: true, coord: [3, 10, 1, 1, 2, 1, 1, 10, 1] },
+  { id: "willow", name: "Best Willow", seed: "best-willow", open: true, coord: [90, 1, 1, 1, 1, 1, 1, 1, 1] },
+  { id: "plain", name: "Plain View", seed: "plain-view", open: true, coord: [3, 1, 1, 1, 1, 1, 7, 7, 7] },
+  { id: "trust", name: "Trust Fall", seed: "trust-fall", open: true, coord: [7, 1, 1, 1, 1, 1, 1, 1, 1] },
 ];
 export function realmById(id) {
   return REALMS.find((r) => r.id === id);
@@ -139,7 +139,12 @@ export function riftRingGeometry(idA, idB) {
   };
 }
 // Where a crossing lands you in each open realm (block x, z).
-export const ARRIVAL = { nova: { x: 8, z: 8 }, ashfall: { x: 8, z: 8 } };
+export const ARRIVAL = {
+  nova: { x: 8, z: 8 }, ashfall: { x: 8, z: 8 }, "ni-knight": { x: 8, z: 8 },
+  logos: { x: 8, z: 8 }, elven: { x: 8, z: 8 }, orchid: { x: 8, z: 8 },
+  halycon: { x: 8, z: 8 }, delta: { x: 8, z: 8 }, willow: { x: 8, z: 8 },
+  plain: { x: 8, z: 8 }, trust: { x: 8, z: 8 },
+};
 
 // The bridge tune: the one chord the guide teaches. In Nova Prime it
 // crosses to Ashfall Haven; in Ashfall Haven it crosses home.
@@ -148,6 +153,11 @@ export const BRIDGE_CHORD = [1, 4, 9];
 // ---------- realm palettes (feedback #27) --------------------------------
 // Will, 2026-11-22 23:09: "each level the user jumps to needs to
 // feel different — a different color palette — only 10 of them."
+// EE 995 feedback (Will, 2026-11-26): the ten are ROYGBIV-coded —
+// each realm sits on its band of the rainbow (Trust Fall red through
+// Orchid Flow violet; Plain View is white, all bands at once, its
+// no-hue identity kept). The atlas hue rotation = band - 210 (the
+// tiles' blue register); accents, fog and light sit on the band too.
 // Exactly ten entries, one per ranch-named realm. Nova Prime is
 // home — the starting realm — and keeps the palette-v4 identity
 // (PALETTE-V4.md) as the built-in HOME_PALETTE below; paletteFor()
@@ -171,57 +181,57 @@ export const REALM_PALETTES = {
     void: 0x000000, fog: 0x140301, fogNear: 26, fogFar: 88,
     hemiSky: 0xc97a4e, hemiGround: 0x180602, hemiI: 0.7,
     sun: 0xff9a5c, sunI: 1.25,
-    accent: 0xff7a00, accent2: 0xffd23f,
-    hue: 165, sat: 1.05, tint: 0xffe3cf,
+    accent: 0xff7a00, accent2: 0xffb03f,
+    hue: 180, sat: 1.05, tint: 0xffe3cf,
   },
   "ni-knight": {
-    void: 0x000000, fog: 0x06030f, fogNear: 30, fogFar: 100,
-    hemiSky: 0x8a76d6, hemiGround: 0x0a0618, hemiI: 0.8,
-    sun: 0xa98fff, sunI: 1.35,
-    accent: 0x8b5cff, accent2: 0xc9a7ff,
-    hue: 55, sat: 1.0, tint: 0xe6dcff,
+    void: 0x000000, fog: 0x05030f, fogNear: 30, fogFar: 100,
+    hemiSky: 0x7a6ad6, hemiGround: 0x090618, hemiI: 0.8,
+    sun: 0x9a8fff, sunI: 1.35,
+    accent: 0x6a5cff, accent2: 0xb3a7ff,
+    hue: 45, sat: 1.0, tint: 0xe0dcff,
   },
   logos: {
-    void: 0x000000, fog: 0x0c0700, fogNear: 32, fogFar: 105,
-    hemiSky: 0xd6b25e, hemiGround: 0x171002, hemiI: 0.85,
-    sun: 0xffd76a, sunI: 1.55,
-    accent: 0xffc400, accent2: 0xffe082,
-    hue: 195, sat: 1.0, tint: 0xfff0c2,
+    void: 0x000000, fog: 0x0f0c00, fogNear: 32, fogFar: 105,
+    hemiSky: 0xd6c25e, hemiGround: 0x171402, hemiI: 0.85,
+    sun: 0xffe97a, sunI: 1.55,
+    accent: 0xffd21f, accent2: 0xffe97a,
+    hue: 205, sat: 1.0, tint: 0xfff6c2,
   },
   elven: {
     void: 0x000000, fog: 0x02100a, fogNear: 30, fogFar: 100,
     hemiSky: 0x5ec98d, hemiGround: 0x04150a, hemiI: 0.8,
     sun: 0x8fffca, sunI: 1.3,
-    accent: 0x2effa8, accent2: 0xa8ffd9,
-    hue: -65, sat: 1.05, tint: 0xd2ffe6,
+    accent: 0x2eff7a, accent2: 0xa8ffbe,
+    hue: 270, sat: 1.05, tint: 0xd2ffe6,
   },
   orchid: {
-    void: 0x000000, fog: 0x10030c, fogNear: 30, fogFar: 98,
-    hemiSky: 0xd65ec0, hemiGround: 0x150410, hemiI: 0.8,
-    sun: 0xff8fe8, sunI: 1.35,
-    accent: 0xff4fd8, accent2: 0xffa8ef,
-    hue: 105, sat: 1.05, tint: 0xffd9f6,
+    void: 0x000000, fog: 0x0d0312, fogNear: 30, fogFar: 98,
+    hemiSky: 0xb45ed6, hemiGround: 0x120418, hemiI: 0.8,
+    sun: 0xd68fff, sunI: 1.35,
+    accent: 0xb45cff, accent2: 0xdfa8ff,
+    hue: 75, sat: 1.05, tint: 0xf3d9ff,
   },
   halycon: {
-    void: 0x000000, fog: 0x050b0e, fogNear: 36, fogFar: 120,
-    hemiSky: 0xcfeeff, hemiGround: 0x0a1418, hemiI: 1.1,
-    sun: 0xeafcff, sunI: 1.85,
-    accent: 0xaee6ff, accent2: 0xeafcff,
-    hue: -15, sat: 0.55, tint: 0xf4fbff,
+    void: 0x000000, fog: 0x030a18, fogNear: 36, fogFar: 120,
+    hemiSky: 0x7ab8e6, hemiGround: 0x0a1420, hemiI: 1.1,
+    sun: 0xcfe6ff, sunI: 1.7,
+    accent: 0x3fa9ff, accent2: 0xaed6ff,
+    hue: 10, sat: 0.9, tint: 0xeaf4ff,
   },
   delta: {
     void: 0x000000, fog: 0x02100e, fogNear: 30, fogFar: 102,
     hemiSky: 0x4ec9bb, hemiGround: 0x03120e, hemiI: 0.85,
     sun: 0x9ffce8, sunI: 1.4,
     accent: 0x00ffd0, accent2: 0x8ffcf0,
-    hue: -32, sat: 1.1, tint: 0xd8fff4,
+    hue: 325, sat: 1.1, tint: 0xd8fff4,
   },
   willow: {
     void: 0x000000, fog: 0x080c02, fogNear: 30, fogFar: 100,
     hemiSky: 0xa4d65e, hemiGround: 0x101602, hemiI: 0.85,
     sun: 0xd9ff8f, sunI: 1.45,
     accent: 0xb6ff2e, accent2: 0xe2ffa8,
-    hue: -125, sat: 1.0, tint: 0xf0ffd2,
+    hue: 230, sat: 1.0, tint: 0xf0ffd2,
   },
   plain: {
     void: 0x000000, fog: 0x050505, fogNear: 32, fogFar: 108,
@@ -231,11 +241,11 @@ export const REALM_PALETTES = {
     hue: 0, sat: 0.12, tint: 0xf5f5f5,
   },
   trust: {
-    void: 0x000000, fog: 0x0d0206, fogNear: 28, fogFar: 92,
-    hemiSky: 0xd65e7a, hemiGround: 0x150308, hemiI: 0.75,
-    sun: 0xff5c7a, sunI: 1.3,
-    accent: 0xff2e63, accent2: 0xff8fab,
-    hue: 140, sat: 1.05, tint: 0xffd9e0,
+    void: 0x000000, fog: 0x120202, fogNear: 28, fogFar: 92,
+    hemiSky: 0xd65e5e, hemiGround: 0x170303, hemiI: 0.75,
+    sun: 0xff6a5c, sunI: 1.3,
+    accent: 0xff2e2e, accent2: 0xff8f8f,
+    hue: 150, sat: 1.05, tint: 0xffd9d9,
   },
 };
 export function paletteFor(realmId) {
@@ -316,6 +326,11 @@ export function foxVisionReveals(m, pcx, pcy) {
 // Placement is deterministic (seed hashes), like everything else.
 
 export const ITEM_DEFS = {
+  sword: {
+    kind: "sword", name: "the Small Sword", weapon: true,
+    range: 5.2, damage: 1,
+    blurb: "a small sword, bright and ready — it reaches a little farther than your bare paw",
+  },
   lance: {
     kind: "lance", name: "the Star Lance", weapon: true,
     range: 7.5, damage: 2,
@@ -338,6 +353,7 @@ export const ITEM_DEFS = {
 // view computes the standing height; the hall charm sits on the
 // barrow floor (fixed y handled there too).
 export const ITEM_SPOTS = {
+  sword: { realmId: "nova", bx: 11, bz: 10 },
   lance: { realmId: "nova", bx: 15, bz: 12 },
   bright: { realmId: "nova", bx: 24, bz: 6 },
   swift: { realmId: "ashfall", bx: 13, bz: 11 },
@@ -468,16 +484,59 @@ function vnoise(seedStr, x, z, cell) {
 
 // Surface height of a column, from the realm seed alone (Life never
 // moves the ground itself — it grows features on it; see genChunk).
+// EE 995 feedback (Will, 2026-11-26): "all of the worlds are
+// identical — still using coordinates." Each realm now has its own
+// landform language, not just its own noise seed: a terrain profile
+// (mode + measures) read by heightAt, baseBlockAt and genChunk.
+// Nova Prime and Ashfall Haven keep their exact historical formulas
+// (their profiles encode them) — the played world does not move.
+export const REALM_TERRAIN = {
+  nova:      { mode: "roll",    base: 11, amp: 7,   amp2: 2.5, s1: 18, s2: 5 },
+  ashfall:   { mode: "ridge",   base: 9,  amp: 13,  amp2: 3,   s1: 18, s2: 5 },
+  "ni-knight": { mode: "terrace", base: 12, amp: 9, amp2: 2,   s1: 22, s2: 6, step: 3 },
+  logos:     { mode: "terrace", base: 11, amp: 8,  amp2: 2,   s1: 30, s2: 8, step: 2 },
+  elven:     { mode: "roll",    base: 11, amp: 6,  amp2: 2.5, s1: 16, s2: 5 },
+  orchid:    { mode: "roll",    base: 11, amp: 3,  amp2: 1.5, s1: 20, s2: 6 },
+  halycon:   { mode: "roll",    base: 12, amp: 2,  amp2: 1,   s1: 34, s2: 10 },
+  delta:     { mode: "channel", base: 11, amp: 6,  amp2: 2.5, s1: 18, s2: 5 },
+  willow:    { mode: "roll",    base: 11, amp: 8,  amp2: 3,   s1: 20, s2: 6 },
+  plain:     { mode: "roll",    base: 12, amp: 1.2, amp2: 0.6, s1: 40, s2: 12 },
+  trust:     { mode: "ridge",   base: 8,  amp: 17,  amp2: 3.5, s1: 16, s2: 5 },
+};
+export function terrainFor(realmId) {
+  return REALM_TERRAIN[realmId] || REALM_TERRAIN.nova;
+}
+// Delta Wood's river: the same noise read by heightAt (which carves
+// the channel) and baseBlockAt (which dresses its bed).
+export function deltaRiver(realmId, x, z) {
+  if (realmId !== "delta") return 0;
+  const v = vnoise(`${realmById(realmId).seed}|river`, x, z, 26);
+  if (v <= 0.60 || v >= 0.68) return 0;
+  return Math.sin(((v - 0.60) / 0.08) * Math.PI); // 0 at the banks, 1 mid-stream
+}
 export function heightAt(realmId, x, z) {
   const r = realmById(realmId);
-  const n1 = vnoise(`${r.seed}|h1`, x, z, 18);
-  const n2 = vnoise(`${r.seed}|h2`, x, z, 5);
-  if (realmId === "ashfall") {
+  const t = terrainFor(realmId);
+  const n1 = vnoise(`${r.seed}|h1`, x, z, t.s1);
+  const n2 = vnoise(`${r.seed}|h2`, x, z, t.s2);
+  let h;
+  if (t.mode === "ridge") {
     // Sharper, more rugged: ridged noise.
     const ridge = 1 - Math.abs(2 * n1 - 1);
-    return Math.max(4, Math.floor(9 + ridge * ridge * 13 + n2 * 3));
+    h = Math.max(4, Math.floor(t.base + ridge * ridge * t.amp + n2 * t.amp2));
+    // Ashfall's historical formula returned here — the Deep Stone
+    // barrow below never raised Ashfall's ground. (Trust Fall,
+    // the other ridge realm, is new: the barrow rule is the
+    // generic one, as it is for every other realm.)
+    if (realmId === "ashfall") return h;
+  } else if (t.mode === "terrace") {
+    h = t.base + Math.floor((n1 * t.amp + n2 * t.amp2) / t.step) * t.step;
+  } else if (t.mode === "channel") {
+    h = Math.floor(t.base + n1 * t.amp + n2 * t.amp2) -
+      Math.round(3 * deltaRiver(realmId, x, z));
+  } else {
+    h = Math.floor(t.base + n1 * t.amp + n2 * t.amp2);
   }
-  let h = Math.floor(11 + n1 * 7 + n2 * 2.5);
   // The Deep Stone barrow: a raised hill over the dungeon footprint,
   // so the hall always has rock above its ceiling.
   if (x >= DUNGEON.x0 - 2 && x <= DUNGEON.x1 + 2 &&
@@ -523,6 +582,8 @@ export class Subspace {
     this._itemsPlaced = new Set(); // realmIds whose (0,0)-scroll items exist
     this.genesisLife = null; // total alive cells when the first scrolls opened
     this._monsterSeq = 0;
+    this._nextSpawnTick = 0; // EE 995: the random-rise clock (item 9)
+    this.transitPocket = null; // EE 995: the wormhole's room (items 5+6)
     this.log("genesis", "the chart", "the world is loaded; the dark is counted, not empty");
   }
 
@@ -781,15 +842,59 @@ export class Subspace {
     for (const m of this.monsters) {
       if (!m.alive) continue;
       if (m.kind === "wisp") continue; // it waits where it was set; it is for learning on
-      m.phase = (m.phase + 1) % 3;
+      if (!m.engaged) m.phase = (m.phase + 1) % 3; // engaged things hold their phase: they are THERE
       if (!player || player.realmId !== m.realmId) continue;
       if (m.hx === undefined) { m.hx = m.gx; m.hy = m.gy; }
       const pcx = cellOfBlock(player.bx), pcy = cellOfBlock(player.bz);
       const ddx = pcx - m.gx, ddy = pcy - m.gy;
+      // EE 995 (item 9): entering the player's sphere ENGAGES a
+      // surface thing of the dark, permanently — its phase pins to
+      // visible, the strike can always find it, and the reaper
+      // below will never sink it back. What has found you stays.
+      if (m.kind === "surface" && !m.engaged &&
+          ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS) {
+        m.engaged = true;
+        m.phase = 0;
+        this.log("engage", `${realmById(m.realmId).name} ${m.gx * 2 + 1},${m.gy * 2 + 1}`,
+          "the dark thing has entered the fox's sphere — it will not fade now");
+      }
       if (ddx * ddx + ddy * ddy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, pcx, pcy);
       } else if (m.gx !== m.hx || m.gy !== m.hy) {
         for (let step = 0; step < speed; step++) this._monsterStep(m, m.hx, m.hy);
+      }
+    }
+    // EE 995 (item 9): things of the dark also RISE at random
+    // intervals while the fox walks a realm — not only when a
+    // scroll is first opened. The wait is drawn fresh each time
+    // from the tick's own hash (45–149 ticks, irregular by
+    // construction); a rise lands at the sphere's approach
+    // (18–40 cells out); the local hunt is capped at five so a
+    // realm stays wanderable.
+    if (player && !this.transitPocket) {
+      if (!this._nextSpawnTick || this._nextSpawnTick < this.tickCount) {
+        this._nextSpawnTick = this.tickCount + 45 +
+          (kernels.hash(`spawnwait|${this.tickCount}|${this._monsterSeq}`) % 105);
+      }
+      if (this.tickCount >= this._nextSpawnTick) {
+        this._nextSpawnTick = this.tickCount + 45 +
+          (kernels.hash(`spawnwait|${this.tickCount}|${this._monsterSeq}`) % 105);
+        const pcx = cellOfBlock(player.bx), pcy = cellOfBlock(player.bz);
+        let local = 0;
+        for (const m of this.monsters) {
+          if (!m.alive || m.kind !== "surface" || m.realmId !== player.realmId) continue;
+          const dx = m.gx - pcx, dy = m.gy - pcy;
+          if (dx * dx + dy * dy <= FAMILIAR_RANGE_CELLS * FAMILIAR_RANGE_CELLS) local++;
+        }
+        if (local < 5) {
+          const hsh = kernels.hash(`rise|${this.tickCount}|${this._monsterSeq}`);
+          const ang = (hsh % 628) / 100, dist = 18 + ((hsh >> 3) % 23);
+          const gx = pcx + Math.round(Math.cos(ang) * dist);
+          const gy = pcy + Math.round(Math.sin(ang) * dist);
+          this.spawnMonster(player.realmId, gx, gy, "surface");
+          this.log("rise", `${realmById(player.realmId).name} ${gx * 2 + 1},${gy * 2 + 1}`,
+            "unbidden, the dark sends another — it rose at a random hour");
+        }
       }
     }
     // Despawn and reaping (v5, feedback #1).
@@ -810,7 +915,7 @@ export class Subspace {
           const msx = Math.floor(m.gx / LIFE_N), msy = Math.floor(m.gy / LIFE_N);
           const unwatched = !player || player.realmId !== m.realmId ||
             Math.max(Math.abs(msx - psx), Math.abs(msy - psy)) >= 2;
-          if (atHome && unwatched) {
+          if (atHome && unwatched && !m.engaged) {
             m.restTicks = (m.restTicks || 0) + 1;
             if (m.restTicks > 150) {
               this.log("fade", `${realmById(m.realmId).name} ${m.gx * 2 + 1},${m.gy * 2 + 1}`,
@@ -888,6 +993,7 @@ export class Subspace {
       nativeRealmId: realmId, // where it rose; carrying never rewrites this
       hx: gx, hy: gy, // where it rose; where it rests (v5 despawn)
       restTicks: 0,
+      engaged: false, // EE 995: latched forever once it enters the fox's sphere
       phase: 1 + (kernels.hash(`phase|${this._monsterSeq}`) % 2),
       alive: true,
       hp: kind === "guardian" ? 3 : kind === "wisp" ? 2 : 1,
@@ -923,6 +1029,7 @@ export class Subspace {
   monsterVisible(m) {
     if (!m.alive) return false;
     if (m.kind === "wisp") return true; // the training thing stays in the light
+    if (m.engaged) return true; // EE 995: engaged things do not fade
     return m.phase === 0;
   }
   // A strike that lands: the thing is edited out of the world, and
@@ -1225,17 +1332,40 @@ export function baseBlockAt(sub, realmId, x, y, z, h = heightAt(realmId, x, z)) 
     if (y % 11 === 4 || y % 11 === 5) return BLOCK.SHALE;
     return y % 7 < 3 ? BLOCK.BASALT : BLOCK.STONE;
   }
+  // Trust Fall wears Ashfall's strata in its own red (item 3).
+  if (realmId === "trust") {
+    if (y === h) return BLOCK.REDROCK;
+    if (y >= h - 2) return BLOCK.REDROCK;
+    if (y % 11 === 4 || y % 11 === 5) return BLOCK.SHALE;
+    return y % 7 < 3 ? BLOCK.BASALT : BLOCK.STONE;
+  }
   if (y === h) {
     // v5 (feedback #10, #16): the meadow has character now — lush
     // patches wear moss, dry flats wear sandstone, and the two
     // noises disagree enough that the patches wander organically.
-    const lush = vnoise(`${realmById(realmId).seed}|lush`, x, z, 9);
-    if (lush > 0.62) return BLOCK.MOSS;
-    const dry = vnoise(`${realmById(realmId).seed}|dry`, x, z, 14);
-    if (dry > 0.66) return BLOCK.SANDSTONE;
+    // EE 995 (item 3): the thresholds and caps are per-realm now —
+    // Ni-Knight is stone-flagged, Logos and Halycon wear sandstone
+    // (gold mesas; pale ice flats under their light), Delta's river
+    // bed is sandstone, Elven shade is moss-dominant.
+    const seed = realmById(realmId).seed;
+    if (realmId === "ni-knight") {
+      return (x + z) % 17 === 0 ? BLOCK.BRICK : BLOCK.STONE;
+    }
+    if (realmId === "logos" || realmId === "halycon") return BLOCK.SANDSTONE;
+    if (realmId === "delta" && deltaRiver(realmId, x, z) > 0) return BLOCK.SANDSTONE;
+    const lushT = realmId === "elven" ? 0.45 : realmId === "willow" ? 0.55
+      : realmId === "orchid" ? 0.75 : 0.62;
+    const lush = vnoise(`${seed}|lush`, x, z, 9);
+    if (lush > lushT) return BLOCK.MOSS;
+    const dry = vnoise(`${seed}|dry`, x, z, 14);
+    if (dry > (realmId === "plain" ? 0.8 : 0.66)) return BLOCK.SANDSTONE;
     return BLOCK.GRASS;
   }
-  if (y >= h - 3) return BLOCK.DIRT;
+  if (y >= h - 3) {
+    if (realmId === "ni-knight") return BLOCK.STONE;
+    if (realmId === "logos" || realmId === "halycon") return BLOCK.SANDSTONE;
+    return BLOCK.DIRT;
+  }
   return BLOCK.STONE;
 }
 
@@ -1326,6 +1456,26 @@ export function genChunk(sub, realmId, cx, cz) {
   };
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
 
+  // The wormhole's pocket (EE 995, items 5+6): while a transit
+  // pocket is set on a realm's reserved scroll, that scroll
+  // generates as the passage alone — a straight vault corridor in
+  // empty dark, the tube the fox walks through a rift inside of.
+  // Nothing in play reaches the reserved scroll.
+  const tp = sub.transitPocket;
+  if (tp && realmId === tp.realmId &&
+      Math.floor((cx * CHUNK) / SCROLL) === tp.sx &&
+      Math.floor((cz * CHUNK) / SCROLL) === tp.sy) {
+    for (let lz = 0; lz < CHUNK; lz++) {
+      for (let lx = 0; lx < CHUNK; lx++) {
+        const x = x0 + lx, z = z0 + lz;
+        if (x < tp.x0 || x > tp.x1 || z < tp.z0 - 1 || z > tp.z1 + 1) continue;
+        for (let y = tp.floorY; y <= tp.ceilY; y++) {
+          const wall = z === tp.z0 - 1 || z === tp.z1 + 1 || x === tp.x0 || x === tp.x1;
+          if (y === tp.floorY || y === tp.ceilY || wall) put(lx, y, lz, BLOCK.VAULT);
+        }
+      }
+    }
+  } else {
   for (let lz = 0; lz < CHUNK; lz++) {
     for (let lx = 0; lx < CHUNK; lx++) {
       const x = x0 + lx, z = z0 + lz;
@@ -1350,8 +1500,8 @@ export function genChunk(sub, realmId, cx, cz) {
         if (level > 0.45 && h + 1 < CEIL_Y - 1) {
           const grow = 1 + Math.floor((level - 0.45) * 5); // 1..3 blocks
           for (let i = 0; i < grow; i++) put(lx, h + 1 + i, lz, BLOCK.CRYSTAL);
-        } else if (level > 0.25 && h + 1 < CEIL_Y - 1 &&
-                   kernels.hash(`${realmId}|bloom|${x},${z}`) % 4 === 0) {
+        } else if (level > (realmId === "orchid" ? 0.18 : 0.25) && h + 1 < CEIL_Y - 1 &&
+                   kernels.hash(`${realmId}|bloom|${x},${z}`) % (realmId === "orchid" ? 3 : 4) === 0) {
           put(lx, h + 1, lz, realmId === "ashfall" ? BLOCK.EMBER : BLOCK.CRYSTAL);
         }
       }
@@ -1363,7 +1513,24 @@ export function genChunk(sub, realmId, cx, cz) {
   // borders seamlessly. v5 (feedback #16): the density breathes with
   // a slow grove noise — woods gather into groves, clearings open
   // between them, and a realm stops reading as one even scatter.
-  const treeP = realmId === "ashfall" ? 0.004 : 0.011;
+  // EE 995 (item 3): a realm's trees wear its own form — Elven
+  // shade stands dense and tall, willows droop wide, Ni-Knight
+  // raises stone pillars instead of trees, Halycon stands bare.
+  const TREE_STYLES = {
+    nova: { p: 0.011, trunk: 3, canopy: "oak" },
+    ashfall: { p: 0.004, trunk: 3, canopy: "none" },
+    "ni-knight": { p: 0.006, trunk: 0, canopy: "pillar" },
+    logos: { p: 0.004, trunk: 3, canopy: "none" },
+    elven: { p: 0.02, trunk: 4, canopy: "oak" },
+    orchid: { p: 0.005, trunk: 3, canopy: "oak" },
+    halycon: { p: 0, trunk: 3, canopy: "none" },
+    delta: { p: 0.009, trunk: 3, canopy: "oak" },
+    willow: { p: 0.011, trunk: 4, canopy: "willow" },
+    plain: { p: 0.003, trunk: 3, canopy: "oak" },
+    trust: { p: 0.004, trunk: 3, canopy: "none" },
+  };
+  const tstyle = TREE_STYLES[realmId] || TREE_STYLES.nova;
+  const treeP = tstyle.p;
   for (let z = z0 - 2; z < z0 + CHUNK + 2; z++) {
     for (let x = x0 - 2; x < x0 + CHUNK + 2; x++) {
       if (realmId === DUNGEON.realm && inDungeon(x, z)) continue;
@@ -1374,15 +1541,23 @@ export function genChunk(sub, realmId, cx, cz) {
       const h = heightAt(realmId, x, z);
       // No trees on steep ground.
       if (Math.abs(heightAt(realmId, x + 1, z) - h) > 1) continue;
-      const trunk = 3 + (kernels.hash(`${r.seed}|th|${x},${z}`) % 3);
+      if (tstyle.canopy === "pillar") {
+        const ph = 4 + (kernels.hash(`${r.seed}|ph|${x},${z}`) % 4);
+        for (let i = 1; i <= ph; i++) put(x - x0, h + i, z - z0, BLOCK.STONE);
+        put(x - x0, h + ph + 1, z - z0, BLOCK.BRICK);
+        continue;
+      }
+      const trunk = tstyle.trunk + (kernels.hash(`${r.seed}|th|${x},${z}`) % 3);
       for (let i = 1; i <= trunk; i++) {
         put(x - x0, h + i, z - z0, BLOCK.WOOD);
       }
-      if (realmId === "nova") {
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dx = -1; dx <= 1; dx++)
-            for (let dz = -1; dz <= 1; dz++) {
-              if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 2) continue;
+      if (tstyle.canopy === "oak" || tstyle.canopy === "willow") {
+        const wil = tstyle.canopy === "willow";
+        const R = wil ? 2 : 1;
+        for (let dy = wil ? -2 : -1; dy <= 1; dy++)
+          for (let dx = -R; dx <= R; dx++)
+            for (let dz = -R; dz <= R; dz++) {
+              if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > (wil ? 3 : 2)) continue;
               const px = x + dx, py = h + trunk + dy, pz = z + dz;
               if (baseBlockAt(sub, realmId, px, py, pz) === BLOCK.AIR) {
                 put(px - x0, py, pz - z0, BLOCK.LEAF);
@@ -1444,6 +1619,8 @@ export function genChunk(sub, realmId, cx, cz) {
         put(lx, h + 4, lz, BLOCK.SANDSTONE);
       }
     }
+  }
+
   }
 
   // Inscribed overrides last: what was written, stays.

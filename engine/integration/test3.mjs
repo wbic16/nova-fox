@@ -8,6 +8,7 @@ import {
   ITEM_DEFS, computeScore, totalScore, dailyPocket, checkDaily,
   BRUSHES, brushBlocks,
   REALMS, REALM_PALETTES, HOME_PALETTE, paletteFor,
+  REALM_TERRAIN, deltaRiver, ITEM_SPOTS, ARRIVAL,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
   gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
   TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
@@ -326,8 +327,8 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const s = new Subspace();
   s.getScroll("nova", 0, 0);
   const kinds = s.items.map((i) => i.kind).sort();
-  check("nova home scroll places lance + bright + ward",
-    JSON.stringify(kinds) === JSON.stringify(["bright", "lance", "ward"]), kinds.join(","));
+  check("nova home scroll places sword + lance + bright + ward",
+    JSON.stringify(kinds) === JSON.stringify(["bright", "lance", "sword", "ward"]), kinds.join(","));
   s.getScroll("ashfall", 0, 0);
   check("ashfall home scroll places the swift charm",
     s.items.some((i) => i.kind === "swift"));
@@ -2158,6 +2159,149 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
         r[0].title === "queued" && r[0].status === "submitted"; })());
   check("idea: an empty chart reads back as no tellings — the honest empty state",
     parseIdeas("").length === 0 && parseIdeas("\n\n").length === 0);
+}
+
+
+// --- EE 995 feedback batch (demo29): the eleven items, pinned ---------------
+{
+  // Item 7 — ROYGBIV: every realm on its band of the rainbow.
+  const BANDS = { trust: 150, ashfall: 180, logos: 205, willow: 230, elven: 270,
+    delta: 325, halycon: 10, "ni-knight": 45, orchid: 75, plain: 0 };
+  check("ROYGBIV: every realm's atlas hue sits on its rainbow band",
+    Object.entries(BANDS).every(([id, hue]) => REALM_PALETTES[id].hue === hue));
+  check("ROYGBIV: the accents are the band colors",
+    REALM_PALETTES.trust.accent === 0xff2e2e && REALM_PALETTES.logos.accent === 0xffd21f &&
+    REALM_PALETTES.elven.accent === 0x2eff7a && REALM_PALETTES.halycon.accent === 0x3fa9ff &&
+    REALM_PALETTES["ni-knight"].accent === 0x6a5cff && REALM_PALETTES.orchid.accent === 0xb45cff &&
+    REALM_PALETTES.plain.accent === 0xe8e8e8);
+  // Item 4's ground: the portals must go somewhere.
+  check("all eleven realms are open (the ten portals go somewhere)",
+    REALMS.every((r) => r.open));
+  check("every realm has an Arrival (a portal landing)",
+    REALMS.every((r) => !!ARRIVAL[r.id]));
+
+  // Item 3 — distinct worlds, not coordinate relabels.
+  check("terrain: Nova's profile IS the historical formula (base 11, amp 7/2.5)",
+    REALM_TERRAIN.nova.mode === "roll" && REALM_TERRAIN.nova.base === 11 &&
+    REALM_TERRAIN.nova.amp === 7 && REALM_TERRAIN.nova.amp2 === 2.5 &&
+    REALM_TERRAIN.ashfall.mode === "ridge" && REALM_TERRAIN.ashfall.base === 9 &&
+    REALM_TERRAIN.ashfall.amp === 13);
+  check("terrain: Ni-Knight rises in terraces (heights quantized to its step)",
+    (() => { for (let x = 300; x < 400; x += 3) for (let z = 300; z < 400; z += 3)
+      if ((heightAt("ni-knight", x, z) - 12) % 3 !== 0) return false; return true; })());
+  check("terrain: Plain View is nearly flat (range <= 3 over a wide sample)",
+    (() => { let lo = 1e9, hi = -1e9;
+      for (let x = 300; x < 420; x += 2) for (let z = 300; z < 420; z += 2) {
+        const h = heightAt("plain", x, z); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+      return hi - lo <= 3; })());
+  check("terrain: Trust Fall's ridges tower (peaks above 20)",
+    (() => { let hi = -1e9;
+      for (let x = 300; x < 420; x += 2) for (let z = 300; z < 420; z += 2)
+        hi = Math.max(hi, heightAt("trust", x, z)); return hi > 20; })());
+  check("terrain: Delta Wood carves a river channel (columns cut below the banks)",
+    (() => { let lo = 1e9;
+      for (let x = 300; x < 460; x++) for (let z = 300; z < 460; z++)
+        lo = Math.min(lo, heightAt("delta", x, z)); return lo <= 10; })());
+  const subT = new Subspace();
+  const topAt = (realm, x, z) => baseBlockAt(subT, realm, x, heightAt(realm, x, z), z);
+  check("surfaces: Logos and Halycon wear sandstone, Trust Fall red rock",
+    [310, 330, 350, 370].every((x) => topAt("logos", x, 320) === BLOCK.SANDSTONE) &&
+    [310, 330, 350, 370].every((x) => topAt("halycon", x, 320) === BLOCK.SANDSTONE) &&
+    [310, 330, 350, 370].every((x) => topAt("trust", x, 320) === BLOCK.REDROCK));
+  check("surfaces: Ni-Knight is stone-flagged (stone, brick at the seams)",
+    [310, 330, 350, 370, 390].every((x) =>
+      topAt("ni-knight", x, 320) === BLOCK.STONE || topAt("ni-knight", x, 320) === BLOCK.BRICK));
+  check("surfaces: Elven shade is moss-dominant (more moss than Nova, same columns)",
+    (() => { let e = 0, n = 0;
+      for (let x = 300; x < 420; x += 2) for (let z = 300; z < 420; z += 2) {
+        if (topAt("elven", x, z) === BLOCK.MOSS) e++;
+        if (topAt("nova", x, z) === BLOCK.MOSS) n++; }
+      return e > n; })());
+  check("surfaces: Delta's river bed is sandstone",
+    (() => { for (let x = 300; x < 460; x++) for (let z = 300; z < 460; z++)
+        if (deltaRiver("delta", x, z) > 0.5) return topAt("delta", x, z) === BLOCK.SANDSTONE;
+      return false; })());
+  check("trees: Halycon stands bare (no wood in a whole chunk)",
+    (() => { const d = genChunk(subT, "halycon", 10, 10);
+      for (let i = 0; i < d.length; i++) if (d[i] === BLOCK.WOOD) return false; return true; })());
+  check("trees: Ni-Knight raises brick-capped pillars",
+    (() => { const d = genChunk(subT, "ni-knight", 20, 20);
+      for (let lx = 0; lx < 32; lx++) for (let lz = 0; lz < 32; lz++) {
+        const h = heightAt("ni-knight", 320 + lx, 320 + lz);
+        for (let y = h + 2; y < h + 10; y++) if (chunkBlock(d, lx, y, lz) === BLOCK.BRICK) return true; }
+      return false; })());
+
+  // Items 5+6 — the wormhole's pocket: a vault corridor while set.
+  {
+    const sub2 = new Subspace();
+    sub2.transitPocket = { realmId: "nova", sx: 512, sy: 512,
+      x0: 32774, x1: 32804, z0: 32797, z1: 32803, floorY: 19, ceilY: 25 };
+    const d = genChunk(sub2, "nova", 2048, 2049); // CHUNK is 16: the pocket's chunks
+    check("the passage: vault floor, walls and ceiling in the pocket scroll",
+      chunkBlock(d, 12, 19, 13) === BLOCK.VAULT &&
+      chunkBlock(d, 12, 21, 12) === BLOCK.VAULT &&
+      chunkBlock(d, 12, 25, 13) === BLOCK.VAULT &&
+      chunkBlock(d, 6, 21, 13) === BLOCK.VAULT);
+    check("the passage: its bore is open air",
+      chunkBlock(d, 12, 21, 13) === BLOCK.AIR && chunkBlock(d, 14, 22, 13) === BLOCK.AIR);
+    sub2.transitPocket = null;
+    const d2 = genChunk(sub2, "nova", 2048, 2049);
+    check("the passage: unsetting the pocket restores ordinary generation",
+      !d.every((b, i) => b === d2[i]));
+  }
+
+  // Item 11 — the small sword by the spawn.
+  check("the Small Sword is a weapon between bare paw and Star Lance",
+    ITEM_DEFS.sword.weapon === true && ITEM_DEFS.sword.range > 4.4 &&
+    ITEM_DEFS.sword.range < ITEM_DEFS.lance.range && ITEM_DEFS.sword.damage >= 1);
+  check("the sword waits a few steps from the Arrival",
+    ITEM_SPOTS.sword.realmId === "nova" &&
+    Math.hypot(ITEM_SPOTS.sword.bx - ARRIVAL.nova.x, ITEM_SPOTS.sword.bz - ARRIVAL.nova.z) <= 6);
+
+  // Item 9 — engagement: entered the sphere means staying.
+  {
+    const s = new Subspace();
+    s.getScroll("nova", 0, 0);
+    s.monsters.length = 0;
+    const m = s.spawnMonster("nova", 12, 12, "surface");
+    const near = { realmId: "nova", bx: 25, bz: 25 };
+    s.tick(near);
+    check("engaged: entering the player's sphere latches, phase pinned",
+      m.engaged === true && m.phase === 0);
+    let vis = true;
+    for (let i = 0; i < 30; i++) { s.tick(near); if (!s.monsterVisible(m)) vis = false; }
+    check("engaged: it does not fade — visible every tick", vis && m.phase === 0);
+    for (let i = 0; i < 300; i++) s.tick(null);
+    check("engaged: the reaper never sinks it, watched or not",
+      s.monsters.includes(m) && s.monsterVisible(m));
+    const s2 = new Subspace();
+    s2.getScroll("nova", 0, 0);
+    s2.monsters.length = 0;
+    for (let i = 0; i < 500; i++) s2.tick(near);
+    check("things of the dark rise at random intervals (the rise is written)",
+      s2.wal.some((w) => w.op === "rise") &&
+      s2.monsters.some((mm) => mm.alive && mm.kind === "surface"));
+  }
+
+  // The view-side items, pinned at the source (their behavior is
+  // exercised by the Jenkins e2e legs).
+  const g = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const pg = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  check("intro once per game: the guide's place is kept and restored",
+    g.includes('localStorage.setItem("nova-phox-guide"') && g.includes("restoreGuide();"));
+  check("Esc: the pointer-unlock opens the menu; the menu's exit re-locks",
+    g.includes("wasLocked && !pointerLocked") && g.includes("closeMenu(); lockPointer();"));
+  check("portal panel: choosing a realm brings up its portal where you stand",
+    g.includes("data-portal") && g.includes("openRift({ type: \"realm\", realmId: row.dataset.portal })"));
+  check("the rift is walked: stepping in begins a transit through a kaleidoscope cylinder",
+    g.includes("function beginTransit()") && g.includes("kaleidoTexture") &&
+    g.includes("CylinderGeometry(2.3, 2.3"));
+  check("Joy is present: a visible companion, built and stepped every frame",
+    g.includes("function buildJoy()") && g.includes("stepJoy(now, dt)"));
+  check("powerups announce: a sound and a center-screen card",
+    g.includes("sfx.powerup();") && g.includes("showPowerup(def.name)") && pg.includes('id="powercard"'));
+  check("the sword strikes at its own reach in the fox's hand",
+    g.includes('state.weapon === "sword" ? ITEM_DEFS.sword : null'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

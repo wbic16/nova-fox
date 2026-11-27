@@ -20,7 +20,7 @@
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:995";
+const NF_SHIP_EE = "NF_SHIP_EE:1023";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -55,6 +55,8 @@ const state = {
   invertFxOn: false, // the degauss treatment is on screen right now
   guideStep: 0,
   guideDone: false,
+  transit: null, // EE 995: the rift walk in progress, or null
+  transitVisuals: null,
   // v3 state
   weapon: null, // null = bare strike; "lance" = the Star Lance
   charms: { swift: false, ward: false, bright: false },
@@ -242,6 +244,14 @@ const sfx = {
   chime() {
     [0, 4, 7, 12].forEach((st, i) =>
       this.tone(523 * Math.pow(2, st / 12), { type: "sine", peak: 0.25, decay: 0.9, delay: i * 0.09 }));
+  },
+  powerup() {
+    // EE 995 (item 10): a found powerup gets its own sound — a
+    // rising major climb with a shimmer over it, distinct from
+    // the quest chime and the warp boom.
+    [0, 4, 7, 12, 16].forEach((st, i) =>
+      this.tone(392 * Math.pow(2, st / 12), { type: "sine", peak: 0.24, decay: 0.7, delay: i * 0.06 }));
+    this.noise({ peak: 0.07, decay: 0.5, freq: 2600, type: "highpass", delay: 0.04 });
   },
   // v5 (feedback #13): little chip tunes — square-wave melodies on
   // the instrument's own eleven notes, for the moments that earn
@@ -2335,6 +2345,22 @@ function buildItemMesh(it) {
       }));
     beam.position.y = 3.5;
     g.add(beam);
+  } else if (it.kind === "sword") {
+    // The Small Sword (EE 995, item 11): bright blade, gold guard,
+    // dark grip — the Lance's glow idiom at a smaller scale.
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.8, 0.17), glow(0xdfe9ff));
+    blade.position.y = 1.02;
+    g.add(blade);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 4), glow(0xffffff));
+    tip.position.y = 1.53;
+    g.add(tip);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.22), glow(0xffd23f));
+    guard.position.y = 0.6;
+    g.add(guard);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.09),
+      new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.9 }));
+    grip.position.y = 0.42;
+    g.add(grip);
   } else {
     const colors = { swift: 0x00e5ff, ward: 0x2979ff, bright: 0xb3f1ff };
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.34), glow(colors[it.kind] || 0xffffff));
@@ -2354,6 +2380,50 @@ function itemWorldPos(it) {
     : heightAt(it.realmId, it.bx, it.bz) + 1;
   return { x: it.bx + 0.5, y, z: it.bz + 0.5 };
 }
+
+// ---------- Joy, present (EE 995, item 8) -----------------------------------
+// Will: "Joy should be present, visually." She has been a voice
+// since demo22; now she has a form: an APERTURE WISP — a bright
+// core turning inside a thin ring, the aperture she names herself
+// ("your aperture shift", N-01). She hovers at the fox's shoulder
+// on a lagging follow, bobs gently, and brightens and opens while
+// she speaks. No collision, no strike target, not a monster — a
+// companion light. (Design record: FEEDBACK-995-REPORT.md.)
+let joyMesh = null;
+function buildJoy() {
+  if (joyMesh) return;
+  const g = new THREE.Group();
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.16),
+    new THREE.MeshBasicMaterial({ color: 0xfff3c4 }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 8, 28),
+    new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+  ring.rotation.x = Math.PI / 2.4;
+  g.add(core); g.add(ring);
+  g.userData = { core, ring };
+  g.position.copy(state.pos);
+  scene.add(g);
+  joyMesh = g;
+}
+function stepJoy(now, dt) {
+  if (!joyMesh) return;
+  const u = joyMesh.userData;
+  const back = 1.15, side = 0.95, up = 2.35;
+  const sx = Math.sin(state.yaw), cz = Math.cos(state.yaw);
+  const tx = state.pos.x + sx * back + cz * side;
+  const tz = state.pos.z + cz * back - sx * side;
+  const ty = state.pos.y + up + Math.sin(now / 340) * 0.12;
+  const k = 1 - Math.exp(-dt * 3.2);
+  joyMesh.position.x += (tx - joyMesh.position.x) * k;
+  joyMesh.position.y += (ty - joyMesh.position.y) * k;
+  joyMesh.position.z += (tz - joyMesh.position.z) * k;
+  u.ring.rotation.z += dt * 1.4;
+  u.core.rotation.y += dt * 0.9;
+  const speaking = !!(typeof narration !== "undefined" && narration && narration.speakingId);
+  const target = speaking ? 1.45 : 1.0;
+  joyMesh.scale.setScalar(joyMesh.scale.x + (target - joyMesh.scale.x) * Math.min(1, dt * 6));
+  u.core.material.color.setHex(speaking ? 0xffffff : 0xfff3c4);
+}
+
 function syncItemMeshes(now) {
   for (const it of sub.items) {
     let mesh = itemMeshes.get(it.id);
@@ -2380,7 +2450,8 @@ function syncItemMeshes(now) {
     const def = sub.pickupItem(it.id);
     if (def) {
       applyItemEffect(def);
-      sfx.chime();
+      sfx.powerup(); // EE 995 (item 10): a found powerup SOUNDS...
+      showPowerup(def.name); // ...and is announced, center-screen
       sfx.melody([5, 9], { gap: 90 }); // v5: a pickup's two-note lift (#13)
       toast(`${def.name} is yours — ${def.blurb}.`, 7000);
       syncHud();
@@ -2390,6 +2461,9 @@ function syncItemMeshes(now) {
 }
 function applyItemEffect(def) {
   if (def.kind === "lance") state.weapon = "lance";
+  // The Small Sword fills an empty hand; it never takes the
+  // Star Lance's place (and the Lance, once held, is kept).
+  if (def.kind === "sword" && state.weapon !== "lance") state.weapon = "sword";
   if (def.kind === "swift") state.charms.swift = true;
   if (def.kind === "bright") state.charms.bright = true;
   if (def.kind === "ward") { state.charms.ward = true; state.wardCharge = 1; }
@@ -2620,6 +2694,7 @@ function updatePlayer(dt) {
 
 function respawnAtArrival() {
   closeRift(); // a carried fox leaves no open rift behind
+  endTransit(); // EE 995: and no walk through it, either
   const a = ARRIVAL[state.realm];
   state.pos.set(a.x + 0.5, heightAt(state.realm, a.x, a.z) + 1.01, a.z + 0.5);
   state.vel.set(0, 0, 0);
@@ -2820,7 +2895,8 @@ function tryStrike() {
   // and single; the Star Lance reaches half again as far and lands
   // twice the word. Either way the blow is VISIBLE — a swept arc in
   // the view, a flash and a number where it lands.
-  const weapon = state.weapon === "lance" ? ITEM_DEFS.lance : null;
+  const weapon = state.weapon === "lance" ? ITEM_DEFS.lance
+    : state.weapon === "sword" ? ITEM_DEFS.sword : null;
   const range = weapon ? weapon.range : 4.4;
   const damage = weapon ? weapon.damage : 1;
   const dir = new THREE.Vector3(0, 0, -1)
@@ -3090,7 +3166,11 @@ function playNote(n) {
 // within 30, a still refreshed every 500 ms beyond that. If the far
 // view cannot be built, the disc falls back to the destination
 // tint, as before — a tint, never a hole.
-const RIFT_TINT = { nova: 0x0e4d8f, ashfall: 0x2979ff };
+const RIFT_TINT = {
+  nova: 0x0e4d8f, ashfall: 0x2979ff, trust: 0xff2e2e, logos: 0xffd21f,
+  willow: 0xb6ff2e, elven: 0x2eff7a, delta: 0x00ffd0, halycon: 0x3fa9ff,
+  "ni-knight": 0x6a5cff, orchid: 0xb45cff, plain: 0xf2f2f2,
+};
 const RIFT_RANGE = 30; // blocks: the leash (see the rift header)
 const RIFT_CARRY_RANGE = 6; // blocks from the ring: carried across with the fox
 let riftSeq = 0; // link ids, so a test can tell one door from the next
@@ -3337,13 +3417,12 @@ function carryMonsterThrough(m, fromEnd, offX, offZ, minEmerge) {
 // Walk through the standing door. The door stays standing: the
 // end you entered becomes the far end, and the end you stepped
 // out of is at your back, ready to take you back.
-function crossThroughRift() {
-  const link = state.riftLink, r = state.rift;
-  const fromEnd = r.end;
-  const other = link[fromEnd === "a" ? "b" : "a"];
-  // Carried across with the fox: things of the dark near the ring
-  // when it is crossed (Will, 2026-11-24 — the rifts players open
-  // are the migration vector).
+// Carried across with the fox: things of the dark near the ring
+// when it is crossed (Will, 2026-11-24 — the rifts players open
+// are the migration vector). Computed at the step-in for a walk
+// through (the company is chosen at the door), or at the crossing
+// itself for an instant one.
+function computeCarried(r) {
   const carried = [];
   for (const m of sub.monsters) {
     if (!m.alive || m.kind !== "surface" || m.realmId !== state.realm) continue;
@@ -3352,6 +3431,13 @@ function crossThroughRift() {
     if (mdx * mdx + mdz * mdz <= RIFT_CARRY_RANGE * RIFT_CARRY_RANGE)
       carried.push({ m, mdx, mdz });
   }
+  return carried;
+}
+function crossThroughRift(carriedPre) {
+  const link = state.riftLink, r = state.rift;
+  const fromEnd = r.end;
+  const other = link[fromEnd === "a" ? "b" : "a"];
+  const carried = carriedPre || computeCarried(r);
   link.crosses++;
   if (fromEnd === "a") {
     doCross(link.target, { viaLink: true, land: other });
@@ -3376,6 +3462,234 @@ function crossThroughRift() {
   for (const c of carried) carryMonsterThrough(c.m, fromEnd, c.mdx, c.mdz, 2.4);
   showRiftEnd(fromEnd === "a" ? "b" : "a");
 }
+
+// ---------- walking through the rift (EE 995, items 5+6) -------------------
+// Will's words: "it should be a warp/wormhole implemented as a
+// cylinder that curves spacetime around it — a kaleidoscope of fun
+// house mirrors" and "players walk through the rift, like walking
+// through an underground aquarium."
+//
+// The design (recorded in full in FEEDBACK-995-REPORT.md): stepping
+// into a standing ring's disc no longer teleports. It begins a
+// TRANSIT. The passage is a pocket in the departure realm's
+// reserved scroll (512,512): while the pocket is set, subspace
+// generates a straight vault corridor there, and a glass cylinder
+// stands inside it — a kaleidoscope canvas (mirrored rainbow
+// wedges) blending the entry realm's band into the destination's,
+// three rings along its length, the far disc showing the landing
+// through the ring's own portal view, and a drifting mote field
+// outside the glass: the aquarium. The fox walks the corridor
+// under the game's own physics; stepping into the far disc
+// completes the crossing through crossThroughRift itself — the
+// same arrival a crossing always took (carried monsters, the far
+// ring re-armed at his back) — and the near disc takes him back
+// out the way he came, uncrossed. The tune-summoned portals are
+// untouched; the rift itself is now the traversable object.
+// Monsters keep their instant blunder-crossing (riftStep, below).
+
+const TRANSIT_SCROLL = { sx: 512, sy: 512 };
+const TRANSIT_MS = 90000; // the passage's patience, then it sets you back
+let transitGroup = null;
+
+function kaleidoTexture(hex) {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 256;
+  const g = c.getContext("2d");
+  const base = new THREE.Color(hex);
+  const cols = [];
+  for (let i = 0; i < 6; i++) {
+    const cc = base.clone();
+    cc.offsetHSL(i * 0.055 - 0.14, 0, (i % 2) * 0.13 - 0.06);
+    cols.push(`#${cc.getHexString()}`);
+  }
+  g.fillStyle = "#05060a"; g.fillRect(0, 0, 512, 256);
+  const cx = 256, cy = 128;
+  for (let k = 0; k < 24; k++) {
+    const a0 = (k / 24) * Math.PI * 2, a1 = ((k + 1) / 24) * Math.PI * 2;
+    g.fillStyle = cols[k % cols.length];
+    g.globalAlpha = 0.5 + (k % 3) * 0.16;
+    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 195, a0, a1); g.closePath(); g.fill();
+    // the funhouse mirror: every wedge again, flipped in its neighbour
+    g.save(); g.translate(cx, cy); g.scale(1, -1); g.translate(-cx, -cy);
+    g.globalAlpha = 0.28;
+    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 118, a0, a1); g.closePath(); g.fill();
+    g.restore();
+  }
+  g.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 1);
+  return tex;
+}
+
+function beginTransit() {
+  if (state.transit || !state.rift || !state.riftLink) return;
+  const link = state.riftLink, r = state.rift;
+  const fromEnd = r.end;
+  const other = link[fromEnd === "a" ? "b" : "a"];
+  const carried = computeCarried(r);
+  const bx0 = TRANSIT_SCROLL.sx * SCROLL, bz0 = TRANSIT_SCROLL.sy * SCROLL;
+  const tp = {
+    realmId: state.realm, sx: TRANSIT_SCROLL.sx, sy: TRANSIT_SCROLL.sy,
+    x0: bx0 + 6, x1: bx0 + 36, z0: bz0 + 29, z1: bz0 + 35, floorY: 19, ceilY: 25,
+  };
+  tp.zc = (tp.z0 + tp.z1) / 2;
+  sub.transitPocket = tp;
+  ensureNeighborhood(state.realm, tp.sx, tp.sy);
+  // The passage stands empty: whatever the pocket scroll's genesis
+  // seeded is swept out of the tube's road.
+  for (const m of sub.monsters) {
+    if (m.alive && m.realmId === state.realm &&
+        Math.floor(m.gx / 32) === tp.sx && Math.floor(m.gy / 32) === tp.sy) m.alive = false;
+  }
+  buildTransitMeshes(other, tp);
+  state.transit = {
+    link, fromEnd, other, carried, t0: performance.now(), pocket: tp,
+    home: { x: state.pos.x, y: state.pos.y, z: state.pos.z, yaw: state.yaw, pitch: state.pitch },
+  };
+  // The wormhole's own frame: down is down inside the passage,
+  // whatever the realm outside is doing (an inverted realm stays
+  // traversable — Will's ruling — and so does its rift).
+  state.gravDir = 1;
+  state.pos.set(tp.x0 + 3.5, tp.floorY + 1.01, tp.zc);
+  state.vel.set(0, 0, 0);
+  state.yaw = -Math.PI / 2; state.pitch = 0;
+  flashPortal();
+  sfx.portal();
+  sub.log("transit", `${realmName(state.realm)} ${tp.sx},${tp.sy}`,
+    "the fox steps into the rift — the walk through begins");
+}
+
+function buildTransitMeshes(other, tp) {
+  endTransitMeshes();
+  transitGroup = new THREE.Group();
+  const midX = (tp.x0 + tp.x1) / 2, len = tp.x1 - tp.x0 - 8, yC = tp.floorY + 2.6;
+  const fromPal = paletteFor(state.realm), toPal = paletteFor(other.realmId);
+  const texA = kaleidoTexture(fromPal.accent), texB = kaleidoTexture(toPal.accent);
+  const mkTube = (tex, cx, l) => {
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.3, 2.3, l, 24, 1, true),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, transparent: true, opacity: 0.94 }));
+    m.rotation.z = Math.PI / 2;
+    m.position.set(cx, yC, tp.zc);
+    transitGroup.add(m);
+    return m;
+  };
+  const tubeA = mkTube(texA, tp.x0 + 4 + len / 4, len / 2);
+  const tubeB = mkTube(texB, tp.x1 - 4 - len / 4, len / 2);
+  const ribs = [];
+  [[tp.x0 + 4.5, fromPal.accent], [midX, 0xffffff], [tp.x1 - 4.5, toPal.accent]].forEach(([x, col]) => {
+    const rib = new THREE.Mesh(new THREE.TorusGeometry(2.32, 0.07, 8, 32),
+      new THREE.MeshBasicMaterial({ color: col }));
+    rib.rotation.y = Math.PI / 2;
+    rib.position.set(x, yC, tp.zc);
+    transitGroup.add(rib); ribs.push(rib);
+  });
+  // The aquarium: motes drifting outside the glass, in both
+  // realms' colors. (Positions relative to the passage's center,
+  // so the whole field can slowly wheel around the tube.)
+  const N = 260, posArr = new Float32Array(N * 3), colArr = new Float32Array(N * 3);
+  const cA = new THREE.Color(fromPal.accent), cB = new THREE.Color(toPal.accent);
+  for (let i = 0; i < N; i++) {
+    const h1 = kernels.hash(`mote|${i}|a`), h2 = kernels.hash(`mote|${i}|b`);
+    const a = (h1 % 628) / 100, r = 3 + (h2 % 220) / 100;
+    posArr[i * 3] = -len / 2 + ((h1 >> 4) % Math.max(1, Math.floor(len)));
+    posArr[i * 3 + 1] = Math.sin(a) * r;
+    posArr[i * 3 + 2] = Math.cos(a) * r;
+    const c = i % 2 ? cA : cB;
+    colArr[i * 3] = c.r; colArr[i * 3 + 1] = c.g; colArr[i * 3 + 2] = c.b;
+  }
+  const moteGeo = new THREE.BufferGeometry();
+  moteGeo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+  moteGeo.setAttribute("color", new THREE.BufferAttribute(colArr, 3));
+  const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({
+    size: 0.16, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
+  motes.position.set(midX, yC, tp.zc);
+  transitGroup.add(motes);
+  // The far disc: the destination, through the ring's own portal
+  // view — the same living picture the ring itself wears.
+  const discMat = (portalRT && state.rift && state.rift.viewOk)
+    ? new THREE.MeshBasicMaterial({ map: portalRT.texture, side: THREE.DoubleSide })
+    : new THREE.MeshBasicMaterial({
+        color: RIFT_TINT[other.realmId] ?? 0x0e4d8f,
+        transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(2.15, 32), discMat);
+  disc.position.set(tp.x1 - 1.2, yC, tp.zc);
+  transitGroup.add(disc);
+  // The near disc: home, behind the fox — step back out any time.
+  const back = new THREE.Mesh(new THREE.CircleGeometry(2.15, 32),
+    new THREE.MeshBasicMaterial({
+      color: fromPal.accent, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
+  back.position.set(tp.x0 + 1.2, yC, tp.zc);
+  transitGroup.add(back);
+  scene.add(transitGroup);
+  state.transitVisuals = { texA, texB, tubeA, tubeB, ribs, motes, started: performance.now() };
+}
+
+function transitStep(now, dt) {
+  const T = state.transit;
+  if (!T) return;
+  const V = state.transitVisuals;
+  if (V) {
+    const t = (now - V.started) / 1000;
+    V.texA.offset.x = (t * 0.045) % 1;
+    V.texB.offset.x = (t * 0.045) % 1;
+    V.tubeA.material.color.setHSL(0.55 + 0.08 * Math.sin(t * 0.23), 0.35, 0.82);
+    V.tubeB.material.color.setHSL(0.55 + 0.08 * Math.sin(t * 0.23 + 1.7), 0.35, 0.82);
+    V.ribs.forEach((r, i) => { r.scale.setScalar(1 + 0.05 * Math.sin(t * 2 + i * 2.1)); });
+    V.motes.rotation.x = t * 0.05;
+  }
+  if (state.dead) { endTransit(); return; }
+  if (now - T.t0 > TRANSIT_MS) {
+    abortTransit("the passage tires, and sets the fox back at its mouth");
+    return;
+  }
+  if (state.pos.x >= T.pocket.x1 - 3) completeTransit();
+  else if (state.pos.x <= T.pocket.x0 + 2.5) abortTransit();
+}
+
+function completeTransit() {
+  const T = state.transit;
+  if (!T) return;
+  const carried = T.carried;
+  endTransit();
+  crossThroughRift(carried); // the arrival is the crossing's own
+}
+
+function abortTransit(note) {
+  const T = state.transit;
+  if (!T) return;
+  endTransit();
+  state.pos.set(T.home.x, T.home.y, T.home.z);
+  state.vel.set(0, 0, 0);
+  state.yaw = T.home.yaw; state.pitch = T.home.pitch;
+  enterRealmGravity(state.realm); // the realm's own down, restored
+  if (state.rift) state.rift.armed = false; // step clear to re-arm the door
+  flashPortal();
+  if (note) toast(note, 3200);
+}
+
+function endTransit() {
+  if (!state.transit) return;
+  state.transit = null;
+  state.transitVisuals = null;
+  if (sub.transitPocket) sub.transitPocket = null;
+  endTransitMeshes();
+}
+
+function endTransitMeshes() {
+  if (!transitGroup) return;
+  scene.remove(transitGroup);
+  transitGroup.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
+      o.material.dispose();
+    }
+  });
+  transitGroup = null;
+}
+
 function riftStep(now, dt) {
   const r = state.rift, link = state.riftLink;
   if (!r || !link) return;
@@ -3413,7 +3727,7 @@ function riftStep(now, dt) {
   // the old hard-coded 1.25 (radius ~1.118) left the outer ~42% of
   // the disc dead (PORTAL-DIAGNOSIS.md, defect 1).
   if (dist2 < r.geo.disc * r.geo.disc && Math.abs(dy) < 2.4)
-    crossThroughRift();
+    beginTransit(); // EE 995 (items 5+6): the rift is walked through now
 }
 
 function playChord(chord) {
@@ -3593,6 +3907,22 @@ function showGravityWarp() {
   card.classList.add("show");
   clearTimeout(showGravityWarp._t);
   showGravityWarp._t = setTimeout(() => { card.style.display = "none"; }, WARP_MS);
+}
+const POWER_MS = 2600;
+let powerShown = 0; // how many powerup announcements have fired
+// EE 995 (item 10): finding a powerup is announced center-screen,
+// on the gravity-warp card's method — its name, held a beat, gone.
+function showPowerup(name) {
+  const card = $("powercard");
+  if (!card) return;
+  powerShown++;
+  $("power-name").textContent = name;
+  card.style.display = "block";
+  card.classList.remove("show");
+  void card.offsetWidth; // restart the animation
+  card.classList.add("show");
+  clearTimeout(showPowerup._t);
+  showPowerup._t = setTimeout(() => { card.style.display = "none"; }, POWER_MS);
 }
 function warpAnnounceOk(now) {
   return !state.splash && now - state.realmSince >= WARP_DWELL_MS;
@@ -3859,6 +4189,26 @@ function renderGuide() {
   $("guide-hint").textContent = step.hint || "";
   updateObjective();
 }
+// EE 995 (item 1): Joy's lesson is a per-GAME thing, not a
+// per-load thing — "intro should only play once per game." The
+// guide's place is kept on this machine beside the introduced set
+// (the same pattern); a reload or a continue resumes where the
+// lesson left off — finished stays finished — and only a new game
+// (which clears the key, see NEW_GAME_KEYS) plays it again.
+function saveGuide() {
+  try {
+    localStorage.setItem("nova-phox-guide",
+      JSON.stringify({ step: state.guideStep, done: state.guideDone }));
+  } catch (e) { /* private mode: the lesson simply runs per load */ }
+}
+function restoreGuide() {
+  try {
+    const g = JSON.parse(localStorage.getItem("nova-phox-guide") || "null");
+    if (!g) return;
+    state.guideStep = Math.max(0, Math.min(g.step | 0, GUIDE.length));
+    state.guideDone = !!g.done || state.guideStep >= GUIDE.length;
+  } catch (e) { /* an unreadable record starts the lesson fresh */ }
+}
 function guideAdvance() {
   const leaving = guideCurrent();
   if (leaving && leaving.id === "handover") {
@@ -3867,6 +4217,7 @@ function guideAdvance() {
   }
   state.guideStep++;
   if (state.guideStep >= GUIDE.length) state.guideDone = true;
+  saveGuide();
   renderGuide();
   syncHud();
 }
@@ -5057,12 +5408,22 @@ function renderSaveState() {
 
 // ---------- realms panel -----------------------------------------------------------------
 
+// The ten portals in rainbow order (item 7's bands), home last.
+const PORTAL_ORDER = ["trust", "ashfall", "logos", "willow", "elven", "delta",
+  "halycon", "ni-knight", "orchid", "plain", "nova"];
 function renderRealms() {
-  $("realms-list").innerHTML = REALMS.map((r) => {
+  // EE 995 (item 4): the map of realms is the PORTAL PANEL — one
+  // action (M, or the map button) lists the ten rift portals in
+  // rainbow order with their band chips; choosing a realm brings
+  // its portal up where the fox stands (openRift plants both ends
+  // and raises the ring), ready to step into. Every realm is open.
+  $("realms-list").innerHTML = PORTAL_ORDER.map((id) => realmById(id)).filter(Boolean).map((r) => {
     const here = r.id === state.realm;
-    const status = here ? "you are here" : r.open ? "open — the bridge tune goes there" : "named, but not open yet";
-    return `<div class="realmrow ${here ? "here" : ""} ${r.open ? "" : "shut"}">
-      <span class="realmname2">${r.name}</span><span class="realmstatus">${status}</span></div>`;
+    const chip = `#${paletteFor(r.id).accent.toString(16).padStart(6, "0")}`;
+    const status = here ? "you are here" : "bring up its portal";
+    const attrs = here ? "" : ` data-portal="${r.id}" role="button" tabindex="0" title="Bring up the ${r.name} portal"`;
+    return `<div class="realmrow ${here ? "here" : ""}"${attrs}>
+      <span class="realmname2"><span class="realmchip" style="background:${chip}"></span>${r.name}</span><span class="realmstatus">${status}</span></div>`;
   }).join("");
 }
 function toggleRealms(force) {
@@ -5184,6 +5545,7 @@ function refreshMenuStates() {
 // game boots exactly as a brand-new player's does (the same door
 // loadLocalSave takes).
 const NEW_GAME_KEYS = [
+  "nova-phox-guide",
   "nova-phox-name", "nova-phox-standings", "nova-phox-introduced",
   "nova-phox-outbox", "nova-phox-outbox-folded", "nova-phox-outbox-dropped",
   "nova-phox-posted", "nova-phox-economy", "nova-phox-eco-outbox",
@@ -5364,7 +5726,7 @@ $("audio-back").addEventListener("click", () => openPanel("menu"));
 
 // --- The menu's own rows ----------------------------------------------------
 $("btn-menu").addEventListener("click", () => toggleMenu());
-$("menu-close").addEventListener("click", () => closeMenu());
+$("menu-close").addEventListener("click", () => { closeMenu(); lockPointer(); });
 $("menu-newgame").addEventListener("click", () => {
   newGameArmed = true;
   syncMenuConfirm();
@@ -5415,7 +5777,18 @@ function lockPointer() {
   } catch (e) { /* pointer lock unavailable (headless); keys still play */ }
 }
 document.addEventListener("pointerlockchange", () => {
+  const wasLocked = pointerLocked;
   pointerLocked = document.pointerLockElement === renderer.domElement;
+  // EE 995 (item 2): while pointer-locked the browser reserves
+  // Esc for itself — the keydown never reaches the page; the lock
+  // simply ends, and the menu (complete since demo13) never got
+  // its key. So the unlock IS the player's Esc: answer it with
+  // the menu. The menu's back-to-the-world row re-locks (below),
+  // and the touch menu button never needed the lock at all.
+  if (wasLocked && !pointerLocked && !state.splash && !menuIsOpen() &&
+      !nfCon.open && !bindingCapture) {
+    openPanel("menu");
+  }
 });
 document.addEventListener("mousemove", (e) => {
   if (state.flute) {
@@ -5694,6 +6067,21 @@ document.querySelectorAll(".notepad").forEach((el) => {
   el.addEventListener("click", () => playNote(Number(el.dataset.note) + 1));
 });
 $("btn-realms").addEventListener("click", () => toggleRealms());
+// Portal panel rows (item 4): a click — or Enter on a focused row —
+// brings that realm's portal up where the fox stands.
+$("realms-list").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-portal]");
+  if (!row) return;
+  toggleRealms(false);
+  openRift({ type: "realm", realmId: row.dataset.portal });
+});
+$("realms-list").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const row = e.target.closest("[data-portal]");
+  if (!row) return;
+  toggleRealms(false);
+  openRift({ type: "realm", realmId: row.dataset.portal });
+});
 $("btn-board").addEventListener("click", () => toggleBoard());
 $("btn-login-save").addEventListener("click", () => {
   if (gameToken()) { saveNote("you're signed in — your marks save to the shared map as you make them."); return; }
@@ -5714,7 +6102,7 @@ $("file-load-local").addEventListener("change", (e) => {
   if (e.target.files && e.target.files[0]) loadLocalSave(e.target.files[0]);
 });
 $("btn-guide").addEventListener("click", () => {
-  if (state.guideDone) { state.guideDone = false; state.guideStep = GUIDE.length - 2; }
+  if (state.guideDone) { state.guideDone = false; state.guideStep = GUIDE.length - 2; saveGuide(); }
   renderGuide();
 });
 $("btn-sound").addEventListener("click", (e) => {
@@ -5800,6 +6188,7 @@ $("guide-btn").addEventListener("click", () => {
 });
 $("guide-dismiss").addEventListener("click", () => {
   state.guideDone = true;
+  saveGuide();
   narration.stop(); // exploring on your own means Emise stops talking
   banterGoLive(); // — and Joy's ambient voice starts
   renderGuide();
@@ -6030,7 +6419,8 @@ function animate() {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
   if (!state.dead) updatePlayer(dt);
-  if (!state.dead) riftStep(now, dt);
+  if (state.transit) transitStep(now, dt); // EE 995: walking the passage
+  else if (!state.dead) riftStep(now, dt);
   updateInvertFx(now);
   // Fox Vision is a Hall sense: leaving the Hall puts it down,
   // silently, the same quiet with which it refused to wake outside.
@@ -6039,6 +6429,7 @@ function animate() {
   chunkMaintenance();
   syncMonsterMeshes(dt);
   syncItemMeshes(now);
+  stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place
   formStep(dt);
   // The swing arc (feedback #2): a bright wedge sweeping the view
   // for a quarter second — the blow is something you SEE.
@@ -6139,7 +6530,9 @@ initThree();
   for (let dx = -RENDER_R; dx <= RENDER_R; dx++)
     for (let dz = -RENDER_R; dz <= RENDER_R; dz++) ensureChunk(pcx + dx, pcz + dz);
 }
+restoreGuide(); // EE 995 (item 1): resume the lesson where this game left it
 renderGuide();
+buildJoy(); // EE 995 (item 8): Joy takes her place at the fox's shoulder
 // ---------- economy accrual: active play feeds the ledgers -------------------
 // "Active" is the PLAN §2.2 discipline: the tab is in front of the
 // player and their hands have been on the game within the last
@@ -6859,6 +7252,10 @@ window.NOVA_FOX3 = {
   },
   playNote, playChord, flipGravityHere, tryStrike, tryChisel, hurtPlayer,
   guideAdvance, guideCurrent: () => GUIDE[state.guideStep] || null,
+  // EE 995 handles: Joy's visible presence (item 8) and the
+  // powerup announcement count (item 10), for the e2e legs.
+  joyPos: () => (joyMesh ? { x: joyMesh.position.x, y: joyMesh.position.y, z: joyMesh.position.z } : null),
+  powerShown: () => powerShown,
   isWarded, classifyStroke, boardData, scoreNow: () => totalScore(sub),
   narration: {
     ready: (id) => narration.ready(id),
