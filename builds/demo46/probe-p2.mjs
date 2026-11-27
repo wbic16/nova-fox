@@ -33,6 +33,30 @@
 // reopens, pack intact" — boot() && exact count, no detail) into
 // three separately named legs (boot returns / pack count exact /
 // pack types exact), each printing the pack it actually saw.
+//
+// SECOND REVISION (EE 1101, after probe builds #5/#6): two more
+// absolutes retired. (1) THE CROSSING RACE: the arrival structure
+// generates ~20 s after boot (surface at the spawn columns goes
+// y~17 -> y=47; a standing fox is carried up to the deck).
+// openRift stands the rift where the fox stands AT CLICK TIME,
+// so a probe that clicks before generation and walks after it
+// passes over its own rift (feetY 17) on the deck (y 46)
+// forever — builds #5/#6 walked 200+ cells north without a
+// transit. The probe now SETTLES (waits until the fox's stand
+// is stable) before clicking, in both crossings — what a player
+// at the keyboard does without thinking. (2) THE SHARED PACK:
+// the probe identity's economy record persists across runs
+// (diagnostic runs' carve yields flushed and restored into a
+// fresh profile), so the pack is not virgin at start. Every
+// pack expectation is now a DELTA against the baseline read at
+// start; the sale legs already read their counts live. (3) THE
+// CARVE-BACK RETRY LOOP: the placed block's break goes through
+// the geometry record, and the loop's 450 ms re-read could beat
+// the attunement — the loop stroked again and gained a second
+// unit from a second break, reading as a +2 yield. An isolation
+// run proved the game exact (one stroke -> exactly one unit,
+// ground cell intact). The leg now fires ONE stroke and reads
+// the settled state before asserting the exact +1.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,6 +99,31 @@ function mapsEqual(a, b) {
   return ka.length === kb.length && ka.every((k) => na[k] === nb[k]);
 }
 const totalUnits = (m) => Object.values(normMap(m)).reduce((s, v) => s + v, 0);
+// Add delta counts onto a baseline pack map (delta keys are block
+// ids; values may fall to zero and are normalised away on compare).
+function addToMap(base, delta) {
+  const out = { ...(base || {}) };
+  for (const [k, v] of Object.entries(delta || {})) out[k] = (out[k] || 0) + v;
+  return out;
+}
+// Wait until the fox's stand is stable — same realm, same y,
+// across three consecutive one-second polls (the arrival
+// structure has finished generating; see the header). Logs the
+// settled stand either way; a timeout is not fatal, the crossing
+// that follows is the actual test.
+async function settleFox(F, label) {
+  const t0 = Date.now();
+  let last = null, stable = 0;
+  while (Date.now() - t0 < 90000) {
+    try {
+      const s = await F.evalJs(`(() => { const s = NOVA_FOX3.state;
+        return s.realm + "@" + s.pos.y.toFixed(1); })()`);
+      if (s === last) { if (++stable >= 3) break; } else { last = s; stable = 0; }
+    } catch (e) { /* page mid-load */ }
+    await sleep(1000);
+  }
+  console.log(`  .. settled (${label}): ${last} after ${Math.round((Date.now() - t0) / 1000)}s`);
+}
 
 async function launch(profile) {
   const POLICY = process.env.NF_POLICY ||
@@ -251,8 +300,15 @@ try {
   await A.enterWorld();
   check("A: the backend answers — the game is online against the real gateway",
     await A.waitFor("NOVA_FOX3.geoState().online === true", 30000, "backend online"));
-  check("A: the pack starts empty",
-    (await A.evalJs(`Object.keys(NOVA_FOX3.digState().materials).length`)) === 0);
+  await settleFox(A, "A before the crossing");
+  // The shared identity's pack persists across runs (see header):
+  // record the baseline; every pack expectation below is a delta
+  // against it, never an absolute.
+  const packStart = (await A.evalJs("NOVA_FOX3.digState()")).materials;
+  check("A: the pack baseline is read (shared identity state recorded)",
+    packStart !== null && typeof packStart === "object",
+    `saw ${JSON.stringify(packStart)}`);
+  console.log(`  .. A pack baseline: ${JSON.stringify(packStart)}`);
 
   // --- travel to ashfall (the probe-1034 crossing) ----------------------
   await A.evalJs("NOVA_FOX3.state.yaw = 0");
@@ -294,12 +350,13 @@ try {
   // The expected pack: one unit of each carved cell's judged type,
   // for types that are materials at all (a type with no MATERIAL_DEF
   // yields nothing, by the design's own rule).
-  const expectedAfterCarve = {};
+  const carveDelta = {};
   for (const c of carved) {
     if (FLUX[c.type] !== undefined) {
-      expectedAfterCarve[c.type] = (expectedAfterCarve[c.type] || 0) + 1;
+      carveDelta[c.type] = (carveDelta[c.type] || 0) + 1;
     }
   }
+  const expectedAfterCarve = addToMap(packStart, carveDelta);
   const packAfterCarve = await A.evalJs("NOVA_FOX3.digState()");
   check("A: carving yields each carved block as its judged type",
     mapsEqual(packAfterCarve.materials, expectedAfterCarve),
@@ -459,6 +516,7 @@ try {
     // stand in ashfall: if the reopened profile starts in nova,
     // walk the tunnel as before.
     if ((await A2.evalJs("NOVA_FOX3.state.realm")) !== "ashfall") {
+      await settleFox(A2, "A2 before the crossing");
       await A2.evalJs("NOVA_FOX3.state.yaw = 0");
       await A2.key("m", "KeyM");
       await sleep(300);
@@ -474,17 +532,29 @@ try {
       await sleep(1000);
     }
   }
+  const heldPTBeforeBack = await A2.evalJs(`NOVA_FOX3.digState().materials[${PT}] || 0`);
+  // ONE stroke, then read the SETTLED state (see header point
+  // 3): the geometry attunement can lag a fast re-read, and a
+  // retry loop strokes again into that lag and breaks a second
+  // cell — the +2 the first patched run recorded. Settled =
+  // the cell reads 0 on two reads a second apart.
+  await A2.evalJs(aimDown(PLACE_X + 0.5, hP + 3.4, RANGE_Z + 0.5));
+  await A2.key("c", "KeyC");
   let back = false;
-  for (let attempt = 0; attempt < 3 && !back; attempt++) {
-    await A2.evalJs(aimDown(PLACE_X + 0.5, hP + 3.4, RANGE_Z + 0.5));
-    await A2.key("c", "KeyC");
-    await sleep(450);
-    back = (await A2.evalJs(`NOVA_FOX3.geoBlockAt('ashfall', ${PLACE_X}, ${hP + 1}, ${RANGE_Z})`)) === 0;
+  {
+    const t0 = Date.now();
+    let zeroReads = 0;
+    while (Date.now() - t0 < 20000) {
+      const cell = await A2.evalJs(`NOVA_FOX3.geoBlockAt('ashfall', ${PLACE_X}, ${hP + 1}, ${RANGE_Z})`);
+      if (cell === 0) { if (++zeroReads >= 2) { back = true; break; } }
+      else zeroReads = 0;
+      await sleep(1000);
+    }
   }
   check("A2: a placed block carves back through the geometry path", back);
   check("A2: the carve-back yields the placed type again",
-    (await A2.evalJs(`NOVA_FOX3.digState().materials[${PT}] || 0`)) === 1,
-    `saw ${JSON.stringify((await A2.evalJs("NOVA_FOX3.digState()")).materials)}`);
+    (await A2.evalJs(`NOVA_FOX3.digState().materials[${PT}] || 0`)) === heldPTBeforeBack + 1,
+    `saw ${JSON.stringify((await A2.evalJs("NOVA_FOX3.digState()")).materials)}, before=${heldPTBeforeBack}`);
   check("A2: no console errors", A2.consoleErrors.length === 0,
     A2.consoleErrors.slice(0, 2).join(" ; "));
   A2.close();
