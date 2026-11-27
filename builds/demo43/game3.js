@@ -1650,9 +1650,7 @@ function reconcileTunnels() {
   }
   const link = state.riftLink;
   if (link && !link.tunnel) {
-    link.tunnel = standing.find((t) =>
-      tunnelServes(t, link.a.realmId, link.b.realmId, link.a.x, link.a.z) ||
-      tunnelServes(t, link.b.realmId, link.a.realmId, link.b.x, link.b.z)) || null;
+    link.tunnel = standing.find((t) => tunnelServesLink(t, link.a, link.b)) || null;
   }
 }
 
@@ -1673,17 +1671,15 @@ function tunnelEndSpec(end) {
 }
 
 // Serve-or-craft for a freshly opened link: a standing wormhole
-// (any fox's) whose mouth stands at either of this link's ends
-// serves it. Otherwise this fox crafts one — retiring his own
+// (any fox's) whose mouths stand at BOTH of this link's ends
+// serves it (EE 1119: both ends, never either end alone). Otherwise this fox crafts one — retiring his own
 // older wormhole between the same pair first (its record is
 // queued BEFORE the new craft, one tick older, so the resolver
 // reads the replacement in order).
 function ensureTunnelsForLink(link) {
   const a = tunnelEndSpec(link.a), b = tunnelEndSpec(link.b);
   const standing = resolveTunnels(tunnelKnownRecords());
-  const served = standing.find((t) =>
-    tunnelServes(t, a.realmId, b.realmId, link.a.x, link.a.z) ||
-    tunnelServes(t, b.realmId, a.realmId, link.b.x, link.b.z)) || null;
+  const served = standing.find((t) => tunnelServesLink(t, link.a, link.b)) || null;
   if (served) { link.tunnel = served; return served; }
   const ts = Date.now();
   const old = standing.find((t) => t.crafter === playerName &&

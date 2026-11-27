@@ -1547,6 +1547,17 @@ export function tunnelServes(tunnel, realmId, otherRealm, x, z) {
   const dx = e.mx + 0.5 - x, dz = e.mz + 0.5 - z;
   return dx * dx + dz * dz <= 4.0001;
 }
+// Does this wormhole serve a LINK between its two ends (a and b,
+// each { realmId, x, z })? BOTH ends must match within two blocks
+// — a single-end match is not enough (EE 1119): the slope link's
+// Ashfall end coincides with the earlier Arrival tunnel's Ashfall
+// mouth, so an either-end rule served the slope link a tunnel
+// whose Nova end was the Arrival mouth, not the slope ring, and
+// transit read along ~-21 and instantly unmade itself.
+export function tunnelServesLink(tunnel, a, b) {
+  return tunnelServes(tunnel, a.realmId, b.realmId, a.x, a.z) &&
+    tunnelServes(tunnel, b.realmId, a.realmId, b.x, b.z);
+}
 // A point's place in an end's bore: `along` blocks from the mouth
 // plane (negative outside, at the fox's back), `lat` the signed
 // offset from the centerline.

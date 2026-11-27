@@ -176,24 +176,82 @@ async function walkUntilRealm(realm, capMs) {
   // the ~1.85 blocks he would need to re-enter the disc. The
   // verified condition (the realm flip), the re-facing homing,
   // and the EE 1029 stuck-hop are unchanged.
+  //
+  // EE 1107 (Item #5 BUILD, on the EE 1106 classification):
+  // the pulse steering above is itself the defect once the fox
+  // is IN TRANSIT. The EE 1106 trace (527/532 samples in
+  // transit, tunnel `along` oscillating -1.7..+2.2 of the +12
+  // the bore needs, yaw flipping 0<->pi) shows why: past the
+  // ring plane, re-facing the NEAR ring is a 180-degree turn,
+  // so every pulse walked him back toward the mouth and the
+  // bore could never be walked. The fix keeps the pulse for
+  // the approach (pre-transit, where re-facing is homing), and
+  // changes only the in-transit leg: once NOVA_FOX3.inTransit()
+  // is true, hold the yaw he entered with, hold W continuously,
+  // and poll the realm every 80 ms, releasing W on the flip.
+  // The EE 1041 ping-pong this reopens in principle is bounded
+  // by that fast poll: the landing stands 3.4 blocks from the
+  // far ring (disc 1.557), and post-crossing travel within one
+  // 80 ms poll at hub pace is far under the ~1.85 blocks needed
+  // to re-enter the disc. If transit ends without a crossing
+  // (he walked back out), the walk falls back to the pulse
+  // approach. The EE 1029 stuck-hop is kept in both legs.
   let lastX = null, lastZ = null, lastMoveT = Date.now(), lastHopT = 0;
-  while (Date.now() - t0 < capMs) {
-    if (await evalJs(`NOVA_FOX3.state.realm === "${realm}"`)) return true;
-    await evalJs(`(() => {
-      const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
-      if (r) NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
-      return !!r;
-    })()`);
-    await keyDown("w", "KeyW");
-    await sleep(500);
-    await keyUp("w", "KeyW");
-    const wp = await evalJs("({ x: NOVA_FOX3.state.pos.x, z: NOVA_FOX3.state.pos.z })");
-    if (lastX === null || Math.hypot(wp.x - lastX, wp.z - lastZ) > 0.3) {
-      lastX = wp.x; lastZ = wp.z; lastMoveT = Date.now();
-    } else if (Date.now() - lastMoveT > 2500 && Date.now() - lastHopT > 3000) {
-      lastHopT = Date.now();
-      await key(" ", "Space");
+  let held = false, entryYaw = null;
+  const releaseW = async () => {
+    if (!held) return;
+    held = false;
+    try { await keyUp("w", "KeyW"); } catch (e) { /* settled by caller */ }
+  };
+  const noteMove = (x, z) => {
+    if (lastX === null || Math.hypot(x - lastX, z - lastZ) > 0.3) {
+      lastX = x; lastZ = z; lastMoveT = Date.now(); return false;
     }
+    return Date.now() - lastMoveT > 2500 && Date.now() - lastHopT > 3000;
+  };
+  try {
+    while (Date.now() - t0 < capMs) {
+      if (await evalJs(`NOVA_FOX3.state.realm === "${realm}"`)) {
+        await releaseW();
+        return true;
+      }
+      const st = await evalJs(`(() => {
+        const S = NOVA_FOX3;
+        return { transit: S.inTransit(), yaw: S.state.yaw,
+          x: S.state.pos.x, z: S.state.pos.z };
+      })()`);
+      if (st.transit) {
+        // In transit past the ring plane: NEVER re-face the near
+        // ring. Hold the entry yaw and hold W; poll fast.
+        if (entryYaw === null) entryYaw = st.yaw;
+        await evalJs(`NOVA_FOX3.state.yaw = ${entryYaw}`);
+        if (!held) { await keyDown("w", "KeyW"); held = true; }
+        if (noteMove(st.x, st.z)) {
+          lastHopT = Date.now();
+          await releaseW();
+          await key(" ", "Space");
+        }
+        await sleep(80);
+        continue;
+      }
+      entryYaw = null;
+      await releaseW();
+      await evalJs(`(() => {
+        const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
+        if (r) NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
+        return !!r;
+      })()`);
+      await keyDown("w", "KeyW");
+      await sleep(500);
+      await keyUp("w", "KeyW");
+      const wp = await evalJs("({ x: NOVA_FOX3.state.pos.x, z: NOVA_FOX3.state.pos.z })");
+      if (noteMove(wp.x, wp.z)) {
+        lastHopT = Date.now();
+        await key(" ", "Space");
+      }
+    }
+  } finally {
+    await releaseW();
   }
   return await evalJs(`NOVA_FOX3.state.realm === "${realm}"`);
 }
@@ -201,9 +259,22 @@ async function crossToRealm(realm, capMs = 90000) {
   const t0 = Date.now();
   while (Date.now() - t0 < capMs) {
     if (await evalJs(`NOVA_FOX3.state.realm === "${realm}"`)) return true;
+    // EE 1117 (Item #5 BUILD return): never re-face while the
+    // fox is IN TRANSIT. If a walkUntilRealm sub-walk's 15 s
+    // cap expires mid-bore, the fox is past the ring plane, so
+    // facing the near ring here is a 180-degree turn -- and the
+    // next sub-walk captures that turned yaw as its entryYaw,
+    // walks him back out of the bore, and the exit disarms the
+    // ring (build #33's slope leg and hub probes: fox ends
+    // walking away from the ring at full speed, armed=false,
+    // crosses=0). Skipping the re-face in transit leaves his
+    // entry yaw untouched, so the next sub-walk resumes the
+    // bore walk he was already making. The approach re-face
+    // (pre-transit homing) is unchanged.
     const faced = await evalJs(`(() => {
       const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
       if (!r) return false;
+      if (NOVA_FOX3.inTransit()) return true; // in the bore: do not turn him around
       NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
       return true;
     })()`);
@@ -236,44 +307,84 @@ async function crossInstrumented(realm, capMs = 240000) {
   const t0 = Date.now();
   let minD = Infinity, atMin = null, crosses0 = null;
   try { crosses0 = await evalJs("NOVA_FOX3.portalState().crosses"); } catch (e) {}
-  while (Date.now() - t0 < capMs) {
-    if (await evalJs(`NOVA_FOX3.state.realm === "${realm}"`)) break;
-    const faced = await evalJs(`(() => {
-      const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
-      if (!r) return false;
-      NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
-      return true;
+  // EE 1117 (Item #5 BUILD return, on Jenkins build #33 and
+  // hub-probe evidence): this walk still steered the pre-EE 1107
+  // way -- W held continuously and the fox re-faced to the NEAR
+  // ring every 250 ms for the whole burst. Past the ring plane
+  // that re-facing is a 180-degree turn, so once the fox stepped
+  // into the bore he was turned back toward the mouth at every
+  // poll and ping-ponged in transit at the plane (build #33:
+  // the standing-door and touch legs both end crosses=0 with
+  // the fox parked at the mouth; the sampled dy there is ~0 --
+  // fox y 17 vs ring feetY 16 is the gate's own zero, so the
+  // height gate was never the block). EE 1107 fixed exactly
+  // this in walkUntilRealm; this walk now takes the same
+  // discipline: pulse + re-face on the approach (pre-transit,
+  // where re-facing is homing), and in transit hold the entry
+  // yaw, hold W, and poll fast -- while sampling the same
+  // instrumentation (closest approach, fox y, ring feetY,
+  // crosses) the checks below report. A served bore can stand
+  // a block above the ring's own feet and a cell off its mouth
+  // (tunnelServes' two-block tolerance), which lengthens the
+  // in-transit leg; the fast poll bounds the post-crossing
+  // travel the same way EE 1107 bounds it. The verified
+  // condition (the realm flip) and the returned shape are
+  // unchanged.
+  let held = false, entryYaw = null;
+  const releaseW = async () => {
+    if (!held) return;
+    held = false;
+    try { await keyUp("w", "KeyW"); } catch (e) { /* settled by caller */ }
+  };
+  const sample = async () => {
+    const smp = await evalJs(`(() => {
+      const S = NOVA_FOX3, r = S.state.rift, p = S.state.pos;
+      return { realm: S.state.realm, transit: S.inTransit(), yaw: S.state.yaw,
+        d: r ? Math.hypot(p.x - r.x, p.z - r.z) : -1,
+        y: p.y, feetY: r ? r.feetY : null,
+        crosses: S.portalState().crosses, hasRift: !!r };
     })()`);
-    if (!faced) {
-      let stood = false;
-      for (let i = 0; i < 24 && !stood; i++) {
-        await sleep(250);
-        stood = await evalJs("!!NOVA_FOX3.state.rift");
+    if (smp.d >= 0 && smp.d < minD) { minD = smp.d; atMin = smp; }
+    return smp;
+  };
+  try {
+    while (Date.now() - t0 < capMs) {
+      const s0 = await sample();
+      if (s0.realm === realm) break;
+      if (!s0.hasRift) {
+        await releaseW();
+        entryYaw = null;
+        let stood = false;
+        for (let i = 0; i < 24 && !stood; i++) {
+          await sleep(250);
+          stood = await evalJs("!!NOVA_FOX3.state.rift");
+        }
+        if (!stood) break; // no door standing: fail by name, with detail
+        continue;
       }
-      if (!stood) break; // no door standing: fail by name, with detail
-      continue;
+      if (s0.transit) {
+        // In transit past the ring plane: NEVER re-face the near
+        // ring. Hold the entry yaw and hold W; poll fast.
+        if (entryYaw === null) entryYaw = s0.yaw;
+        await evalJs(`NOVA_FOX3.state.yaw = ${entryYaw}`);
+        if (!held) { await keyDown("w", "KeyW"); held = true; }
+        await sleep(100);
+        continue;
+      }
+      entryYaw = null;
+      await releaseW();
+      await evalJs(`(() => {
+        const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
+        if (r) NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
+        return !!r;
+      })()`);
+      await keyDown("w", "KeyW");
+      await sleep(500);
+      await keyUp("w", "KeyW");
+      await sample();
     }
-    await keyDown("w", "KeyW");
-    try {
-      const burst0 = Date.now();
-      while (Date.now() - burst0 < 15000) {
-        const smp = await evalJs(`(() => {
-          const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
-          return { realm: NOVA_FOX3.state.realm,
-            d: r ? Math.hypot(p.x - r.x, p.z - r.z) : -1,
-            y: p.y, feetY: r ? r.feetY : null,
-            crosses: NOVA_FOX3.portalState().crosses };
-        })()`);
-        if (smp.d >= 0 && smp.d < minD) { minD = smp.d; atMin = smp; }
-        if (smp.realm === realm) break;
-        await evalJs(`(() => {
-          const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
-          if (r) NOVA_FOX3.state.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
-          return !!r;
-        })()`);
-        await sleep(250);
-      }
-    } finally { await keyUp("w", "KeyW"); }
+  } finally {
+    await releaseW();
   }
   const ok = await evalJs(`NOVA_FOX3.state.realm === "${realm}"`);
   return { ok, minD: minD === Infinity ? -1 : +minD.toFixed(2),
@@ -311,13 +422,23 @@ async function walkVeer(capMs = 60000) {
     while (Date.now() - t0 < capMs) {
       const s = await evalJs(`(() => {
         const r = NOVA_FOX3.state.rift, p = NOVA_FOX3.state.pos;
-        return { realm: NOVA_FOX3.state.realm,
+        return { realm: NOVA_FOX3.state.realm, transit: NOVA_FOX3.inTransit(),
           d: r ? Math.hypot(p.x - r.x, p.z - r.z) : -1, x: p.x, z: p.z };
       })()`);
       last = s;
       if (s.realm === "ashfall") break;
       if (s.d >= 0 && s.d < min) min = s.d;
-      if (s.d > 10) break; // well past the ring: the veer had its chance
+      // EE 1117 (Item #5 BUILD return): the d > 10 give-up is a
+      // ring-distance heuristic, but a served bore's mouth can
+      // stand off the ring (tunnelServes' two-block tolerance),
+      // so a fox legitimately IN TRANSIT can be more than 10
+      // from the ring with bore still ahead of him (build #33's
+      // veer leg ended at ring distance 10.11 with the crossing
+      // still ~2.6 blocks of bore away). While in transit the
+      // walk continues; the give-up applies only once he is out
+      // of the bore and past the ring. The verified condition
+      // (the realm flip) is unchanged.
+      if (s.d > 10 && !s.transit) break; // well past the ring: the veer had its chance
       await sleep(250);
     }
   } finally {
@@ -1700,8 +1821,26 @@ try {
   check("fox vision: a familiar beyond subspace range stays dark",
     await evalJs(`NOVA_FOX3.familiarSeen(${farId})`) === false);
   await key("n", "KeyN");
+  // EE 1122 (Item #5 BUILD return, on Jenkins builds #33/#34 + hub
+  // probe evidence): this check's premise is a NON-engaged keeper.
+  // While the fox stands in the Hall through the preceding legs,
+  // the dungeon guardian ENGAGES (probe: engaged flipped
+  // false->true ~1.5 s into the pre-putdown watch, phase pinned 0,
+  // gy stepping toward the fox) -- and an engaged thing is visible
+  // by ordinary sight in every phase by design (world.js
+  // monsterVisible, EE 995: engaged things do not fade), so
+  // familiarSeen stays true after the sense goes down no matter
+  // what phase this eval sets. The probe reproduced the exact
+  // failure in isolation with vision.on === false and the unlit
+  // wait passing in 2 ms, and a fresh non-engaged familiar at
+  // phase 1 with the sense down read seen === false. The eval
+  // below therefore also clears the engagement latch this leg
+  // itself caused -- the same kind of state arrangement as the
+  // phase sets above -- and then verifies the identical condition:
+  // sense down + dark phase => the keeper is not seen, and its
+  // vision light goes out (the waitFor below, unchanged).
   check("fox vision: putting the sense down restores the glimpses",
-    await evalJs(`(() => { const m = NOVA_FOX3.sub.monsters.find((x) => x.id === ${guardianId}); m.phase = 1; return !NOVA_FOX3.familiarSeen(${guardianId}); })()`) === true &&
+    await evalJs(`(() => { const m = NOVA_FOX3.sub.monsters.find((x) => x.id === ${guardianId}); m.engaged = false; m.phase = 1; return !NOVA_FOX3.familiarSeen(${guardianId}); })()`) === true &&
     await waitFor(`NOVA_FOX3.monsterLit(${guardianId}) === false`, 30000, "keeper unlit"));
   await key("n", "KeyN");
   await sleep(200);
@@ -2117,6 +2256,21 @@ try {
 
   // The new game, last — confirming reloads the page.
   await evalJs("localStorage.setItem('nova-phox-standings', JSON.stringify({ best: 4242, score: 4242 }))");
+  // EE 1122 (Item #5 BUILD return, on Jenkins build #34 + hub probe
+  // evidence): the game rewrites nova-phox-standings from its
+  // in-memory standings object every 5 s (recordStandings on the
+  // ecoTick interval), so a localStorage-only plant is clobbered
+  // back to the boot-loaded best at the next tick (probe: planted
+  // 4242 overwritten to 0 at t=3685 ms; the suite steps themselves
+  // pass in ~250 ms when no tick lands in the window). Build #34's
+  // two menu-gate failures were that tick landing between the plant
+  // and the checks -- both checks share the standings conjunct, so
+  // both failed together while the armed conjuncts behaved. Plant
+  // the record in the in-memory object too, so the interval
+  // rewrites the SAME 4242 the checks verify; the verified
+  // conditions (armed + localStorage best === 4242, then disarmed +
+  // best === 4242) are unchanged.
+  await evalJs("NOVA_FOX3.standings.best = 4242");
   await evalJs("localStorage.setItem('nova-phox-name', JSON.stringify('e2e-old-name'))");
   await key("Escape", "Escape");
   await evalJs("document.getElementById('menu-newgame').click()");
