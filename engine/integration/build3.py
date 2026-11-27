@@ -15,9 +15,18 @@ not in this lineage, so they are not embedded. (~2.5 MB of MP3 ->
 ~3.3 MB embedded.)
 """
 import base64
+import hashlib
 import json
+import os
 import re
+import shutil
+import sys
 from pathlib import Path
+
+# demo30: --lite emits, in the same run, the Full artifact (index.html,
+# exactly the construction below) AND lite.html + assets/<EE>/ — the
+# nimble core with media as raw files (see ASSET-LOADING-EVALUATION.md).
+LITE = "--lite" in sys.argv
 
 HERE = Path(__file__).resolve().parent
 # Repo layout: this tree is builds/demo22, the audio sets live at
@@ -77,6 +86,7 @@ EXPECTED_BEATS = [
     "BEAT-death", "BEAT-fall",
 ]
 audio = {}
+raw = {}
 manifest = {}
 carried = []
 if AUDIO_DIR.is_dir():
@@ -88,7 +98,10 @@ if AUDIO_DIR.is_dir():
         if beat is None:
             carried.append(mp3.name)  # unrecognized stem: carried, unhooked
             continue
-        audio[beat] = "data:audio/mpeg;base64," + base64.b64encode(mp3.read_bytes()).decode()
+        data = mp3.read_bytes()
+        audio[beat] = "data:audio/mpeg;base64," + base64.b64encode(data).decode()
+        raw[beat] = {"file": mp3.name, "bytes": len(data),
+                     "sha256": hashlib.sha256(data).hexdigest()}
     missing = [b for b in manifest if b not in audio]
     assert not missing, f"manifest beats without audio files: {missing}"
     assert sorted(k for k in audio if not k.startswith("JOY-")) == sorted(EXPECTED_BEATS), \
@@ -97,6 +110,25 @@ narration_js = (
     "const NARRATION_AUDIO = " + json.dumps(audio) + ";\n"
     "const NARRATION_MANIFEST = " + json.dumps(manifest) + ";\n"
 )
+# The ship EE: from the stamp token in game3.js, overridable at ship
+# time via NF_EE. The same value stamps both artifacts and names the
+# Lite asset directory, so a Lite can only ever request its own EE's
+# assets — skew is structurally impossible.
+_game3 = read("game3.js")
+_m = re.search(r"NF_SHIP_EE:(\d+)", _game3)
+EE = os.environ.get("NF_EE") or (_m.group(1) if _m else "0")
+
+lite_js = None
+if LITE:
+    lite_files = dict(raw)
+    lite_js = (
+        "const NARRATION_AUDIO = {};\n"
+        "const NARRATION_MANIFEST = " + json.dumps(manifest) + ";\n"
+        "const NF_LITE = " + json.dumps(
+            {"ee": EE, "base": f"assets/{EE}/", "files": lite_files}) + ";\n"
+    )
+    print(f"lite: {len(lite_files)} voice files as raw assets under assets/{EE}/")
+
 print(f"narration: {len(audio)} beats embedded, {len(manifest)} in manifest, "
       f"{sum(1 for k in audio if k.startswith('JOY-'))} banter takes hooked as JOY-###, "
       f"{len(carried)} unrecognized carried unhooked: {carried}")
@@ -155,8 +187,43 @@ module = "\n".join(parts)
 assert "</script" not in module.lower(), "module contains </script"
 (HERE / "_built_module3.mjs").write_text(module, encoding="utf-8")
 
+def stamp(text):
+    return re.sub(r"NF_SHIP_EE:\d+", f"NF_SHIP_EE:{EE}", text)
+
+
 page = read("page3.html")
 assert "/*__BUILT_MODULE__*/" in page
 page = page.replace("/*__BUILT_MODULE__*/", module)
-(HERE / "index.html").write_text(page, encoding="utf-8")
-print(f"index.html: {len(page)} bytes (module {len(module)} bytes)")
+(HERE / "index.html").write_text(stamp(page), encoding="utf-8")
+print(f"index.html (Full): {len(page)} bytes (module {len(module)} bytes)")
+
+if LITE:
+    lite_intro = (
+        f'window.__INTRO_VIDEO = "assets/{EE}/phext-intro.mp4";\n'
+        f'window.__INTRO_POSTER = "assets/{EE}/phext-intro-poster.png";\n'
+    )
+    lite_module = module.replace(narration_js, lite_js).replace(intro_js, lite_intro)
+    assert lite_module != module and "NF_LITE" in lite_module
+    lite_page = stamp(page.replace(module, lite_module))
+    (HERE / "lite.html").write_text(lite_page, encoding="utf-8")
+    print(f"lite.html (Lite): {len(lite_page)} bytes (module {len(lite_module)} bytes)")
+    assert len(lite_page) <= 1_900_000, f"Lite over the 1.9 MB hard cap: {len(lite_page)}"
+
+    # The asset directory: the same raw files Full embeds, plus the
+    # film and poster, with a sha256 manifest (name -> bytes/sha256).
+    adir = HERE / "assets" / EE
+    adir.mkdir(parents=True, exist_ok=True)
+    man_files = {}
+    for beat, info in sorted(raw.items()):
+        src = AUDIO_DIR / info["file"]
+        shutil.copyfile(src, adir / info["file"])
+        man_files[info["file"]] = {"bytes": info["bytes"], "sha256": info["sha256"]}
+    for extra in (_mp4, _poster):
+        if extra.exists():
+            data = extra.read_bytes()
+            shutil.copyfile(extra, adir / extra.name)
+            man_files[extra.name] = {"bytes": len(data),
+                                     "sha256": hashlib.sha256(data).hexdigest()}
+    man_doc = {"ee": EE, "files": man_files}
+    (adir / "manifest.json").write_text(json.dumps(man_doc, indent=1) + "\n", encoding="utf-8")
+    print(f"assets/{EE}/: {len(man_files)} files + manifest.json")

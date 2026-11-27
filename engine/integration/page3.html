@@ -477,6 +477,16 @@
     min-height: 14px; white-space: nowrap; overflow: hidden;
     transition: opacity 0.6s ease;
   }
+  /* Lite (demo30): the honest progress element that rides with the
+     trail — its width is real fetched bytes of the guide-voice
+     prefetch set, counted by the narration seam in game3.js. */
+  #nf-progress { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); width: min(420px, 80vw); z-index: 7; pointer-events: none; text-align: center; }
+  #nf-progress-track { height: 4px; background: rgba(87,215,255,0.18); border-radius: 2px; overflow: hidden; }
+  #nf-progress-bar { height: 100%; width: 0%; background: #57d7ff; border-radius: 2px; transition: width 0.2s ease; }
+  #nf-progress-note {
+    color: #7fa8d8; font-size: 11px; font-style: italic; letter-spacing: 0.08em;
+    font-family: Georgia, "Times New Roman", serif; margin-top: 5px; min-height: 14px;
+  }
   #intro-viewer {
     left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 12;
     width: min(680px, 94vw); display: none;
@@ -593,6 +603,7 @@
     <div id="trail-line"></div>
   </div>
 </div>
+<div id="nf-progress" hidden><div id="nf-progress-track"><div id="nf-progress-bar"></div></div><div id="nf-progress-note"></div></div>
 <div id="stage"></div>
 <div class="overlay" id="crosshair">+</div>
 <div class="overlay" id="dmg"></div>

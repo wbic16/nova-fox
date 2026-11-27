@@ -327,6 +327,10 @@ const sfx = {
 //     guide to explore on their own).
 const narration = {
   cache: new Map(),
+  assets: new Map(),    // Lite (demo30): beat ID -> {status, url, promise}
+  voiceDown: new Set(), // Lite: beats whose voice file failed — text carries them
+  assetWait: false,     // Lite: the queue head is waiting on a fetch
+  prefetching: false,
   unlocked: false, // a real user gesture has been seen
   held: false,     // the tab is unwatched: the voice holds (2026-11-26)
   queue: [],       // [{id, at, event}] waiting to speak, trigger order
@@ -341,13 +345,110 @@ const narration = {
     "BEAT-cross-ashfall", "BEAT-cross-nova", "BEAT-pocket",
     "BEAT-barrow", "BEAT-quest",
   ]),
+  lite() {
+    return typeof NF_LITE !== "undefined" ? NF_LITE : null;
+  },
   ready(id) {
-    return typeof NARRATION_AUDIO !== "undefined" && !!NARRATION_AUDIO[id];
+    if (typeof NARRATION_AUDIO !== "undefined" && NARRATION_AUDIO[id]) return true;
+    // Lite: a beat is ready to queue when the manifest carries it and
+    // its voice has not already failed — the file itself is fetched
+    // by ensureAsset and speak() waits for it (see below). A failed
+    // beat is never queued again; its baked text carries the moment.
+    const L = this.lite();
+    return !!L && !!L.files[id] && !this.voiceDown.has(id);
+  },
+  // Lite: fetch one voice file from this ship's own asset directory,
+  // verify it (byte count, then sha256 when WebCrypto is at hand),
+  // and hold it as an object URL. One retry; a second failure marks
+  // the beat voice-down and resolves null — never throws, never
+  // blocks: the game treats voice as an enhancement layer (§6).
+  ensureAsset(id) {
+    const L = this.lite();
+    if (!L) return Promise.resolve(null);
+    const prev = this.assets.get(id);
+    if (prev) return prev.promise;
+    const info = L.files[id];
+    const st = { status: "fetching", url: null, promise: null };
+    const attempt = (n) => fetch(L.base + info.file).then((r) => {
+      if (!r.ok) throw new Error("http " + r.status);
+      return r.arrayBuffer();
+    }).then((buf) => {
+      if (buf.byteLength !== info.bytes) throw new Error("size mismatch");
+      if (!(window.crypto && crypto.subtle)) return buf;
+      return crypto.subtle.digest("SHA-256", buf).then((h) => {
+        const hex = [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        if (hex !== info.sha256) throw new Error("hash mismatch");
+        return buf;
+      });
+    }).catch((e) => { if (n < 1) return attempt(n + 1); throw e; });
+    st.promise = attempt(0).then((buf) => {
+      st.status = "ready";
+      st.url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+      return st.url;
+    }).catch(() => {
+      st.status = "failed";
+      this.voiceDown.add(id);
+      return null;
+    });
+    this.assets.set(id, st);
+    return st.promise;
+  },
+  // Lite: prefetch the guide spine behind the progress element. The
+  // bar counts real fetched bytes of this set (the manifest's own
+  // sizes); the film warms the HTTP cache at idle. Only the resolved
+  // scheme's N-03 variant is prefetched — the other is on-trigger.
+  prefetchGuide() {
+    const L = this.lite();
+    if (!L || this.prefetching) return;
+    this.prefetching = true;
+    const variant = (typeof state !== "undefined" && state.scheme === "AWEF")
+      ? "N-03-AWEF" : "N-03-WASD";
+    const ids = ["N-01", "N-02", variant, "N-04", "N-05", "N-06", "N-07", "N-08", "N-09"]
+      .filter((id) => L.files[id]);
+    const total = ids.reduce((s, id) => s + L.files[id].bytes, 0);
+    let done = 0;
+    this.progress(0, total);
+    ids.forEach((id) => {
+      this.ensureAsset(id).then(() => {
+        done += L.files[id].bytes;
+        this.progress(done, total);
+      });
+    });
+    const idle = window.requestIdleCallback || ((f) => setTimeout(f, 4000));
+    idle(() => {
+      fetch(L.base + "phext-intro-poster.png").catch(() => {});
+      fetch(L.base + "phext-intro.mp4").catch(() => {});
+    });
+  },
+  progress(done, total) {
+    const wrap = document.getElementById("nf-progress");
+    if (!wrap) return;
+    if (total <= 0) { wrap.hidden = true; return; }
+    const bar = document.getElementById("nf-progress-bar");
+    const note = document.getElementById("nf-progress-note");
+    if (done >= total) {
+      // Complete is a state, not a disappearance: show the full bar
+      // briefly, then retire. Every increment was a real byte.
+      wrap.hidden = false;
+      if (bar) bar.style.width = "100%";
+      if (note) note.textContent = "Joy's voice has arrived";
+      setTimeout(() => { wrap.hidden = true; }, 900);
+      return;
+    }
+    wrap.hidden = false;
+    if (bar) bar.style.width = Math.round((done / total) * 100) + "%";
+    if (note) note.textContent = "Joy's voice is arriving… " + Math.round((done / total) * 100) + "%";
   },
   element(id) {
     let a = this.cache.get(id);
     if (!a) {
-      a = new window.Audio(NARRATION_AUDIO[id]); // NOT bare Audio — see above
+      let src = (typeof NARRATION_AUDIO !== "undefined") ? NARRATION_AUDIO[id] : null;
+      if (!src) {
+        const st = this.assets.get(id);
+        if (st && st.status === "ready") src = st.url;
+      }
+      if (!src) return null; // Lite: voice still arriving — speak() waits on ensureAsset
+      a = new window.Audio(src); // NOT bare Audio — see above
       a.preload = "auto";
       a.volume = SETTINGS.narration; // the audio panel's narration level
       a.addEventListener("ended", () => this.onEnded(a));
@@ -368,7 +469,7 @@ const narration = {
     return true;
   },
   pump() {
-    if (!this.unlocked || this.held || this.speaking || this.gapTimer) return;
+    if (!this.unlocked || this.held || this.speaking || this.gapTimer || this.assetWait) return;
     const now = performance.now();
     this.queue = this.queue.filter((q) =>
       !q.event || this.EVENT_KEEP.has(q.id) ||
@@ -379,6 +480,20 @@ const narration = {
   speak(entry) {
     try {
       const a = this.element(entry.id);
+      if (!a) {
+        // Lite: the beat's voice file has not landed yet. Fetch it and
+        // let this entry speak when it arrives; if the fetch failed,
+        // the beat is dropped — its text already carried the moment,
+        // and a lost voice never wedges the queue.
+        this.assetWait = true;
+        this.ensureAsset(entry.id).then(() => {
+          this.assetWait = false;
+          if (this.voiceDown.has(entry.id)) { this.breath(); return; }
+          this.queue.unshift(entry);
+          this.pump();
+        });
+        return true;
+      }
       this.speaking = a;
       this.speakingId = entry.id;
       this.speakingEntry = entry;
@@ -439,6 +554,7 @@ const narration = {
         try { this.element(id); } catch (e) { /* a cold beat still plays late */ }
       }
     }
+    if (this.lite()) this.prefetchGuide(); // Lite: the voice starts arriving with the first gesture
     this.pump();
   },
   stop() {
