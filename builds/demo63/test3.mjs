@@ -4331,6 +4331,8 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("F-2 correction: the daily gate itself is unchanged by the window",
     gravityShiftAllowed([mine], "nova", "fox-f", DAY) === false &&
     gravityShiftAllowed([], "nova", "fox-f", DAY) === true);
+}
+
 // ---------- W-4: gear tier markers (colorblind-safe tiers) ----------
 {
   check("W-4: the five gear tiers stand in Will's canon order (white below grey, then green, red, blue)",
