@@ -12,6 +12,7 @@ import {
   gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed,
   TRAIL_FLAVOR, trailWordsFrom, TrailFeed,
   inTheHall, foxVisionToggle, foxVisionReveals, FAMILIAR_RANGE_CELLS,
+  PHEXT_LEVEL_BYTES, phextImplode, worldToPhext,
 } from "./world.js";
 import {
   ECO_RATES, LANCE, newEconomyState, loadEconomyState, isGenerator,
@@ -32,6 +33,26 @@ import {
   formChartLine, formOffLine, parseFormChart,
   b64encodeUtf8, b64decodeUtf8,
 } from "./forms.js";
+import {
+  RUN_KIND, RUN_SPLITS, RUN_FINISH_BEAT, splitForBeat, deepStoneNear,
+  formatRunTime, newRunRecording, recEvent, verifyRecording,
+  serializeRecording, parseRecording, telemetryMessage,
+} from "./speedrun.js";
+import {
+  BANTER_LINES, BANTER_BY_N, BANTER_TUNABLES,
+  createBanter, banterEvent, banterSnapshot,
+} from "./banter.js";
+import {
+  SCHEME_PREF_KEY, schemeFromPref, schemeFromLegacy, isScheme,
+  otherScheme, prefForScheme, resolveScheme, schemeBeatId,
+} from "./scheme.js";
+import {
+  IDEA_TITLE_MAX, IDEA_BODY_MAX, IDEA_LIMITS,
+  validateIdea, makeIdeaId,
+  serializeIdea, parseIdeaLine, serializeStatus, parseStatusLine,
+  parseIdeas, parseIdeaScroll,
+  ideaB64Encode, ideaB64Decode,
+} from "./ideas.js";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -1418,6 +1439,694 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     game.includes('if (m.kind === "guardian") setGuardianEncounter(true);') &&
     game.includes("updateGuardianEncounter();") &&
     game.includes("GUARDIAN_LEASH"));
+}
+
+// =====================================================================
+// THE ESC MENU (demo13, 2026-11-26): the .phext export is real phext
+// (the estate implode), and the built file carries the menu, the
+// binding store, and the settings store.
+{
+  console.log("\n== esc menu: the .phext export ==");
+  // The implode, byte for byte: three scrolls, hand-computed from
+  // the state machine (start 1.1.1/1.1.1/1.1.1; the second scroll
+  // costs one scroll byte 0x17; the third differs at the section
+  // component, so one section byte 0x1A, which also resets the
+  // scroll component to 1 on the way).
+  const imp = phextImplode(new Map([
+    ["1.1.1/1.1.1/1.1.1", "A"],
+    ["1.1.1/1.1.1/1.1.2", "B"],
+    ["1.1.1/1.1.2/1.1.1", "C"],
+  ]));
+  check("phext: implode emits the level bytes in order",
+    imp === "A\x17B\x1AC", JSON.stringify(imp));
+  check("phext: the level byte table is the estate's",
+    PHEXT_LEVEL_BYTES.length === 9 && PHEXT_LEVEL_BYTES[0] === 0x01 &&
+    PHEXT_LEVEL_BYTES[8] === 0x17);
+
+  const sub = new Subspace(); // kernels were initialized at the top of this file
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    sub.getScroll("nova", dx, dy, true);
+  }
+  const out = worldToPhext(sub, { player: "unit-fox", score: 7, exportedAt: "2026-11-26" });
+  check("phext: the export carries the whole opened world",
+    out.scrolls >= 13, `${out.scrolls} scrolls`); // home+log+realm+things+9 pages
+  check("phext: the log scroll carries the genesis inscription",
+    out.text.includes("the world is loaded"));
+  check("phext: the home scroll names the player and the score",
+    out.text.includes("Player: unit-fox") && out.text.includes("Score: 7"));
+  check("phext: every coordinate component is >= 1",
+    out.coords.every((k) => k.replace(/\//g, ".").split(".").every((n) => Number(n) >= 1)));
+  // Explode by delimiter runs: each scroll after the first follows
+  // exactly one run of level bytes (the export's texts are plain —
+  // no level byte appears inside one).
+  const levelSet = new Set(PHEXT_LEVEL_BYTES);
+  let runs = 0, inRun = false;
+  for (const ch of out.text) {
+    const isLevel = levelSet.has(ch.charCodeAt(0));
+    if (isLevel && !inRun) runs++;
+    inRun = isLevel;
+  }
+  check("phext: an explode by level-byte runs finds every scroll",
+    runs + 1 === out.scrolls, `${runs + 1} vs ${out.scrolls}`);
+  check("phext: the byte count is the UTF-8 length of the text",
+    out.bytes === new TextEncoder().encode(out.text).length);
+}
+{
+  console.log("\n== esc menu: the built file ==");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("menu: the built file carries the menu and its three sub-panels",
+    html.includes('id="menu"') && html.includes('id="bindings-panel"') &&
+    html.includes('id="video-panel"') && html.includes('id="audio-panel"'));
+  check("menu: all eight rows are in the built file",
+    ["menu-newgame", "menu-lan", "menu-savephext", "menu-merge",
+     "menu-keys", "menu-video", "menu-audio", "menu-quit"]
+      .every((id) => html.includes(`id="${id}"`)));
+  check("menu: the binding store is the one obvious place",
+    html.includes('LS.get("nova-phox-bindings"') &&
+    html.includes("function setBinding") && html.includes("BIND.strike"));
+  check("menu: the settings store is real and wired to the engine",
+    html.includes('LS.get("nova-phox-settings"') &&
+    html.includes("RENDER_R = SETTINGS.viewDistance") &&
+    html.includes("SETTINGS.renderScale") && html.includes("SETTINGS.master"));
+  check("menu: the new-game reset names the save model's keys",
+    html.includes('"nova-phox-outbox"') && html.includes('"nova-phox-economy"') &&
+    html.includes("function startNewGame"));
+  check("menu: the LAN state is honest in the built file",
+    html.includes("transport: null") && html.includes("no LAN transport"));
+  check("menu: the .phext download takes worldToPhext's output",
+    html.includes("worldToPhext(sub") && html.includes(".phext"));
+}
+
+// --- narration wiring (demo22): Joy's script, in text and voice -------
+// Will's final script (NARRATION.md) is the game's only dialog now.
+// These checks pin the wiring: every one of the script's 25 spoken
+// texts stands verbatim in the built file; the speaker is Joy, the
+// aperture shift; the old dialog is gone; and the embedded voice is
+// the Joy set — 25 takes by beat ID, N-03 carried in both schemes,
+// no take for the silent beats (border-down, strike-hold) or the
+// retired one (contact), and no banter take (carried, unhooked).
+{
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const md = readFileSync(new URL("./NARRATION.md", import.meta.url), "utf8");
+  const texts = {};
+  for (const sec of md.split(/^### /m).slice(1)) {
+    const head = sec.split("\n")[0];
+    const m = head.match(/^(N-\d+|BEAT-[\w-]+) ·/);
+    if (!m) continue;
+    const q = sec.split("\n").filter((l) => l.startsWith("> "))
+      .map((l) => l.slice(2));
+    if (!q.length) continue;
+    const key = m[1] === "N-03"
+      ? (head.includes("(WASD variant)") ? "N-03-WASD" : "N-03-AWEF")
+      : m[1];
+    texts[key] = q[0];
+  }
+  const spoken = Object.keys(texts).filter((k) => k !== "BEAT-contact");
+  check("narration: the script parses to its 25 spoken texts (+ retired BEAT-contact)",
+    spoken.length === 25 &&
+    texts["BEAT-contact"] === "It reaches you out of the dark.",
+    Object.keys(texts).join(","));
+  check("narration: every script text stands verbatim in the built file",
+    spoken.every((k) => html.includes(texts[k])),
+    spoken.filter((k) => !html.includes(texts[k])).join(", "));
+  check("narration: the speaker is Joy, the aperture shift",
+    html.includes("aperture shift") &&
+    html.includes("Joy — your aperture shift"));
+  const OLD_DIALOG = [
+    "Wake up, fox. I'm Emise — I keep the map, and I'll walk with you a while.",
+    "The galaxy is ours: every star named, every shore explored. But most of everything is still dark — and nobody ever learned what the dark is hiding.",
+    "Then the rifts opened — cracks where the dark gets in. Things turn up that shouldn't exist. Places appear that nobody built.",
+    "You're standing in one now: Nova Prime. Click the world to take control — the sound starts with that click, so listen as you go.",
+    "Feet first. Walk with W A S D — the arrows work too. Look with the mouse, and jump with Space. Walk as far as you like: there is no fence, no edge, no end.",
+    "See the number keys along the top of your keyboard? They're an instrument. The letter row under them works too. Press any number and listen.",
+    "Three different notes together make a tune. And a tune, fox, is a place.",
+    "Here is the first tune worth knowing: 1, 4, 9. Play the three notes in any order, close together.",
+    "That's the bridge tune. It opens a rift to Ashfall Haven, a few steps in front of you — walk through it to cross. From Ashfall, the same tune opens the way home.",
+    "Ash and red rock. Every place on the map has its own weather, its own ground, its own mood.",
+    "Things move in the dark here, same as at home. Most of the time you'll only catch a glimpse of them — and that's your moment. Strike when one shows itself: click, or press F.",
+    "Play 1, 4, 9 when you're ready to head back.",
+    "One more trick before I leave you to it: press G, and down turns upside down. Down isn't a law here — each place keeps its own down, and it remembers what you set.",
+    "Try it. Flip down up, and a dark ceiling appears over this place to catch you — it wasn't there before you flipped.",
+    "East of where you woke up, a hill rises over an old buried hall — the barrow. Deep inside it lies the Deep Stone, and something is guarding it.",
+    "Reach the stone, and the prize is yours for good. The grass, the light, even the day will change around it — what you've earned stays earned.",
+    "Climb the hill and go down the shaft in its top. Fight with click or F. And watch your hearts — when they're gone, you're carried back to where you started.",
+    "The hat is yours, and it's yours for good. You know the two true things now, even if you'd never say them my way: a tune is a place, and a mark you make stays — even when everything around it changes.",
+    "The rest of the map is yours. Ten more realms are marked on it, quiet for now — press M to see their names. I'll be here when you need me.",
+    "Down is down again here.",
+    "Down is up here. The place says so.",
+    "The world lost track of you for a moment.",
+    "The dark takes its due — and you wake back at Arrival. Everything you earned is still yours.",
+    "The guardian is gone. The hall is quiet.",
+    "It's gone. And the scar stays.",
+    "It holds. Strike again.",
+    "That's this place's own tune — it hums, and you stay put.",
+    "Ashfall Haven. The air tastes of cinders; the rock remembers fire.",
+    "Nova Prime. Home meadow, green under a kind sky.",
+    "The tune lands you in a far-off place.",
+    "Down is down. The place remembers.",
+    "Down is up. The place remembers.",
+    "The barrow hall. Something guards the deep room below — watch for its glimpses, and strike when it shows itself.",
+    "The Deep Stone — and with it, a hat. It's yours for good.",
+    "Nova Prime. I'm Emise — my panel is at the bottom of your screen.",
+    "Emise — your guide",
+    "listen to Emise"
+  ];
+  check("narration: the old dialog is gone from the built file",
+    OLD_DIALOG.every((s) => !html.includes(s)),
+    OLD_DIALOG.filter((s) => html.includes(s)).join(" | "));
+  const keyReady = (id) => html.includes(`"${id}": "data:audio/mpeg;base64,`);
+  check("narration: the Joy voice is embedded — all 25 takes, by beat ID",
+    spoken.every(keyReady),
+    spoken.filter((k) => !keyReady(k)).join(", "));
+  check("narration: no bare N-03 take — the scheme variants carry it",
+    !keyReady("N-03") && keyReady("N-03-WASD") && keyReady("N-03-AWEF"));
+  check("narration: the silent and retired beats have no take",
+    !keyReady("BEAT-border-down") && !keyReady("BEAT-strike-hold") &&
+    !keyReady("BEAT-contact"));
+  check("narration: the banter takes are embedded under their JOY-### line IDs (demo17 hook)",
+    html.includes('"JOY-001"') && html.includes('"JOY-081"'));
+  check("narration: the move step resolves its text and beat by scheme",
+    html.includes("MOVE_LINES[state.scheme]") &&
+    html.includes('state.scheme === "AWEF" ? "N-03-AWEF" : "N-03-WASD"'));
+}
+// --- speedrun mode (demo16): the run, its recording, its stream -----------
+// The pure half of Will's speedrunner spec: what a run is, what its
+// recording says, and how the recording is checked. The finish test
+// must mirror Subspace.checkQuest exactly, and a recording's own
+// event stream must reproduce its finish time under verification.
+{
+  check("speedrun: the race clock reads m:ss.mmm",
+    formatRunTime(0) === "0:00.000" && formatRunTime(7250) === "0:07.250" &&
+    formatRunTime(754567) === "12:34.567" && formatRunTime(-5) === "0:00.000");
+  const stone = DUNGEON.deepStone;
+  check("speedrun: the finish test is checkQuest's near-box, no wider",
+    deepStoneNear(stone.x, stone.y, stone.z, stone) &&
+    deepStoneNear(stone.x + 2, stone.y + 3, stone.z - 2, stone) &&
+    !deepStoneNear(stone.x + 3, stone.y, stone.z, stone) &&
+    !deepStoneNear(stone.x, stone.y + 4, stone.z, stone));
+  check("speedrun: splits are the named beats, in the order a run meets them",
+    RUN_SPLITS.length === 3 &&
+    splitForBeat("BEAT-barrow")?.name === "The Barrow Hall" &&
+    splitForBeat("BEAT-nope") === null && RUN_FINISH_BEAT === "BEAT-quest");
+
+  // A synthetic run, written the way the game's recorder writes it.
+  const rec = newRunRecording({
+    player: "fox-test", shipEE: "950",
+    startedAt: "2026-11-26T21:30:00.000Z", stone,
+  });
+  recEvent(rec, 0, "start", { realm: "nova" });
+  recEvent(rec, 250, "pos", { realm: "nova", x: 8.5, y: 21.01, z: 8.5, hp: 20, grav: 1 });
+  recEvent(rec, 900, "key", { code: "KeyW" });
+  recEvent(rec, 5000, "strike", {});
+  recEvent(rec, 30000, "split", { beat: "BEAT-barrow" });
+  recEvent(rec, 60000, "pos", { realm: "nova", x: 45.5, y: 5.01, z: 30.5, hp: 14, grav: 1 });
+  recEvent(rec, 75432, "finish", { x: stone.x + 0.5, y: stone.y + 1.01, z: stone.z + 0.5 });
+
+  const v = verifyRecording(rec);
+  check("speedrun: a whole recording verifies, and its stream reproduces its finish time",
+    v.ok && v.finishMs === 75432, JSON.stringify(v.errors));
+  check("speedrun: verification reads the splits back off the stream",
+    v.splits.length === 1 && v.splits[0].beat === "BEAT-barrow" && v.splits[0].atMs === 30000);
+
+  const backwards = structuredClone(rec);
+  backwards.events[3].t = 100; // the strike lands before the key that swung it
+  check("speedrun: a stream that runs backwards in time does not verify",
+    !verifyRecording(backwards).ok);
+  const twoFinishes = structuredClone(rec);
+  recEvent(twoFinishes, 76000, "finish", { x: stone.x, y: stone.y, z: stone.z });
+  check("speedrun: two finishes do not verify", !verifyRecording(twoFinishes).ok);
+  const wrongStone = structuredClone(rec);
+  const fe = wrongStone.events.find((e) => e.k === "finish");
+  fe.x = stone.x + 40;
+  check("speedrun: a finish away from the stone does not verify",
+    !verifyRecording(wrongStone).ok);
+  const outOfOrder = structuredClone(rec);
+  outOfOrder.events.splice(5, 0, { t: 29000, k: "split", beat: "BEAT-guardian-kill" });
+  check("speedrun: splits out of order do not verify", !verifyRecording(outOfOrder).ok);
+  const noStart = structuredClone(rec);
+  noStart.events = noStart.events.filter((e) => e.k !== "start");
+  check("speedrun: a stream with no start does not verify", !verifyRecording(noStart).ok);
+
+  const text = serializeRecording(rec);
+  const back = parseRecording(text);
+  const vb = verifyRecording(back);
+  check("speedrun: the .phext scroll round-trips — parse, then verify, same finish",
+    back.kind === RUN_KIND && back.events.length === rec.events.length &&
+    vb.ok && vb.finishMs === 75432, JSON.stringify(vb.errors));
+  check("speedrun: the scroll names its player, its epoch, and its stone",
+    text.includes("player: fox-test") && text.includes("ship-ee: 950") &&
+    text.includes(`stone: ${stone.x},${stone.y},${stone.z}`));
+
+  const msg = JSON.parse(telemetryMessage("telemetry", { elapsedMs: 1234, realm: "nova" }));
+  check("speedrun: a stream message is one JSON object, typed and named",
+    msg.type === "telemetry" && msg.game === "nova-fox" && msg.elapsedMs === 1234);
+
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("speedrun: the race clock and the panel ride in the built file",
+    html.includes('id="runtimer"') && html.includes('id="speedrun"') &&
+    html.includes('id="btn-speedrun"') && html.includes("function speedrunTick"));
+}
+// --- banter: Joy's hundred and the trigger engine (demo17) -------
+// The lines are Joy's own (JOY-BANTER.md); the engine is banter.js.
+// Every check drives the engine with constructed events and an
+// injected clock — conditions fire, conditions don't, and the
+// discipline (grace, gaps, pool lock, the protected quiet) holds.
+{
+  const T0 = 1_000_000;
+  const obs = (over = {}) => ({
+    type: "observe", x: 8.5, y: 21, z: 8.5, realm: "nova", yaw: 0,
+    onGround: true, hSpeed: 0, idleMs: 0, gravDir: 1,
+    startVisible: false, atView: false, lookTowardStart: false,
+    groundAheadDelta: 0, inHall: false, ambienceCinders: false, ...over,
+  });
+  const chord = (bs, at, seq = [1, 4, 9], targetKey = "realm:ashfall", targetRealm = "ashfall") =>
+    banterEvent(bs, { type: "chord", seq, targetKey, targetRealm, inHall: false, leavesRealm: true }, at);
+
+  // the table itself: a hundred lines, Joy's numbers, her words
+  check("banter: the table holds exactly 100 lines", BANTER_LINES.length === 100);
+  check("banter: ids run JOY-001..JOY-100 in order",
+    BANTER_LINES.every((l, i) => l.id === "JOY-" + String(i + 1).padStart(3, "0") && l.n === i + 1));
+  check("banter: spot texts are verbatim (#1, #36, #81, #100)",
+    BANTER_BY_N.get(1).text === "I love this part. The not-knowing part." &&
+    BANTER_BY_N.get(36).text === "Look how far away our morning is." &&
+    BANTER_BY_N.get(81).text === "Oh, I know that handwriting. Hi, earlier Fox." &&
+    BANTER_BY_N.get(100).text === "I saved you a quiet, Fox.");
+  check("banter: spot texts are verbatim (#29, #70)",
+    BANTER_BY_N.get(29).text === "There you are." &&
+    BANTER_BY_N.get(70).text === "I knew where you meant by the way you played the first note.");
+
+  // the opening's grace: a first crossing inside it is silent
+  {
+    const bs = createBanter(null, T0);
+    check("banter: grace — a crossing in the first 20 s speaks nothing",
+      banterEvent(bs, { type: "cross", from: "nova", to: "elven", ambience: [] }, T0 + 5000) === null);
+    const line = banterEvent(bs, { type: "cross", from: "elven", to: "orchid", ambience: [] }, T0 + 21000);
+    check("banter: first realm after the grace — #3 new realm smell",
+      line && line.n === 3, line && line.text);
+  }
+  // the global gap lets a moment go; the seam still compares across
+  {
+    const bs = createBanter(null, T0);
+    banterEvent(bs, { type: "cross", from: "nova", to: "elven", ambience: [] }, T0 + 21000);
+    check("banter: global gap — a rich moment 10 s later is let go",
+      banterEvent(bs, { type: "cross", from: "elven", to: "ashfall", ambience: ["cinders"] }, T0 + 31000) === null);
+    const line = banterEvent(bs, {
+      type: "cross", from: "ashfall", to: "nova",
+      ambience: [], fromAmbience: ["cinders", "wet"],
+    }, T0 + 67000);
+    check("banter: crossing out of the cinders — #49, the rain stops",
+      line && line.n === 49, line && line.text);
+    const bs2 = createBanter(null, T0);
+    const first = banterEvent(bs2, { type: "cross", from: "nova", to: "ashfall", ambience: ["cinders", "wet"] }, T0 + 21000);
+    check("banter: first cinder entry — #8, Ashfall saying hello",
+      first && first.n === 8, first && first.text);
+  }
+  // the group gap: wonder is spent, but another group may speak
+  {
+    const bs = createBanter(null, T0);
+    banterEvent(bs, { type: "cross", from: "nova", to: "ashfall", ambience: ["cinders"] }, T0 + 21000); // #8, wonder
+    const line = banterEvent(bs, { type: "pocket" }, T0 + 21000 + 50000);
+    check("banter: group gap — the pocket speaks #50 (rifts), not a wonder line",
+      line && line.n === 50, line && line.text);
+  }
+  // #29: the long absence only; #30: the handover bookend, once
+  {
+    const bs = createBanter(null, T0);
+    const line = banterEvent(bs, { type: "sessionStart", awayMs: 9 * 3600 * 1000 }, T0 + 1000);
+    check("banter: #29 — a nine-hour absence earns 'There you are.'",
+      line && line.n === 29, line && line.text);
+    const bs2 = createBanter(null, T0);
+    check("banter: #29 — an hour away is not a long absence",
+      banterEvent(bs2, { type: "sessionStart", awayMs: 3600 * 1000 }, T0 + 1000) === null);
+    const bs3 = createBanter(null, T0);
+    const hello = banterEvent(bs3, { type: "handover" }, T0 + 1000);
+    check("banter: #30 — the handover speaks the bookend inside the grace",
+      hello && hello.n === 30, hello && hello.text);
+    check("banter: #30 — and only once",
+      banterEvent(bs3, { type: "handover" }, T0 + 100000) === null);
+  }
+  // #36 (named): crest a ridge with the morning still visible
+  {
+    const climb = (bs, startVisible) => {
+      chord(bs, T0 + 1000); // a tune early: #6 stays out of the way
+      let out = null;
+      const ys = [21, 22, 23, 24, 25, 26, 25.4, 24.4];
+      ys.forEach((y, i) => {
+        const r = banterEvent(bs, obs({
+          x: 8.5 + i, y, hSpeed: 2, startVisible,
+        }), T0 + 21000 + i * 250);
+        if (r) out = r;
+      });
+      return out;
+    };
+    const seen = climb(createBanter(null, T0), true);
+    check("banter: #36 — cresting with the start in view",
+      seen && seen.n === 36, seen && seen.text);
+    const unseen = climb(createBanter(null, T0), false);
+    check("banter: crest without the start in view — #12, not #36",
+      unseen && unseen.n === 12, unseen && unseen.text);
+  }
+  // #70 (named): the first note toward a place visited often
+  {
+    const bs = createBanter(null, T0);
+    chord(bs, T0 + 1000); chord(bs, T0 + 2000); chord(bs, T0 + 3000);
+    const line = banterEvent(bs, { type: "note", n: 1, seqIndex: 1, firstNote: 1, gapMs: 0 }, T0 + 30000);
+    check("banter: #70 — three journeys to Ashfall teach her the first note",
+      line && line.n === 70, line && line.text);
+    const bs2 = createBanter(null, T0);
+    chord(bs2, T0 + 1000); chord(bs2, T0 + 2000);
+    check("banter: #70 — twice is not 'often' yet",
+      banterEvent(bs2, { type: "note", n: 1, seqIndex: 1, firstNote: 1, gapMs: 0 }, T0 + 30000) === null);
+  }
+  // #41 / #47: the seam compares, and a revisited patch of sun
+  {
+    const bs = createBanter(null, T0);
+    const x = (from, to, ambience, fromAmbience, at) =>
+      banterEvent(bs, { type: "cross", from, to, ambience, fromAmbience }, at);
+    x("nova", "halycon", ["bright"], [], T0 + 21000);            // #3
+    x("halycon", "logos", ["strong"], ["bright"], T0 + 111000);  // #9 (group gap honored)
+    const seam = x("logos", "delta", ["dark"], ["strong"], T0 + 157000);
+    check("banter: #41 — the seam line, once the louder lines are spent",
+      seam && seam.n === 41, seam && seam.text);
+    const bs2 = createBanter(null, T0);
+    const y = (from, to, ambience, fromAmbience, at) =>
+      banterEvent(bs2, { type: "cross", from, to, ambience, fromAmbience }, at);
+    y("nova", "halycon", ["bright"], [], T0 + 21000);            // #3
+    y("halycon", "nova", [], ["bright"], T0 + 67000);            // #41
+    const sun = y("nova", "halycon", ["bright"], [], T0 + 157000); // group gap honored
+    check("banter: #47 — back in the bright realm, a patch of sun",
+      sun && sun.n === 47, sun && sun.text);
+  }
+  // #32: the long walk that ends in front of a very good rock
+  {
+    const bs = createBanter(null, T0);
+    chord(bs, T0 + 1000);
+    let x = 8.5;
+    banterEvent(bs, obs({ x }), T0 + 21000);
+    for (let i = 1; i <= 30; i++) {
+      x += 2.5;
+      const stopped = i % 10 === 0;
+      banterEvent(bs, obs({ x, hSpeed: stopped ? 0 : 2 }), T0 + 21000 + i * 1000);
+    }
+    const line = banterEvent(bs, obs({ x, idleMs: 4500, lookPrize: true }), T0 + 21000 + 31000);
+    check("banter: #32 — seventy-five blocks, then a very good rock",
+      line && line.n === 32, line && line.text);
+  }
+  // #81 (named): your own old mark, met from an unfamiliar approach
+  {
+    const markAt = (bs) => banterEvent(bs, {
+      type: "mark", key: "nova:10,20,10", x: 10, y: 20, z: 10, realm: "nova",
+      yaw: 0, broke: false, level: 1, dist: 2, inHall: false,
+    }, T0 + 21000);
+    const bs = createBanter(null, T0);
+    markAt(bs);
+    banterEvent(bs, obs({ x: 100, y: 21, z: 100 }), T0 + 21000 + 11 * 60000);
+    const line = banterEvent(bs, obs({ x: 12, y: 21, z: 12, yaw: Math.PI }), T0 + 21000 + 11 * 60000 + 46000);
+    check("banter: #81 — the old mark, approached from the far side",
+      line && line.n === 81, line && line.text);
+    const bs2 = createBanter(null, T0);
+    markAt(bs2);
+    banterEvent(bs2, obs({ x: 100, y: 21, z: 100 }), T0 + 21000 + 11 * 60000);
+    const ctrl = banterEvent(bs2, obs({ x: 12, y: 21, z: 12, yaw: 0.2 }), T0 + 21000 + 11 * 60000 + 46000);
+    check("banter: #81 — the familiar approach earns #85 (crooked) instead",
+      ctrl && ctrl.n === 85, ctrl && ctrl.text);
+  }
+  // #100: the saved quiet — and the silence protected after it
+  {
+    const bs = createBanter(null, T0);
+    chord(bs, T0 + 1000);
+    banterEvent(bs, obs({}), T0 + 21000);
+    const line = banterEvent(bs, obs({ idleMs: 19000, atView: true }), T0 + 22000);
+    check("banter: #100 — a long chosen pause beside a view",
+      line && line.n === 100, line && line.text);
+    check("banter: #100 — the quiet is protected (a crossing inside it is silent)",
+      banterEvent(bs, { type: "cross", from: "nova", to: "elven", ambience: [] }, T0 + 22000 + 60000) === null);
+    const after = banterEvent(bs, { type: "cross", from: "elven", to: "orchid", ambience: [] }, T0 + 22000 + 181000 + 46000);
+    check("banter: #100 — after the quiet, she speaks again",
+      after && after.n === 3, after && after.text);
+  }
+  // a pause that is not beside a view: the soft set stays distinct
+  {
+    const bs = createBanter(null, T0);
+    chord(bs, T0 + 1000);
+    banterEvent(bs, obs({}), T0 + 21000);
+    const line = banterEvent(bs, obs({ idleMs: 26000, atView: false }), T0 + 22000);
+    check("banter: #91 — a long plain pause watches the cloud instead",
+      line && line.n === 91, line && line.text);
+  }
+  // the pool lock: a line does not come back until the pool is used
+  {
+    const bs = createBanter(null, T0);
+    const g = (id, at) => banterEvent(bs, {
+      type: "glimpse", monsterId: id, kind: "surface", realm: "nova",
+      dist: 20, bearingDeg: 10, secondVisible: false, afterStillMs: 0,
+      playerMoving: true, turnedRecently: false, longDarkMs: 0,
+    }, at);
+    const first = g("m1", T0 + 21000);
+    check("banter: first glimpse of the session — #4, they watch us",
+      first && first.n === 4, first && first.text);
+    const second = g("m2", T0 + 21000 + 46000);
+    check("banter: the next glimpse speaks another line (#51), never #4 again",
+      second && second.n === 51, second && second.text);
+  }
+  // the blink: a glimpse that ends before she can finish blinking
+  {
+    const bs = createBanter(null, T0);
+    const line = banterEvent(bs, { type: "glimpseEnd", monsterId: "m1", durationMs: 800, struck: false }, T0 + 21000);
+    check("banter: #53 — a sub-second glimpse, unstruck",
+      line && line.n === 53, line && line.text);
+  }
+  // gravity: down's long tenure earns #20; a quick flip earns #71
+  {
+    const bs = createBanter(null, T0);
+    const line = banterEvent(bs, { type: "flip", toUp: true }, T0 + 6 * 60000);
+    check("banter: #20 — down had its chance (six minutes of down first)",
+      line && line.n === 20, line && line.text);
+    const bs2 = createBanter(null, T0);
+    const quick = banterEvent(bs2, { type: "flip", toUp: true }, T0 + 21000);
+    check("banter: #71 — a quick flip is just 'Oh, that up.'",
+      quick && quick.n === 71, quick && quick.text);
+  }
+  // landings: the mid-air flip is the clever one; a first inverted
+  // landing looks at the tops of doors
+  {
+    const bs = createBanter(null, T0);
+    const line = banterEvent(bs, {
+      type: "land", airMs: 2000, inverted: false, flipMidAir: true, descent: 3, horizDist: 2,
+    }, T0 + 21000);
+    check("banter: #77 — flipped mid-air, ears caught up",
+      line && line.n === 77, line && line.text);
+    const bs2 = createBanter(null, T0);
+    const inv = banterEvent(bs2, {
+      type: "land", airMs: 1000, inverted: true, flipMidAir: false, descent: 3, horizDist: 2,
+    }, T0 + 21000);
+    check("banter: #74 — the first inverted landing",
+      inv && inv.n === 74, inv && inv.text);
+  }
+  // muted: while the guide owns the fox she remembers but never speaks
+  {
+    const bs = createBanter(null, T0);
+    bs.muted = true;
+    check("banter: muted — a first crossing is remembered, not spoken",
+      banterEvent(bs, { type: "cross", from: "nova", to: "elven", ambience: [] }, T0 + 21000) === null &&
+      bs.plays === 0 && bs.visitedRealms.has("elven"));
+    bs.muted = false;
+    const line = banterEvent(bs, { type: "cross", from: "elven", to: "orchid", ambience: [] }, T0 + 22000);
+    check("banter: unmuted — the next new realm speaks",
+      line && line.n === 3, line && line.text);
+  }
+  // persistence: the snapshot carries her memory across sessions
+  {
+    const bs = createBanter(null, T0);
+    banterEvent(bs, {
+      type: "mark", key: "nova:10,20,10", x: 10, y: 20, z: 10, realm: "nova",
+      yaw: 0, broke: false, level: 1, dist: 2, inHall: false,
+    }, T0 + 21000);
+    const snap = banterSnapshot(bs, T0 + 30000);
+    const bs2 = createBanter(snap, T0 + 40000);
+    check("banter: snapshot — the mark registry survives the session",
+      bs2.marks.has("nova:10,20,10") && bs2.marksMade === 1);
+    check("banter: snapshot — lastSeenAt is stamped for the absence clock",
+      snap.lastSeenAt === T0 + 30000);
+  }
+  // the built file carries the banter: lines, engine, and the surface
+  {
+    const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+    check("banter: the built file carries the hundred and the line surface",
+      html.includes("createBanter") && html.includes("I saved you a quiet, Fox.") &&
+      html.includes('id="banter-line"') && html.includes("banterEvent"));
+  }
+}
+// --- control schemes: preference, flip, variants (demo19) ------------
+// Will (2026-11-26 16:17): the game should give him AWEF on his own
+// machine without asking twice. A page cannot read a browser account
+// or a machine name, so the mechanism is a stored preference —
+// resolution order, tested here at the pure seam (scheme.js):
+// stored nf.scheme > the v5 controls record's scheme > the coin
+// flip, with the flip's result stored by the glue so it happens at
+// most once per browser.
+{
+  const flipTo = (s) => () => s;
+  const noFlip = () => { throw new Error("flip must not be called"); };
+
+  check("scheme: the preference key is nf.scheme",
+    SCHEME_PREF_KEY === "nf.scheme");
+  check("scheme: stored 'awef' beats a WASD flip",
+    resolveScheme({ pref: "awef", legacy: null, flip: flipTo("WASD") }).scheme === "AWEF");
+  check("scheme: stored 'wasd' beats an AWEF flip",
+    resolveScheme({ pref: "wasd", legacy: null, flip: flipTo("AWEF") }).scheme === "WASD");
+  check("scheme: a stored preference never reaches the flip",
+    resolveScheme({ pref: "awef", legacy: "WASD", flip: noFlip }).source === "pref");
+  check("scheme: the stored preference beats the legacy record too",
+    resolveScheme({ pref: "wasd", legacy: "AWEF", flip: noFlip }).scheme === "WASD");
+  check("scheme: the legacy record carries a prior choice over the flip",
+    resolveScheme({ pref: null, legacy: "AWEF", flip: noFlip }).scheme === "AWEF" &&
+    resolveScheme({ pref: null, legacy: "AWEF", flip: noFlip }).source === "legacy");
+  check("scheme: with nothing stored, the flip decides",
+    resolveScheme({ pref: null, legacy: null, flip: flipTo("AWEF") }).scheme === "AWEF" &&
+    resolveScheme({ pref: null, legacy: null, flip: flipTo("AWEF") }).source === "flip" &&
+    resolveScheme({ pref: undefined, legacy: undefined, flip: flipTo("WASD") }).scheme === "WASD");
+  check("scheme: a corrupt preference falls back to the legacy record",
+    resolveScheme({ pref: "banana", legacy: "AWEF", flip: noFlip }).scheme === "AWEF");
+  check("scheme: corrupt values everywhere fall back to the flip, never crash",
+    resolveScheme({ pref: "banana", legacy: "sideways", flip: flipTo("WASD") }).scheme === "WASD" &&
+    resolveScheme({ pref: 42, legacy: {}, flip: flipTo("AWEF") }).scheme === "AWEF" &&
+    resolveScheme({ pref: { scheme: "awef" }, legacy: [], flip: flipTo("WASD") }).scheme === "WASD");
+  check("scheme: a broken flip resolves to WASD rather than crashing",
+    resolveScheme({ pref: null, legacy: null, flip: () => "diagonal" }).scheme === "WASD" &&
+    resolveScheme({ pref: null, legacy: null, flip: null }).scheme === "WASD");
+  check("scheme: pref parsing is exact about the two names",
+    schemeFromPref("awef") === "AWEF" && schemeFromPref("wasd") === "WASD" &&
+    schemeFromPref("AWEF") === "AWEF" && schemeFromPref("") === null &&
+    schemeFromPref("awef2") === null && schemeFromPref(null) === null);
+  check("scheme: legacy parsing accepts only the game-dress names",
+    schemeFromLegacy("WASD") === "WASD" && schemeFromLegacy("AWEF") === "AWEF" &&
+    schemeFromLegacy("wasd") === null && schemeFromLegacy(null) === null);
+  check("scheme: the write-back value round-trips through the parser",
+    schemeFromPref(prefForScheme("AWEF")) === "AWEF" &&
+    schemeFromPref(prefForScheme("WASD")) === "WASD" &&
+    prefForScheme("AWEF") === "awef" && prefForScheme("WASD") === "wasd");
+  check("scheme: the toggle's other side is always the other scheme",
+    otherScheme("WASD") === "AWEF" && otherScheme("AWEF") === "WASD" &&
+    isScheme("WASD") && isScheme("AWEF") && !isScheme("wasd"));
+  check("scheme: the N-03 variant follows the scheme when the build carries it",
+    schemeBeatId("AWEF", () => true) === "N-03-AWEF" &&
+    schemeBeatId("WASD", () => true) === "N-03-WASD");
+  check("scheme: without a variant recording, the shared N-03 speaks",
+    schemeBeatId("AWEF", () => false) === "N-03" &&
+    schemeBeatId("WASD", () => false) === "N-03" &&
+    schemeBeatId("AWEF", null) === "N-03");
+
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("scheme: the preference resolution rides in the built file",
+    html.includes('"nf.scheme"') && html.includes("resolveScheme") &&
+    html.includes("readSchemePref"));
+  check("scheme: the title panel carries the Controls toggle",
+    html.includes('id="btn-scheme-splash"') && html.includes("Controls:"));
+  check("scheme: both N-03 variants are embedded in the built file",
+    html.includes('"N-03-WASD"') && html.includes('"N-03-AWEF"'));
+}
+// --- player ideas (demo8): the telling door's chart lines ----------------------
+// The door's line format (EE 953 design): IDEA and STATUS lines on
+// one append-only scroll, title/body base64-UTF-8 so player text
+// can hold anything, status resolved latest-wins with the shipped
+// state carrying its ship EE, and caps refused — never truncated.
+{
+  // serialize/parse round-trip, incl. unicode + pipes + newlines
+  const idea = {
+    id: "mtk7x9ab12", name: "fox-1234", ts: 1795400000000,
+    title: "a bridge of bells | over the dark",
+    body: "line one\nline two | with a pipe\nand a fox 🦊 and café accents — ünïcode",
+  };
+  const line = serializeIdea(idea);
+  check("idea: a telling serializes to one line, however wild its text",
+    typeof line === "string" && !line.includes("\n") && line.startsWith("IDEA|v1|"));
+  const back = parseIdeaLine(line);
+  check("idea: serialize/parse round-trips unicode, pipes, and newlines exactly",
+    back !== null && back.id === idea.id && back.name === idea.name && back.ts === idea.ts &&
+    back.title === idea.title && back.body === idea.body);
+  check("idea: the base64 helpers round-trip on their own",
+    ideaB64Decode(ideaB64Encode("🦊|✓\n")) === "🦊|✓\n");
+  check("idea: garbage lines parse to nothing, never to a telling",
+    parseIdeaLine("IDEA|v0|x") === null && parseIdeaLine("hello") === null &&
+    parseIdeaLine("") === null && parseStatusLine("STATUS|v1|x|bogus|1|-") === null);
+  // ids: submit-ts base36 + 4 random base36 chars, randomness passed in
+  check("idea: an id is the submit time in base36 plus 4 rolled chars",
+    makeIdeaId(1795400000000, () => 0) === (1795400000000).toString(36) + "0000" &&
+    makeIdeaId(1795400000000, () => 0.999) === (1795400000000).toString(36) + "zzzz" &&
+    makeIdeaId(123, "wxyz") === (123).toString(36) + "wxyz");
+  check("idea: different rolls give different ids for the same moment",
+    makeIdeaId(999, () => 0) !== makeIdeaId(999, () => 0.5));
+  // status resolution: latest STATUS wins; shipped carries its EE
+  const scroll = [
+    serializeIdea({ id: "a1", name: "fox-a", ts: 100, title: "first", body: "body one" }),
+    serializeIdea({ id: "b2", name: "fox-b", ts: 200, title: "second", body: "body two" }),
+    serializeStatus({ ideaId: "a1", status: "picked", ts: 300 }),
+    serializeStatus({ ideaId: "a1", status: "shipped", ts: 400, shipEE: 953 }),
+    serializeStatus({ ideaId: "b2", status: "picked", ts: 350 }),
+    serializeStatus({ ideaId: "b2", status: "submitted", ts: 360 }),
+    "a line that is neither kind",
+  ].join("\n");
+  const rows = parseIdeas(scroll);
+  check("idea: the scroll resolves both tellings, in arrival order",
+    rows.length === 2 && rows[0].id === "a1" && rows[1].id === "b2");
+  check("idea: the latest STATUS wins — a1 was picked, then shipped",
+    rows[0].status === "shipped" && rows[0].statusTs === 400);
+  check("idea: a shipped telling carries its ship EE",
+    rows[0].shipEE === 953);
+  check("idea: the latest STATUS wins even when it steps back — b2 is told again",
+    rows[1].status === "submitted" && rows[1].shipEE === null);
+  check("idea: a telling with no STATUS stands as told (submitted)",
+    (() => { const r = parseIdeaScroll(serializeIdea(
+      { id: "c3", name: "fox-c", ts: 5, title: "t", body: "b" }));
+      return r.length === 1 && r[0].status === "submitted" && r[0].shipEE === null; })());
+  check("idea: a STATUS for an unknown id invents no telling",
+    parseIdeas(serializeStatus({ ideaId: "zz", status: "picked", ts: 1 })).length === 0);
+  check("idea: the first IDEA line for an id is the idea; a second is ignored",
+    (() => { const two = [
+        serializeIdea({ id: "d4", name: "fox-d", ts: 1, title: "kept", body: "b" }),
+        serializeIdea({ id: "d4", name: "fox-e", ts: 2, title: "dropped", body: "b" }),
+      ].join("\n");
+      const r = parseIdeas(two);
+      return r.length === 1 && r[0].title === "kept"; })());
+  check("idea: a shipped STATUS without its EE cannot be written",
+    serializeStatus({ ideaId: "a1", status: "shipped", ts: 1 }) === null &&
+    parseStatusLine(serializeStatus({ ideaId: "a1", status: "picked", ts: 1 })).shipEE === null);
+  // caps: refused past the cap, never truncated silently
+  check("idea: the caps are the design's — title 80, body 1000",
+    IDEA_TITLE_MAX === 80 && IDEA_BODY_MAX === 1000 &&
+    IDEA_LIMITS.titleMax === 80 && IDEA_LIMITS.bodyMax === 1000);
+  check("idea: a telling at exactly the caps is accepted whole",
+    (() => { const t = "t".repeat(IDEA_TITLE_MAX), b = "b".repeat(IDEA_BODY_MAX);
+      const l = serializeIdea({ id: "e5", name: "fox-e", ts: 1, title: t, body: b });
+      const r = l && parseIdeaLine(l);
+      return !!r && r.title === t && r.body === b; })());
+  check("idea: one letter past the title cap is refused, not truncated",
+    serializeIdea({ id: "e5", name: "fox-e", ts: 1,
+      title: "t".repeat(IDEA_TITLE_MAX + 1), body: "b" }) === null &&
+    validateIdea("t".repeat(IDEA_TITLE_MAX + 1), "b").reason === "title-cap");
+  check("idea: one letter past the body cap is refused, not truncated",
+    serializeIdea({ id: "e5", name: "fox-e", ts: 1,
+      title: "t", body: "b".repeat(IDEA_BODY_MAX + 1) }) === null &&
+    validateIdea("t", "b".repeat(IDEA_BODY_MAX + 1)).reason === "body-cap");
+  check("idea: an empty title or telling is refused, plainly",
+    validateIdea("", "b").reason === "title-empty" &&
+    validateIdea("t", "  ").reason === "body-empty" &&
+    serializeIdea({ id: "e5", name: "fox-e", ts: 1, title: "", body: "b" }) === null);
+  check("idea: the cap counts letters, not bytes — a wide alphabet pays fairly",
+    validateIdea("🦊".repeat(IDEA_TITLE_MAX), "b").ok === true &&
+    validateIdea("🦊".repeat(IDEA_TITLE_MAX + 1), "b").ok === false);
+  // the queue line IS the chart line (demo14, BUILD return): the
+  // one line a submit queues is exactly what a later read-back
+  // resolves — one line in, one telling out, standing as told.
+  check("idea: one queued line resolves to exactly one read-back telling",
+    (() => { const l = serializeIdea(
+        { id: "f6", name: "fox-f", ts: 7, title: "queued", body: "waiting" });
+      const r = parseIdeas(l);
+      return r.length === 1 && r[0].id === "f6" &&
+        r[0].title === "queued" && r[0].status === "submitted"; })());
+  check("idea: an empty chart reads back as no tellings — the honest empty state",
+    parseIdeas("").length === 0 && parseIdeas("\n\n").length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

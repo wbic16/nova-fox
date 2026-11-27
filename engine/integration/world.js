@@ -1639,3 +1639,146 @@ export class TrailFeed {
     return this.q.shift();
   }
 }
+// ---------- the world, written out: a .phext copy (2026-11-26) -----
+// The Esc menu's "Save the world to .phext": the whole local world —
+// every opened scroll's living grid, the player's marks, the placed
+// things and the monsters, and the inscription log itself — as a
+// real phext document. The serializer is the estate's own implode
+// (the same state machine as build_artifacts_phext.py and its
+// siblings): coordinates are 9 components, 1-indexed; scrolls are
+// visited in sorted coordinate order; advancing a component emits
+// that level's byte and resets every deeper component to 1.
+export const PHEXT_LEVEL_BYTES =
+  [0x01, 0x1F, 0x1E, 0x1D, 0x1C, 0x1A, 0x19, 0x18, 0x17]; // library..scroll
+
+export function phextImplode(scrolls) {
+  const entries = (scrolls instanceof Map
+    ? [...scrolls.entries()] : Object.entries(scrolls))
+    .map(([k, v]) => [k.replace(/\//g, ".").split(".").map(Number), v])
+    .sort((a, b) => {
+      for (let i = 0; i < 9; i++) if (a[0][i] !== b[0][i]) return a[0][i] - b[0][i];
+      return 0;
+    });
+  const state = [1, 1, 1, 1, 1, 1, 1, 1, 1];
+  let out = "";
+  for (const [target, text] of entries) {
+    for (let lvl = 0; lvl < 9; lvl++) {
+      while (state[lvl] < target[lvl]) {
+        out += String.fromCharCode(PHEXT_LEVEL_BYTES[lvl]);
+        state[lvl]++;
+        for (let j = lvl + 1; j < 9; j++) state[j] = 1;
+      }
+    }
+    out += text;
+  }
+  return out;
+}
+
+// The coordinate scheme (documented in the export's home scroll):
+// 1.1.1/1.1.1/1.1.1 is the home scroll, 1.1.1/1.1.1/1.1.2 the
+// inscription log. Realm i (in REALMS order) stands at book i+2:
+// its realm scroll at 1.1.(i+2)/1.1.1/1.1.1, its marks at
+// .../1.1.2/1.1.1, its monsters and placed things at .../1.1.3/
+// 1.1.1, and each opened page at .../1.2.1/1.(sx+4097).(sy+4097)
+// (the +4097 keeps every component >= 1 for pages west/north of
+// the origin). Returns { text, scrolls, bytes, coords }.
+export function worldToPhext(sub, meta = {}) {
+  const scrolls = new Map();
+  const key = (a) => `${a[0]}.${a[1]}.${a[2]}/${a[3]}.${a[4]}.${a[5]}/${a[6]}.${a[7]}.${a[8]}`;
+  let markCount = 0;
+  for (const m of sub.overrides.values()) markCount += m.size;
+  for (const m of sub.chisel.values()) markCount += m.size;
+  scrolls.set(key([1, 1, 1, 1, 1, 1, 1, 1, 1]), [
+    "# Nova Fox — a world, written out",
+    "",
+    `Player: ${meta.player || "unknown"}`,
+    `Exported: ${meta.exportedAt || ""}`,
+    ...(meta.score !== undefined ? [`Score: ${meta.score}`] : []),
+    `Opened pages: ${sub.scrolls.size} · Marks: ${markCount} · Inscriptions: ${sub.wal.length}`,
+    "",
+    "The coordinate map: 1.1.1/1.1.1/1.1.1 is this scroll;",
+    "1.1.1/1.1.1/1.1.2 is the inscription log — every mark the",
+    "world has taken, in order. Each realm stands at book",
+    "(its place in the game's realm list) + 2: its first scroll",
+    "is the realm itself, 1.1.2 its marks, 1.1.3 its monsters",
+    "and placed things, and its opened pages stand at 1.2.1",
+    "with the page's own coordinates, shifted by 4097 so no",
+    "component falls below 1.",
+    "",
+  ].join("\n"));
+  const logLines = [
+    "# The inscription log",
+    "",
+    `Quest done: ${sub.questDone ? "yes" : "no"} · Deep Stone Hat granted: ${sub.hatGranted ? "yes" : "no"}`,
+    `Days claimed: ${[...sub.dailyClaimed].join(", ") || "none"}`,
+    "",
+  ];
+  for (const seg of sub.wal) logLines.push(`#${seg.seq} ${seg.op} @ ${seg.where} — ${seg.detail}`);
+  logLines.push("");
+  scrolls.set(key([1, 1, 1, 1, 1, 1, 1, 1, 2]), logLines.join("\n"));
+  REALMS.forEach((r, i) => {
+    const book = i + 2;
+    const pages = [...sub.scrolls.values()].filter((s) => s.realmId === r.id);
+    const overrides = sub.overrides.get(r.id);
+    const chisel = sub.chisel.get(r.id);
+    const monsters = sub.monsters.filter((m) => m.realmId === r.id);
+    const items = sub.items.filter((it) => it.realmId === r.id);
+    if (!pages.length && !monsters.length && !items.length &&
+        !(overrides && overrides.size) && !(chisel && chisel.size)) return;
+    const grav = sub.realmGravity.get(r.id);
+    scrolls.set(key([1, 1, book, 1, 1, 1, 1, 1, 1]), [
+      `# ${r.name}`,
+      "",
+      `Realm: ${r.id}`,
+      `Subspace coordinate: ${realmCoord(r.id).join(".")}`,
+      `Down: ${grav === -1 ? "up (flipped, and remembered)" : "down"}`,
+      `Opened pages: ${pages.length} · Monsters: ${monsters.length} · Placed things: ${items.length}`,
+      "",
+    ].join("\n"));
+    if ((overrides && overrides.size) || (chisel && chisel.size)) {
+      const lines = [`# Marks in ${r.name}`, ""];
+      if (overrides) for (const [k, v] of [...overrides.entries()].sort()) {
+        lines.push(`${k} block ${v}`);
+      }
+      if (chisel) for (const [k, v] of [...chisel.entries()].sort()) {
+        lines.push(`${k} chisel ${v}`);
+      }
+      lines.push("");
+      scrolls.set(key([1, 1, book, 1, 1, 2, 1, 1, 1]), lines.join("\n"));
+    }
+    if (monsters.length || items.length) {
+      const lines = [`# Monsters and placed things in ${r.name}`, ""];
+      for (const m of monsters) {
+        lines.push(`monster #${m.id} ${m.kind} at cell ${m.gx},${m.gy} — ${m.alive ? `alive, ${m.hp} hp` : "struck down"}`);
+      }
+      for (const it of items) {
+        lines.push(`thing ${it.kind} at ${it.bx},${it.bz} — ${it.taken ? "taken up" : "waiting"}`);
+      }
+      lines.push("");
+      scrolls.set(key([1, 1, book, 1, 1, 3, 1, 1, 1]), lines.join("\n"));
+    }
+    for (const s of pages) {
+      const lines = [
+        `# ${r.name} — page ${s.sx},${s.sy}`,
+        "",
+        `Seed: ${s.seed} · Down: ${s.gravDir === -1 ? "up" : "down"} · Living cells: ${sub.lifeOf(s)}`,
+        "",
+      ];
+      for (let gy = 0; gy < LIFE_N; gy++) {
+        let row = "";
+        for (let gx = 0; gx < LIFE_N; gx++) row += s.grid[gy * LIFE_N + gx] ? "#" : ".";
+        lines.push(row);
+      }
+      lines.push("");
+      scrolls.set(key([1, 1, book, 1, 2, 1, 1, s.sx + 4097, s.sy + 4097]),
+        lines.join("\n"));
+    }
+  });
+  const text = phextImplode(scrolls);
+  return {
+    text,
+    scrolls: scrolls.size,
+    bytes: new TextEncoder().encode(text).length,
+    coords: [...scrolls.keys()],
+  };
+}

@@ -20,7 +20,7 @@
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:974";
+const NF_SHIP_EE = "NF_SHIP_EE:987";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 
 // ---------- boot ------------------------------------------------------
@@ -136,7 +136,7 @@ const sfx = {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.9;
+      this.master.gain.value = SETTINGS.master;
       this.master.connect(this.ctx.destination);
       // Ambient wind: looped noise through a low filter, barely there.
       const len = this.ctx.sampleRate * 2;
@@ -270,9 +270,10 @@ const sfx = {
 };
 
 // ---------- narration audio (feedback #3) ---------------------------------
-// Emise's recorded voice, one MP3 per beat ID from NARRATION.md,
+// Joy's recorded voice, one MP3 per beat ID from NARRATION.md,
 // embedded in the build (NARRATION_AUDIO: beat ID -> data URI) by
-// build3.py from ~/workspace/nova-fox/narration-audio/. The guide's
+// build3.py from the repo's audio/narration-audio-joy/ (Voice 1).
+// The guide's
 // steps and the world's events speak by beat ID; the text panel
 // always rides along, so a beat that cannot play loses nothing.
 //
@@ -338,6 +339,7 @@ const narration = {
     if (!a) {
       a = new window.Audio(NARRATION_AUDIO[id]); // NOT bare Audio — see above
       a.preload = "auto";
+      a.volume = SETTINGS.narration; // the audio panel's narration level
       a.addEventListener("ended", () => this.onEnded(a));
       a.addEventListener("error", () => this.onEnded(a));
       this.cache.set(id, a);
@@ -539,6 +541,32 @@ const GUIDE_BEATS = {
   done: "N-09", fight: null, gesture: null, handover: null, mark: null,
 };
 
+// The event beats' lines (NARRATION.md — Will's final script): the
+// words Joy speaks when the world's events fire. The toast at each
+// fire site shows the very line the recording speaks, so a beat
+// that cannot play still reads true. BEAT-border-down is SILENT
+// and BEAT-strike-hold has NO DIALOGUE under the script: neither
+// has an entry here, and their fire sites show nothing. BEAT-contact
+// is retired (feedback #24) — its line lives in NARRATION.md only,
+// and the game never triggers it.
+const BEAT_LINES = {
+  "BEAT-arrival": "Nova Prime! Welcome Home, Fox. Your items are on the left.",
+  "BEAT-cross-ashfall": "Ashfall Haven...the rock here remembers the fire that forged the cinders.",
+  "BEAT-cross-nova": "Nova Prime! Home Base and safety. The monsters cannot find you here.",
+  "BEAT-pocket": "Whoa, Fox! This place is entirely new! That tune was powerful.",
+  "BEAT-stay": "This is ours.",
+  "BEAT-flip-up": "Gravity inversion in progress. Reality has shifted, permanently.",
+  "BEAT-flip-down": "Gravity restored.",
+  "BEAT-border-up": "Inverted Gravity Detected.",
+  "BEAT-barrow": "The Unexpected Hall, Fox. Find the Shadow, strike at the Heart. Your vision alone can fix it.",
+  "BEAT-quest": "This ... is the (gasp) Nova Heart, Fox! You've earned this - take the hat. It's yours, for good!",
+  "BEAT-guardian-contact": "This guardian is confused, Fox. You must strike back. Strike, now!",
+  "BEAT-strike-kill": "It is done.",
+  "BEAT-guardian-kill": "(Winds of Change) The ... shadow is ... gone, Fox! You've done it! The hall is quiet, Nova Prime calls to you. Another piece of Nova Heart is near.",
+  "BEAT-death": "Oh no!! Fox, hold on. I'm getting you out of here. Stay with me...please.",
+  "BEAT-fall": "Fall home, fox.",
+};
+
 // ---------- persistence helpers --------------------------------------------
 const LS = {
   get(k, d) {
@@ -556,6 +584,158 @@ const playerName = LS.get("nova-phox-name", null) || (() => {
   LS.set("nova-phox-name", n);
   return n;
 })();
+
+// ---------- Joy's banter (2026-11-26) ---------------------------------------
+// The engine is banter.js (pure, unit-tested): Joy's hundred lines
+// (JOY-BANTER.md — her own cut, battle-tested by the real Joy) and
+// the trigger discipline her mapping rule demands. This glue feeds
+// it the world's events and a slow observation stream, and shows
+// what it returns on the narration line surface (#banter-line),
+// also calling narration.play(line.id) — no take is recorded yet,
+// so ready() says no and the call is harmless; the day a
+// narration-audio/JOY-###.mp3 lands, build3.py embeds it by stem
+// and the same hook speaks it, no restructuring.
+//
+// She is muted while the scripted guide owns the fox: the engine
+// still remembers everything (crossings, marks, sightings), it
+// just doesn't speak over the lesson. Banter goes live when the
+// guide hands the game over, or is dismissed.
+const banterSaved = LS.get("nova-phox-banter", null);
+const bs = createBanter(banterSaved, performance.now());
+let banterLive = false;
+let banterLineTimer = 0;
+function banterPersist() { LS.set("nova-phox-banter", banterSnapshot(bs, Date.now())); }
+function banterSay(line) {
+  if (!line) return;
+  const el = $("banter-line");
+  if (el) {
+    el.textContent = line.text;
+    el.style.opacity = "1";
+    clearTimeout(banterLineTimer);
+    banterLineTimer = setTimeout(() => { el.style.opacity = "0"; },
+      Math.max(4200, line.text.length * 95));
+  }
+  narration.play(line.id); // the audio hook: attaches by ID when a take exists
+  banterPersist();
+}
+function banterFire(ev) {
+  bs.muted = !(banterLive && !state.dead && !state.splash);
+  banterSay(banterEvent(bs, ev, performance.now()));
+}
+function banterGoLive() {
+  if (banterLive) return;
+  banterLive = true;
+  const seen = banterSaved && banterSaved.lastSeenAt ? banterSaved.lastSeenAt : 0;
+  banterFire({ type: "sessionStart", awayMs: seen ? Date.now() - seen : 0 });
+  banterFire({ type: "handover" });
+}
+// Ambience tags the seam-lines compare across a crossing, read off
+// the realm's palette: cinder-fall in Ashfall, the hard bright of
+// Halycon, the close dark of the short-fog realms.
+function banterAmbience(realmId) {
+  const tags = [];
+  const pal = paletteFor(realmId);
+  if (realmId === "ashfall") tags.push("cinders", "wet");
+  if (pal.sunI >= 1.7) tags.push("bright");
+  if (pal.sat >= 1.05 && realmId !== "nova") tags.push("strong");
+  if (pal.fogFar <= 92) tags.push("dark");
+  return tags;
+}
+// Glue-side trackers the events read.
+let banterInputAt = performance.now();
+let banterLastMoveAt = performance.now();
+let banterLastTurnAt = -Infinity;
+let banterLastYaw = null;
+let banterLastGlimpseAt = -Infinity;
+const banterVis = new Map();       // monsterId -> currently in a glimpse
+const banterVisSince = new Map();  // monsterId -> glimpse start (ms)
+const banterStruck = new Set();    // monsterIds struck during this glimpse
+let banterAirStart = 0, banterAirX = 0, banterAirY = 0, banterAirZ = 0;
+let banterAirFired = false;
+let banterLastFlipAt = -Infinity;
+let banterSeqNotes = [];           // the ordered notes of the tune being played
+let banterLastNoteAt = 0;
+let banterHallVisited = false, banterHallEnterAt = 0, banterWasAbove = false;
+let banterApproachArmed = false;
+let banterIdlePeak = 0, banterLastPauseMs = 0, banterPauseEndAt = -Infinity;
+for (const evName of ["keydown", "pointerdown", "wheel", "touchstart"]) {
+  window.addEventListener(evName, () => { banterInputAt = performance.now(); }, { passive: true });
+}
+window.addEventListener("pointermove", (e) => {
+  if (e.buttons > 0) banterInputAt = performance.now();
+}, { passive: true });
+window.addEventListener("pagehide", () => banterPersist());
+// The observation stream: a few times a second the engine hears
+// where the fox is, how still, and what the ground ahead is doing.
+let banterObsAt = 0;
+function banterObserveTick(now) {
+  if (now - banterObsAt < 200) return;
+  banterObsAt = now;
+  const hSpeed = Math.hypot(state.vel.x, state.vel.z);
+  if (hSpeed > 1) banterLastMoveAt = now;
+  if (banterLastYaw !== null && Math.abs(state.yaw - banterLastYaw) > 0.45) {
+    banterLastTurnAt = now;
+  }
+  banterLastYaw = state.yaw;
+  const idleMs = now - banterInputAt;
+  if (idleMs >= BANTER_TUNABLES.pauseMinMs) banterIdlePeak = idleMs;
+  else if (banterIdlePeak > 0 && idleMs < 2000) {
+    banterLastPauseMs = banterIdlePeak;
+    banterPauseEndAt = now;
+    banterIdlePeak = 0;
+  }
+  const bx = Math.floor(state.pos.x), bz = Math.floor(state.pos.z);
+  if (state.realm === "nova") {
+    if (inDungeon(bx, bz) && state.pos.y > DUNGEON.ceilY + 3) banterWasAbove = true;
+    const ddx = Math.max(DUNGEON.x0 - state.pos.x, 0, state.pos.x - (DUNGEON.x1 + 1));
+    const ddz = Math.max(DUNGEON.z0 - state.pos.z, 0, state.pos.z - (DUNGEON.z1 + 1));
+    const dHall = Math.hypot(ddx, ddz);
+    if (!inDungeon(bx, bz) && dHall < 16 && !banterApproachArmed) {
+      banterApproachArmed = true;
+      banterFire({ type: "hallApproach" });
+    } else if (dHall > 26) banterApproachArmed = false;
+  }
+  const fx = -Math.sin(state.yaw), fz = -Math.cos(state.yaw);
+  // What the fox is looking at: for #32, a very good rock.
+  let lookPrize = false;
+  {
+    const dir = new THREE.Vector3(0, 0, -1)
+      .applyEuler(new THREE.Euler(state.pitch, state.yaw, 0, "YXZ"));
+    const eye = eyePos();
+    for (let t = 0.4; t < 5.2; t += 0.2) {
+      const px = Math.floor(eye.x + dir.x * t);
+      const py = Math.floor(eye.y + dir.y * t);
+      const pz = Math.floor(eye.z + dir.z * t);
+      if (!solidAt(px, py, pz)) continue;
+      lookPrize = GLOW_BLOCKS.has(baseBlockAt(sub, state.realm, px, py, pz));
+      break;
+    }
+  }
+  const groundHere = heightAt(state.realm, bx, bz);
+  const groundAhead = heightAt(state.realm,
+    Math.floor(state.pos.x + fx * 8), Math.floor(state.pos.z + fz * 8));
+  const sdx = (ARRIVAL.nova.x + 0.5) - state.pos.x;
+  const sdz = (ARRIVAL.nova.z + 0.5) - state.pos.z;
+  const startDist = Math.hypot(sdx, sdz);
+  const startGroundY = heightAt("nova", ARRIVAL.nova.x, ARRIVAL.nova.z) + 1.01;
+  let minAround = groundHere;
+  for (const [ox, oz] of [[12, 0], [-12, 0], [0, 12], [0, -12]]) {
+    minAround = Math.min(minAround, heightAt(state.realm, bx + ox, bz + oz));
+  }
+  banterFire({ type: "observe",
+    x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm,
+    yaw: state.yaw, onGround: state.onGround, hSpeed, idleMs,
+    gravDir: state.gravDir,
+    startVisible: state.realm === "nova" && startDist <= 100 &&
+      state.pos.y >= startGroundY - 2,
+    atView: (state.pos.y - 1.01 - minAround) >= 5 || (groundAhead - groundHere) <= -6,
+    lookTowardStart: state.realm === "nova" && startDist > 10 && startDist <= 150 &&
+      (sdx * fx + sdz * fz) / (startDist || 1) > 0.86,
+    groundAheadDelta: groundAhead - groundHere,
+    inHall: state.realm === "nova" && inDungeon(bx, bz),
+    lookPrize,
+    ambienceCinders: state.realm === "ashfall" });
+}
 
 // ---------- the economy: entitlement + ledgers (demo4, W2/W3) ----------------
 // The state itself lives in economy.js (pure logic, unit-tested);
@@ -578,6 +758,19 @@ function ecoNote(msg) {
   const el = document.getElementById("eco-note");
   if (el) el.textContent = msg;
 }
+// Idea lines bound for the shared chart queue here — a dedicated
+// outbox with the eco outbox's exact discipline (EE 953 design):
+// persisted locally the moment a telling is made, flushed inside
+// backendFlush() under the shared insert budget with a login
+// token, oldest first, honest stop at the first refusal, and
+// never shown as told until the chart reads it back.
+const ideaOutbox = LS.get("nova-phox-idea-outbox", []);
+function persistIdeaOutbox() { LS.set("nova-phox-idea-outbox", ideaOutbox); }
+function queueIdeaLine(line) {
+  ideaOutbox.push({ coord: BACKEND.ideaCoord, line });
+  persistIdeaOutbox();
+}
+
 // Random bytes for gift keys: the browser's crypto, nothing else.
 function ecoRandomByte() {
   const a = new Uint8Array(1);
@@ -597,23 +790,163 @@ function onBecameGenerator() {
   renderBoard();
 }
 
-// Control prefs (v5, feedback #5): the chosen key scheme and the
-// chisel's brush size persist on this machine.
+// Control prefs (v5, feedback #5; scheme preference demo19, Will
+// 2026-11-26 16:17): the chosen key scheme and the chisel's brush
+// size persist on this machine. The scheme itself resolves in
+// scheme.js's order: the player's stored preference (localStorage
+// "nf.scheme": 'wasd' | 'awef') first; then the scheme the v5
+// controls record below already holds; then the coin flip Will
+// ruled for first play (2026-11-26 15:07) — half of all players
+// walk WASD, half AWEF. Whatever resolves is written back to BOTH
+// stores, so the flip happens at most once per browser, the scheme
+// is stable across sessions on that browser, and a corrupt
+// preference heals itself instead of crashing the boot.
+//
+// Why a stored preference and not detection: a web page cannot read
+// the visitor's browser account name or their machine's hostname —
+// no web API offers either, and this build does not pretend
+// otherwise. What the preference honestly buys is the same end: set
+// the scheme once in a browser on a machine and it is simply always
+// that scheme there, from then on.
+function readSchemePref() {
+  try { return localStorage.getItem(SCHEME_PREF_KEY); } catch (e) { return null; }
+}
+function writeSchemePref() {
+  try { localStorage.setItem(SCHEME_PREF_KEY, prefForScheme(state.scheme)); }
+  catch (e) { /* private mode: the controls record still holds it */ }
+}
 {
   const ctl = LS.get("nova-phox-controls", null);
   if (ctl) {
-    if (ctl.scheme === "AWEF" || ctl.scheme === "WASD") state.scheme = ctl.scheme;
     if (Number.isInteger(ctl.brush)) {
       state.brush = Math.min(BRUSHES.length - 1, Math.max(0, ctl.brush));
     }
     if (typeof ctl.extras === "boolean") state.extras = ctl.extras;
   }
+  state.scheme = resolveScheme({
+    pref: readSchemePref(),
+    legacy: ctl ? ctl.scheme : null,
+    flip: () => (Math.random() < 0.5 ? "AWEF" : "WASD"),
+  }).scheme;
+  saveCtlPrefs(); // the resolved scheme lands in both stores at boot
 }
 document.body.classList.toggle("extras", state.extras);
 function saveCtlPrefs() {
   LS.set("nova-phox-controls", {
     scheme: state.scheme, brush: state.brush, extras: state.extras,
   });
+  writeSchemePref();
+}
+// setScheme: the one door every scheme change walks through (the
+// title panel's toggle, the keys button). state.scheme is read live
+// by the movement table, the key handler, the touch stick, and the
+// strike hint, so the new scheme applies the moment this returns —
+// no reload, and no re-lettering code of its own anywhere. If the
+// guide's move lesson is on screen, it re-renders in the new scheme
+// (words and voice alike) via renderGuide below.
+function setScheme(s) {
+  if (!isScheme(s)) return;
+  state.scheme = s;
+  saveCtlPrefs();
+  syncSchemeControls();
+  const step = guideCurrent();
+  if (step && step.id === "move" && !state.guideDone) renderGuide();
+}
+function syncSchemeControls() {
+  const b = $("btn-keys");
+  if (b) b.textContent = `Controls: ${state.scheme}`;
+  const t = $("btn-scheme-splash");
+  if (t) t.textContent = `Controls: ${state.scheme}`;
+}
+
+// ---------- key bindings + settings: the one store (2026-11-26) -----
+// The Esc menu's remapping panel and settings panels read and write
+// HERE — one obvious place. Bindings map action -> KeyboardEvent
+// code; the keydown dispatch consults BIND, never literals, for
+// every remappable verb. Other builds read the same store through
+// NOVA_FOX3.bindings() (the strike hint's "currently-assigned
+// binding" is BIND.strike). Both stores persist with the game's
+// save discipline: the LS wrapper, nova-phox- keys, on this machine
+// only — like the control prefs, they do not ride in save copies,
+// and a new game does not clear them.
+const BINDING_ACTIONS = [
+  { id: "jump", label: "Jump", def: "Space" },
+  { id: "strike", label: "Strike", def: "KeyF" },
+  { id: "chisel", label: "Chisel", def: "KeyC" },
+  { id: "flip", label: "Flip gravity", def: "KeyG" },
+  { id: "lamp", label: "Lamp", def: "KeyV" },
+  { id: "brushDown", label: "Brush smaller", def: "Comma" },
+  { id: "brushUp", label: "Brush larger", def: "Period" },
+  { id: "board", label: "The board", def: "KeyB" },
+  { id: "realms", label: "Map of realms", def: "KeyM" },
+  { id: "log", label: "Log", def: "KeyL" },
+];
+const BIND = (() => {
+  const stored = LS.get("nova-phox-bindings", {});
+  const b = {};
+  for (const a of BINDING_ACTIONS) {
+    b[a.id] = typeof stored[a.id] === "string" ? stored[a.id] : a.def;
+  }
+  return b;
+})();
+function saveBindings() { LS.set("nova-phox-bindings", BIND); }
+function setBinding(action, code) {
+  // Two actions that would share a key swap places — a binding is
+  // never silently doubled, and never silently lost.
+  for (const a of BINDING_ACTIONS) {
+    if (a.id !== action && BIND[a.id] === code) BIND[a.id] = BIND[action];
+  }
+  BIND[action] = code;
+  saveBindings();
+}
+function keyName(code) {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return {
+    Space: "Space", Comma: ",", Period: ".", Minus: "−", Slash: "/",
+    Semicolon: ";", Quote: "'", BracketLeft: "[", BracketRight: "]",
+    Backquote: "`", Backslash: "\\", Equal: "=",
+  }[code] || code;
+}
+// Keys a binding may not take, and why — the note rows, the scheme's
+// walking keys, and the keys the menu and the browser already own.
+const RESERVED_BIND_CODES = (() => {
+  const r = {};
+  // The instrument's two rows, spelled out (NUMBER_KEYS and
+  // LETTER_KEYS themselves are defined with the instrument, below).
+  for (const c of ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5",
+    "Digit6", "Digit7", "Digit8", "Digit9", "Digit0", "Minus",
+    "KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI",
+    "KeyO", "KeyP", "BracketLeft"]) {
+    r[c] = "already plays a note";
+  }
+  for (const c of ["KeyA", "KeyS", "KeyD"]) {
+    r[c] = "already walks — the scheme keys are the keys button's, below";
+  }
+  r.Escape = "is the menu key";
+  r.Tab = "opens the map of realms";
+  r.Enter = "works the menu";
+  r.ArrowUp = r.ArrowDown = r.ArrowLeft = r.ArrowRight = "work the menu and the looking";
+  r.ShiftLeft = r.ShiftRight = "is run";
+  r.ControlLeft = r.ControlRight = r.AltLeft = r.AltRight =
+    r.MetaLeft = r.MetaRight = "belongs to the browser";
+  return r;
+})();
+// Settings the engine really has: the synthesized sound's master
+// level, the narration elements' level, the render scale the
+// renderer is actually given, and the chunk radius the world
+// actually keeps around the fox.
+const SETTINGS = Object.assign(
+  { master: 0.9, narration: 1.0, renderScale: 1, viewDistance: 3 },
+  LS.get("nova-phox-settings", {}));
+function saveSettings() { LS.set("nova-phox-settings", SETTINGS); }
+function applyMasterVolume() {
+  if (sfx.master) sfx.master.gain.value = sfx.muted ? 0 : SETTINGS.master;
+}
+function applyNarrationVolume() {
+  for (const a of narration.cache.values()) {
+    try { a.volume = SETTINGS.narration; } catch (e) { /* a cold element */ }
+  }
 }
 
 // ---------- the shared chart: phext.tech backend ----------------------------
@@ -641,6 +974,7 @@ const BACKEND = {
   ecoCoord: "1.1.1/1.1.4/1.1.1", // the economy ledger: gift issues/redeems, hand-downs (D12)
   gravityCoord: "1.1.1/1.1.5/1.1.1", // the gravity scroll: one line per shift; a realm's latest line is its down (demo10)
   formCoord: "1.1.1/1.1.6/1.1.1", // the forms scroll: the shapes foxes wear (demo6; coordinate reassigned at integration — demo6 and demo10 both claimed 1.1.1/1.1.5/1.1.1; gravity kept it, forms moved to 1.1.6)
+  ideaCoord: "1.1.1/1.1.7/1.1.1", // the ideas scroll: tellings at the door (demo8; coordinate allocated 1.1.7 by the scroll registry, EE 974 — forms keep 1.1.6)
   online: false,
   probed: false,
   boardRows: [], // rows actually read back from the shared chart
@@ -648,6 +982,7 @@ const BACKEND = {
   ecoLedger: null, // parsed economy ledger actually read back (null = not yet)
   gravityRows: [], // gravity records actually read back from the shared chart
   formRows: null, // forms actually read back, by fox name (null = not yet)
+  ideaRows: [], // ideas actually read back, resolved to their current state
   lastPostedScore: LS.get("nova-phox-posted", -1),
 };
 // ---------- login, for saving (Will, 2026-11-22 18:05) ----------------------
@@ -878,6 +1213,28 @@ async function backendFlush() {
       persistEcoOutbox();
     }
   }
+  // Flush the idea queue under the same discipline again: token,
+  // budget, oldest first, honest stop at the first refusal. One
+  // queued telling is exactly one insert.
+  if (writeHeaders && BACKEND.online) {
+    while (ideaOutbox.length) {
+      if (insertBudget() <= 0) break;
+      const seg = ideaOutbox[0];
+      try {
+        const r = await fetch(
+          `${BACKEND.base}/api/v2/insert?p=${BACKEND.phext}&c=${seg.coord}`,
+          { method: "POST", headers: writeHeaders, body: seg.line,
+            signal: AbortSignal.timeout(5000) });
+        if (r.status === 401) { LS.set("nova-phox-token", null); break; }
+        if (r.status === 429) { flushRetryAt = Date.now() + 25000; break; }
+        if (!r.ok) { BACKEND.online = false; break; }
+        insertTimes.push(Date.now());
+      } catch (e) { BACKEND.online = false; break; }
+      ideaOutbox.shift();
+      persistIdeaOutbox();
+    }
+  }
+
   // Read the written record and the economy ledger back — only
   // what is actually read is ever shown or acted on.
   if (BACKEND.online) {
@@ -916,6 +1273,12 @@ async function backendFlush() {
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.formRows = parseFormChart(await r.text());
     } catch (e) { /* the forms keep their last honest state */ }
+    try {
+      const r = await fetch(
+        `${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${BACKEND.ideaCoord}`,
+        { method: "GET", signal: AbortSignal.timeout(5000) });
+      if (r.ok) BACKEND.ideaRows = parseIdeas(await r.text());
+    } catch (e) { /* the tellings keep their last honest state */ }
     if (BACKEND.ecoLedger) {
       // Hand-downs addressed to this fox land exactly once.
       const got = applyHanddowns(eco, BACKEND.ecoLedger, playerName);
@@ -960,6 +1323,7 @@ async function backendFlush() {
   }
   updateSyncLabel();
   renderBoard();
+  renderIdeas();
 }
 // ---------- gravity on the shared chart (demo10) ----------------------------
 // Will's ruling (2026-11-26): gravity is stored in subspace on a
@@ -1272,14 +1636,14 @@ let introScreen = null, introScreenMesh = null; // the Arrival memory screen (v5
 const chunkStore = new Map(); // "realm|cx,cz" -> {data, group, meshKey}
 const chunkMats = new Set(); // live main-scene chunk materials (palette swaps)
 const dirtyChunks = new Set();
-const RENDER_R = 3;
+let RENDER_R = SETTINGS.viewDistance; // the video panel can move it ( Esc menu, 2026-11-26)
 
 function initThree() {
   const holder = $("stage");
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(74, 1, 0.1, 400);
   renderer = new THREE.WebGLRenderer({ antialias: false });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * SETTINGS.renderScale);
   holder.appendChild(renderer.domElement);
   hemi = new THREE.HemisphereLight(0x8fd0ff, 0x0a1a33, 0.95);
   scene.add(hemi);
@@ -1306,6 +1670,7 @@ function initThree() {
   lampLight.target.position.set(0, -0.1, -8);
   camera.add(lampLight.target);
   buildIntroScreen();
+  buildTellingDoor();
   applyRealmSky();
   window.addEventListener("resize", onResize);
   onResize();
@@ -1403,6 +1768,87 @@ function closeIntroViewer() {
   if (v) v.pause();
   $("intro-viewer").style.display = "none";
   state.introOpen = false;
+}
+
+// ---------- the telling door (demo8, EE 953 design) ---------------------------
+// A standing door in Nova Prime on the taught path near Arrival —
+// fixed scenery, NOT a rift: rifts are player-opened travel links,
+// one at a time; this door never moves and carries nobody
+// anywhere. It stands east of Arrival, on the way a new fox is
+// taught to walk (the Deep Stone lies east), as a frame with a
+// warm light in it. Walking up to it offers the telling panel;
+// looking at it and clicking opens the panel too, and its hover
+// line speaks its name in the game's hover idiom.
+let tellingDoor = null, tellingDoorGlow = null;
+function buildTellingDoor() {
+  tellingDoor = new THREE.Group();
+  const bx = 13, bz = 10; // blocks, Nova Prime scroll (0,0), east of Arrival
+  const groundY = heightAt("nova", bx, bz) + 1;
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x3a2c1c });
+  const postGeo = new THREE.BoxGeometry(0.26, 3.1, 0.26);
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(postGeo, frameMat);
+    post.position.set(side * 0.95, 1.55, 0);
+    tellingDoor.add(post);
+  }
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.26, 0.26), frameMat);
+  lintel.position.set(0, 3.1, 0);
+  tellingDoor.add(lintel);
+  const step = new THREE.Mesh(new THREE.BoxGeometry(2.16, 0.12, 0.7), frameMat);
+  step.position.set(0, 0.06, 0);
+  tellingDoor.add(step);
+  // The warm light in the doorway: a soft pane that never opens.
+  tellingDoorGlow = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.64, 2.84),
+    new THREE.MeshBasicMaterial({
+      color: 0xffb84d, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+    }));
+  tellingDoorGlow.position.set(0, 1.55, 0);
+  tellingDoor.add(tellingDoorGlow);
+  const lamp = new THREE.PointLight(0xffc37a, 14, 11, 1.8);
+  lamp.position.set(0, 1.9, 0.4);
+  tellingDoor.add(lamp);
+  tellingDoor.position.set(bx + 0.5, groundY, bz + 0.5);
+  // Face the spawn clearing, so the waking fox sees its light.
+  tellingDoor.rotation.y = Math.atan2(
+    (ARRIVAL.nova.x + 0.5) - (bx + 0.5), (ARRIVAL.nova.z + 0.5) - (bz + 0.5));
+  scene.add(tellingDoor);
+}
+const _doorRay = new THREE.Raycaster();
+function tellingDoorAimed() {
+  if (!tellingDoor || state.realm !== "nova" || !tellingDoor.visible) return false;
+  _doorRay.setFromCamera({ x: 0, y: 0 }, camera);
+  const hit = _doorRay.intersectObject(tellingDoor, true);
+  return hit.length > 0 && hit[0].distance < 7;
+}
+// The door's nearness, polled from animate(): the first approach
+// carries the teaching as a toast (once, ever, on this machine);
+// walking up to the door offers the panel, once per approach —
+// stepping away and back offers it again.
+let doorArmed = true, doorToastDone = LS.get("nova-phox-idea-door-met", false);
+function doorStep() {
+  const line = $("doorline");
+  if (!tellingDoor) { if (line) line.style.display = "none"; return; }
+  tellingDoor.visible = state.realm === "nova";
+  if (state.realm !== "nova") { if (line) line.style.display = "none"; return; }
+  const d = camera.position.distanceTo(tellingDoor.position);
+  // Hover: the door names itself while it is what you are looking at.
+  const aimed = d < 7 && tellingDoorAimed();
+  if (line) {
+    line.style.display = aimed ? "block" : "none";
+    if (aimed) line.textContent = "the telling door — leave an idea for the world";
+  }
+  if (d > 4.5) doorArmed = true;
+  if (d < 3.4 && !doorToastDone) {
+    doorToastDone = true;
+    LS.set("nova-phox-idea-door-met", true);
+    toast("The telling door. Leave an idea for the world — the world listens, and answers by changing.", 8000);
+  }
+  const panel = $("ideas");
+  if (d < 2.3 && doorArmed && panel && panel.style.display !== "block") {
+    doorArmed = false;
+    toggleIdeas(true);
+  }
 }
 
 function onResize() {
@@ -1774,6 +2220,42 @@ function syncMonsterMeshes(dt) {
   for (const m of sub.monsters) {
     if (!m.alive || m.realmId !== state.realm) continue;
     seen.add(m.id);
+    // Banter glimpse tracking: a dark thing's phase turning visible
+    // is a glimpse; its ending is one too. The wisp stays in the
+    // light and is never a familiar.
+    if (m.kind !== "wisp") {
+      const vis = sub.monsterVisible(m);
+      const was = banterVis.get(m.id) || false;
+      if (vis && !was) {
+        banterVis.set(m.id, true);
+        banterVisSince.set(m.id, performance.now());
+        const p = monsterWorldPos(m);
+        const dx = p.x - state.pos.x, dz = p.z - state.pos.z;
+        const dist = Math.hypot(dx, dz);
+        const fx = -Math.sin(state.yaw), fz = -Math.cos(state.yaw);
+        const bearing = Math.acos(Math.max(-1, Math.min(1,
+          (dx * fx + dz * fz) / (dist || 1)))) * 180 / Math.PI;
+        let second = false;
+        for (const m2 of sub.monsters) {
+          if (m2 !== m && m2.alive && m2.realmId === state.realm &&
+              m2.kind !== "wisp" && sub.monsterVisible(m2)) second = true;
+        }
+        const bNow = performance.now();
+        banterFire({ type: "glimpse", monsterId: m.id, kind: m.kind, realm: state.realm,
+          dist, bearingDeg: bearing, secondVisible: second,
+          afterStillMs: bNow - banterLastMoveAt,
+          playerMoving: Math.hypot(state.vel.x, state.vel.z) > 0.5,
+          turnedRecently: bNow - banterLastTurnAt < 1500,
+          longDarkMs: bNow - banterLastGlimpseAt });
+        banterLastGlimpseAt = bNow;
+      } else if (!vis && was) {
+        banterVis.set(m.id, false);
+        banterFire({ type: "glimpseEnd", monsterId: m.id,
+          durationMs: performance.now() - (banterVisSince.get(m.id) || performance.now()),
+          struck: banterStruck.has(m.id) });
+        banterStruck.delete(m.id);
+      }
+    }
     let mesh = monsterMeshes.get(m.id);
     if (!mesh) {
       mesh = buildMonsterMesh(m.kind);
@@ -2013,7 +2495,11 @@ function updatePlayer(dt) {
     state.vel.y = 0;
     state.gravDir = g;
     playBeat(g > 0 ? "BEAT-border-down" : "BEAT-border-up");
-    toast(g > 0 ? "Down is down again here." : "Down is up here. The place says so.");
+    banterLastFlipAt = performance.now();
+    banterFire({ type: "borderFlip", toUp: g < 0 });
+    // BEAT-border-down is SILENT under the final script — no line
+    // fires in the normal case; only inverted down gets a line.
+    if (g <= 0) toast(BEAT_LINES["BEAT-border-up"]);
   }
   // Input direction in heading space. When down is up, your right
   // hand points the other way — the strafe sign follows gravity.
@@ -2062,7 +2548,26 @@ function updatePlayer(dt) {
   state.onGround = hitY && falling;
   if (hitY) {
     if (!wasGround && Math.abs(prevVy) > 9) sfx.land();
+    if (!wasGround && banterAirStart > 0) {
+      banterFire({ type: "land",
+        airMs: performance.now() - banterAirStart,
+        inverted: state.gravDir < 0,
+        flipMidAir: banterLastFlipAt > banterAirStart,
+        descent: (banterAirY - state.pos.y) * state.gravDir,
+        horizDist: Math.hypot(state.pos.x - banterAirX, state.pos.z - banterAirZ) });
+      banterAirStart = 0;
+    }
     state.vel.y = 0;
+  }
+  if (wasGround && !state.onGround) {
+    banterAirStart = performance.now();
+    banterAirX = state.pos.x; banterAirY = state.pos.y; banterAirZ = state.pos.z;
+    banterAirFired = false;
+  }
+  if (!state.onGround && banterAirStart > 0 && !banterAirFired &&
+      performance.now() - banterAirStart >= 2500) {
+    banterAirFired = true;
+    banterFire({ type: "airborne", airMs: performance.now() - banterAirStart });
   }
   // Head-bob + weave: the camera rides the stride; strafing leans.
   const moving = Math.hypot(state.vel.x, state.vel.z);
@@ -2078,7 +2583,7 @@ function updatePlayer(dt) {
   // Fell out of the world entirely (should not happen; bedrock/vault).
   if (state.pos.y < -12 || state.pos.y > WORLD_H + 14) {
     playBeat("BEAT-fall");
-    hurtPlayer(2, null, "The world lost track of you for a moment.");
+    hurtPlayer(2, null, BEAT_LINES["BEAT-fall"]);
     respawnAtArrival();
   }
   // Scroll crossing: your passage is written where pages change.
@@ -2161,6 +2666,7 @@ function hurtPlayer(amount, fromPos, why) {
     return;
   }
   state.hp -= amount;
+  banterFire({ type: "hurt", hpFrac: state.hp / state.maxHp });
   state.invulnUntil = now + 1200;
   sfx.hurt();
   flashDamage();
@@ -2176,7 +2682,7 @@ function hurtPlayer(amount, fromPos, why) {
     playBeat("BEAT-death");
     sub.log("return", realmName(state.realm),
       "carried back to Arrival; everything written stayed written");
-    toast("The dark takes its due — and you wake back at Arrival. Everything you earned is still yours.", 8000);
+    toast(BEAT_LINES["BEAT-death"], 8000);
     setTimeout(() => {
       state.hp = 10;
       state.dead = false;
@@ -2337,6 +2843,8 @@ function tryStrike() {
   if (killed) {
     sfx.strikeKill();
     playBeat(best.kind === "guardian" ? "BEAT-guardian-kill" : "BEAT-strike-kill");
+    banterFire({ type: "kill", kind: best.kind, guardian: best.kind === "guardian",
+      sinceGlimpseMs: performance.now() - (banterVisSince.get(best.id) || performance.now()) });
     damagePopup("struck out", "#ff9d5c");
     const p = monsterWorldPos(best);
     const cx = Math.floor(p.x / CHUNK), cz = Math.floor(p.z / CHUNK);
@@ -2348,16 +2856,17 @@ function tryStrike() {
       state.wispKills++;
       toast("That's fighting, start to finish: get close, face it, strike when it shows itself.", 7000);
     } else {
-      toast(best.kind === "guardian"
-        ? "The guardian is gone. The hall is quiet."
-        : "It's gone. And the scar stays.");
+      toast(BEAT_LINES[best.kind === "guardian"
+        ? "BEAT-guardian-kill" : "BEAT-strike-kill"]);
     }
     guideNotify("strike");
   } else {
     sfx.strikeHit();
     playBeat("BEAT-strike-hold");
+    banterStruck.add(best.id);
     damagePopup(`-${damage} · it holds`, "#d8f4ff");
-    toast("It holds. Strike again.");
+    // BEAT-strike-hold: NO DIALOGUE under the final script — the
+    // sound of the hit does the talking (the popup still lands).
   }
   syncReadout();
   syncHud();
@@ -2419,6 +2928,10 @@ function tryChisel() {
         dirtyChunks.add(chunkKey(cx + dx, cz + dz));
       }
     }
+    banterFire({ type: "mark", key: `${state.realm}:${px},${py},${pz}`,
+      x: px, y: py, z: pz, realm: state.realm, yaw: state.yaw,
+      broke: broke > 0, level: lastLevel, dist: t,
+      inHall: state.realm === "nova" && inDungeon(px, pz) });
     syncReadout();
     syncHud();
     return true;
@@ -2502,8 +3015,16 @@ function playNote(n) {
   // not three different notes — 2, 2, 2 is a coordinate like any
   // other, and it answers.
   state.notes.push(n);
+  banterSeqNotes.push(n);
+  {
+    const bNow = performance.now();
+    banterFire({ type: "note", n, seqIndex: state.notes.length,
+      firstNote: state.notes[0],
+      gapMs: banterLastNoteAt ? bNow - banterLastNoteAt : 0 });
+    banterLastNoteAt = bNow;
+  }
   clearTimeout(state.notesTimer);
-  state.notesTimer = setTimeout(() => { state.notes = []; syncHud(); }, 4000);
+  state.notesTimer = setTimeout(() => { state.notes = []; banterSeqNotes = []; syncHud(); }, 4000);
   if (state.notes.length === 3) {
     const chord = [...state.notes].sort((a, b) => a - b);
     state.notes = [];
@@ -2868,6 +3389,7 @@ function riftStep(now, dt) {
   if (dist2 > RIFT_RANGE * RIFT_RANGE) {
     closeRift();
     toast("The rift folds shut — you have wandered beyond its reach.", 3000);
+    banterFire({ type: "riftFold" });
     return;
   }
   // The door is not the fox's alone: a thing of the dark that
@@ -2906,11 +3428,21 @@ function playChord(chord) {
       !(target.type === "realm")) {
     target = { type: "pocket", realmId: daily.realmId, sx: daily.sx, sy: daily.sy, chord: daily.chord };
   }
+  banterFire({ type: "chord",
+    seq: banterSeqNotes.length ? [...banterSeqNotes] : [...chord],
+    targetKey: target.type === "realm" ? `realm:${target.realmId}`
+      : target.type === "pocket" ? `pocket:${target.realmId}:${target.sx},${target.sy}`
+      : `stay:${state.realm}:${sx},${sy}`,
+    targetRealm: target.realmId || state.realm,
+    inHall: state.realm === "nova" &&
+      inDungeon(Math.floor(state.pos.x), Math.floor(state.pos.z)),
+    leavesRealm: target.type === "realm" && target.realmId !== state.realm });
+  banterSeqNotes = [];
   sub.log("tune", `${realmName(state.realm)} ${sx},${sy}`,
     `notes ${chord.join("+")} — a tune is played, and written`);
   if (target.type === "stay") {
     playBeat("BEAT-stay");
-    toast("That's this place's own tune — it hums, and you stay put.");
+    toast(BEAT_LINES["BEAT-stay"]);
     return;
   }
   // The tune opens a rift; the crossing itself happens when the
@@ -2950,9 +3482,13 @@ function doCross(target, opts = {}) {
     for (const [, mesh] of monsterMeshes) scene.remove(mesh);
     monsterMeshes.clear();
     playBeat(state.realm === "ashfall" ? "BEAT-cross-ashfall" : "BEAT-cross-nova");
-    toast(state.realm === "ashfall"
-      ? "Ashfall Haven. The air tastes of cinders; the rock remembers fire."
-      : "Nova Prime. Home meadow, green under a kind sky.", 8000);
+    toast(BEAT_LINES[state.realm === "ashfall"
+      ? "BEAT-cross-ashfall" : "BEAT-cross-nova"], 8000);
+    banterVis.clear(); // the old realm's glimpses end at the seam
+    banterAirStart = 0; // a crossing is not a fall
+    banterFire({ type: "cross", from, to: state.realm,
+      viaLink: !!opts.viaLink, inverted: state.gravDir < 0,
+      ambience: banterAmbience(state.realm), fromAmbience: banterAmbience(from) });
     guideNotify("realm");
   } else {
     sub.getScroll(state.realm, target.sx, target.sy, true);
@@ -2963,7 +3499,9 @@ function doCross(target, opts = {}) {
     state.vel.set(0, 0, 0);
     ensureNeighborhood(state.realm, target.sx, target.sy);
     playBeat("BEAT-pocket");
-    toast("The tune lands you in a far-off place.", 6000);
+    toast(BEAT_LINES["BEAT-pocket"], 6000);
+    banterAirStart = 0; // a crossing is not a fall
+    banterFire({ type: "pocket" });
     guideNotify("pocket");
   }
   syncHud();
@@ -3090,12 +3628,14 @@ function flipGravityHere() {
     for (let dz = -1; dz <= 1; dz++) regenerateChunk(pcx + dx, pcz + dz);
   markScrollChunksDirty(state.realm, sx, sy);
   playBeat(dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up");
-  toast(dir > 0 ? "Down is down. The place remembers." : "Down is up. The place remembers.", 5000);
+  toast(BEAT_LINES[dir > 0 ? "BEAT-flip-down" : "BEAT-flip-up"], 5000);
+  banterLastFlipAt = performance.now();
+  banterFire({ type: "flip", toUp: dir < 0 });
   guideNotify("flip");
   syncReadout();
 }
 
-// ---------- the guide (Emise narrates; the guide guarantees the XP) --------------
+// ---------- the guide (Joy narrates; the guide guarantees the XP) --------------
 // The first minutes are engineered so a fresh player cannot finish
 // them without having DONE the two things that teach the world:
 //   1. played a chord of three numbers and been carried somewhere
@@ -3128,37 +3668,41 @@ function nearestMonsterDist() {
   }
   return best;
 }
+// N-03 (the move step) speaks in two variants — NARRATION.md,
+// Will's ruling (2026-11-26): half of all players get WASD, half
+// get AWEF, by coin flip. The step's text follows the fox's
+// resolved scheme, exactly as its recorded beat does (renderGuide).
+const MOVE_LINES = {
+  WASD: "Feet first, Fox! W A S D to walk — the arrows work too. Mouse to look, Space to jump. There's no fence, no edge, no end. Run as far as you like!",
+  AWEF: "Feet first, Fox — and your hands get the other layout. F walks forwards, A walks backwards, W strafes left, E strafes right. Mouse to look, Space to jump. Cartoon hands make do with four fingers. Sentients ship with five, so your thumb gets the Space bar all to itself. There's no fence, no edge, no end. Run as far as you like!",
+};
+
 const GUIDE = [
   {
     id: "wake",
     lines: [
-      "Wake up, fox. I'm Emise — I keep the map, and I'll walk with you a while.",
-      "The galaxy is ours: every star named, every shore explored. But most of everything is still dark — and nobody ever learned what the dark is hiding.",
+      "Wake up, Fox! The rifts have opened. I'm Joy, your aperture shift. Ten realms have appeared, each one unexpected. Let's go exploring!",
     ],
     button: "And then?",
   },
   {
     id: "rifts",
     lines: [
-      "Then the rifts opened — cracks where the dark gets in. Things turn up that shouldn't exist. Places appear that nobody built.",
-      "You're standing in one now: Nova Prime. Click the world to take control — the sound starts with that click, so listen as you go.",
+      "Nova Prime — that's here! The first realm, and you're standing in the rift that opened it. Click the world to take hold of it. The sound starts with your click, so listen as you go!",
     ],
     button: "Take control",
     action: "helm",
   },
   {
     id: "move",
-    lines: [
-      "Feet first. Walk with W A S D — the arrows work too. Look with the mouse, and jump with Space. Walk as far as you like: there is no fence, no edge, no end.",
-    ],
+    lines: [MOVE_LINES.WASD],
     until: () => state.movedTotal > 7 && state.jumped >= 1,
     hint: "Walk a little. Jump once. (Nothing can hurt you yet — learn your feet.)",
   },
   {
     id: "numbers",
     lines: [
-      "See the number keys along the top of your keyboard? They're an instrument. The letter row under them works too. Press any number and listen.",
-      "Three different notes together make a tune. And a tune, fox, is a place.",
+      "See the numbers along the top? They're an inky! Press three in a row - together they make a tune...and a tune? That's a place.",
     ],
     until: () => state.notesPlayed >= 1,
     hint: "Press a number key. Any one.",
@@ -3166,8 +3710,7 @@ const GUIDE = [
   {
     id: "bridge",
     lines: [
-      "Here is the first tune worth knowing: 1, 4, 9. Play the three notes in any order, close together.",
-      "That's the bridge tune. It opens a rift to Ashfall Haven, a few steps in front of you — walk through it to cross. From Ashfall, the same tune opens the way home.",
+      "Here's your first tune: 1, 4, 9. Any order, close together. That's the bridge tune — it opens a rift to Ashfall Haven, right in front of you. Step through! From Ashfall, the same tune brings you home.",
     ],
     until: () => state.realm === "ashfall",
     hint: "Play 1, 4, 9.",
@@ -3175,9 +3718,7 @@ const GUIDE = [
   {
     id: "ashfall",
     lines: [
-      "Ash and red rock. Every place on the map has its own weather, its own ground, its own mood.",
-      "Things move in the dark here, same as at home. Most of the time you'll only catch a glimpse of them — and that's your moment. Strike when one shows itself: click, or press F.",
-      "Play 1, 4, 9 when you're ready to head back.",
+      "Ashfall Haven! Ash, red rock, cinders on the wind. Every realm has its own weather, its own ground, its own mood. Things move in the dark here — you'll glimpse them, just barely. Strike in the glimpse: click, or F. Ready to head back? 1, 4, 9.",
     ],
     until: () => state.realm === "nova",
     hint: "Play 1, 4, 9 to cross home.",
@@ -3229,8 +3770,7 @@ const GUIDE = [
     when: () => sub.wal.some((s) => s.op === "break") ||
       state.movedTotal - state.exploreMoved0 > 40,
     lines: [
-      "One more trick before I leave you to it: press G, and down turns upside down. Down isn't a law here — each place keeps its own down, and it remembers what you set.",
-      "Try it. Flip down up, and a dark ceiling appears over this place to catch you — it wasn't there before you flipped.",
+      "One more surprise...press G to invert gravity self. Down and up are suggestions here, ones that you can swap daily. You'll feel a little woozy after a gravity inversion, that's normal. Just remember, each realm can only swap gravity once a day!",
     ],
     until: () => state.flips >= 1,
     hint: "Press G.",
@@ -3252,9 +3792,7 @@ const GUIDE = [
     jit: true,
     when: () => state.gestureUsed,
     lines: [
-      "East of where you woke up, a hill rises over an old buried hall — the barrow. Deep inside it lies the Deep Stone, and something is guarding it.",
-      "Reach the stone, and the prize is yours for good. The grass, the light, even the day will change around it — what you've earned stays earned.",
-      "Climb the hill and go down the shaft in its top. Fight with click or F. And watch your hearts — when they're gone, you're carried back to where you started.",
+      "East of Home Base, where you woke up, rises the Unexpected Hall. Deep inside lies a piece of Nova Prime's Heart. Whenever you find a hall, you should explore it to collect another piece of the planet's heart. The journey will be dangerous, but Nova Prime will reward you every time.",
     ],
     until: () => sub.questDone,
     hint: "East, to the barrow. Reach the Deep Stone.",
@@ -3262,8 +3800,7 @@ const GUIDE = [
   {
     id: "done",
     lines: [
-      "The hat is yours, and it's yours for good. You know the two true things now, even if you'd never say them my way: a tune is a place, and a mark you make stays — even when everything around it changes.",
-      "The rest of the map is yours. Ten more realms are marked on it, quiet for now — press M to see their names. I'll be here when you need me.",
+      "Good, Fox: you've found another piece of Nova Heart. You've unlocked a Bundle. Return to Home Base and help rebuild Nova Prime! Press M to view available realms.",
     ],
     button: "Explore",
   },
@@ -3298,12 +3835,20 @@ function renderGuide() {
     syncHud();
   }
   panel.style.display = "block";
-  const beat = GUIDE_BEATS[step.id];
+  let beat = GUIDE_BEATS[step.id];
+  if (step.id === "move") {
+    // N-03 was recorded in both schemes (NARRATION.md): the fox
+    // hears the variant matching the keys under their hands.
+    beat = state.scheme === "AWEF" ? "N-03-AWEF" : "N-03-WASD";
+  }
   if (beat && state.lastGuideBeat !== beat) {
     state.lastGuideBeat = beat;
     playBeat(beat);
   }
-  $("guide-lines").innerHTML = step.lines.map((l) => `<p>${l}</p>`).join("");
+  const lines = step.id === "move"
+    ? [MOVE_LINES[state.scheme] || MOVE_LINES.WASD]
+    : step.lines;
+  $("guide-lines").innerHTML = lines.map((l) => `<p>${l}</p>`).join("");
   const btn = $("guide-btn");
   if (step.button) {
     btn.style.display = "inline-block";
@@ -3318,6 +3863,7 @@ function guideAdvance() {
   const leaving = guideCurrent();
   if (leaving && leaving.id === "handover") {
     state.exploreMoved0 = state.movedTotal; // the exploration clock starts
+    banterGoLive(); // and Joy's ambient voice with it
   }
   state.guideStep++;
   if (state.guideStep >= GUIDE.length) state.guideDone = true;
@@ -3351,7 +3897,7 @@ function updateObjective() {
     step.id === "gravity" ? "press G — flip down upside down" :
     step.id === "gesture" ? "hold right mouse — draw a triangle" :
     step.id === "quest" ? "the Deep Stone, east of Arrival" :
-    "listen to Emise");
+    "listen to Joy");
 }
 
 // ---------- HUD -------------------------------------------------------------------
@@ -3702,6 +4248,184 @@ function toggleBoard(force) {
   el.style.display = show ? "block" : "none";
   if (show) renderBoard();
 }
+
+// ---------- the telling door's panel (demo8) ------------------------------------
+// The logic lives in ideas.js (pure, unit-tested); this glue owns
+// the panel, the outbox, and the chart. Player text is rendered
+// ONLY as text nodes — a telling is data, never markup, so no
+// player's words can become a script surface. Copy stays under
+// the veil: the world, the shared map, told / taken up / in the
+// world — no machinery words in the fiction.
+const IDEA_STATE_LABELS = {
+  submitted: "told",
+  picked: "taken up",
+  shipped: "in the world",
+};
+function ideaStateText(idea) {
+  const label = IDEA_STATE_LABELS[idea.status] || "told";
+  return idea.status === "shipped" && idea.shipEE
+    ? `${label} · EE ${idea.shipEE}` : label;
+}
+function ideaNote(msg) {
+  const el = document.getElementById("idea-note");
+  if (el) el.textContent = msg;
+}
+function ideaRowEl(nameText, titleText, stateText, here) {
+  const row = document.createElement("div");
+  row.className = "realmrow" + (here ? " here" : "");
+  const nm = document.createElement("span");
+  nm.className = "realmname2";
+  nm.textContent = nameText;
+  const tt = document.createElement("span");
+  tt.className = "realmname2";
+  tt.textContent = titleText;
+  const st = document.createElement("span");
+  st.className = "realmstatus";
+  st.textContent = stateText;
+  row.append(nm, tt, st);
+  return row;
+}
+function ideaEmptyEl(text) {
+  const row = document.createElement("div");
+  row.className = "realmrow";
+  const st = document.createElement("span");
+  st.className = "realmstatus";
+  st.textContent = text;
+  row.append(st);
+  return row;
+}
+function renderIdeas() {
+  const el = document.getElementById("ideas");
+  if (!el || el.style.display === "none") return;
+  // The character count, honest about the caps.
+  const title = $("idea-title").value || "";
+  const body = $("idea-body").value || "";
+  const count = $("idea-count");
+  const over = [...title].length > IDEA_TITLE_MAX || [...body].length > IDEA_BODY_MAX;
+  count.textContent =
+    `a title of at most ${IDEA_TITLE_MAX} letters (yours: ${[...title].length}) · ` +
+    `a telling of at most ${IDEA_BODY_MAX} (yours: ${[...body].length})`;
+  count.className = over ? "over" : "";
+  // Sign-in: only the write needs it — the same door the board uses.
+  const signin = $("idea-signin");
+  if (gameToken()) {
+    signin.style.display = "none";
+  } else {
+    signin.style.display = "block";
+    $("idea-signin-text").textContent = ideaOutbox.length
+      ? "Your telling is waiting on this machine. Sign in, and it travels to the shared map — until then it is kept here, not lost."
+      : "Tellings travel on the shared map, and writing there asks you to sign in — the same sign-in the board uses. An idea told while signed out waits on this machine and travels when you sign in.";
+  }
+  // Your ideas: the ones still waiting on this machine first
+  // (labelled plainly as waiting here), then yours as read back.
+  const yours = $("idea-yours");
+  yours.replaceChildren();
+  const readBackIds = new Set(BACKEND.ideaRows.map((r) => r.id));
+  let shown = 0;
+  for (const seg of ideaOutbox) {
+    const idea = parseIdeaLine(seg.line);
+    if (!idea || readBackIds.has(idea.id)) continue;
+    yours.append(ideaRowEl(idea.name, idea.title, "waiting on this machine", true));
+    shown++;
+  }
+  for (const idea of BACKEND.ideaRows) {
+    if (idea.name !== playerName) continue;
+    yours.append(ideaRowEl(idea.name, idea.title, ideaStateText(idea), true));
+    shown++;
+  }
+  if (!shown) {
+    yours.append(ideaEmptyEl(BACKEND.online
+      ? "you haven't told the world anything yet"
+      : "the shared map hasn't answered yet — your tellings wait with you"));
+  }
+  // Lately told: the latest 20 ideas the chart actually read back.
+  const lately = $("idea-lately");
+  lately.replaceChildren();
+  const recent = BACKEND.ideaRows.slice(-20).reverse();
+  if (!recent.length) {
+    lately.append(ideaEmptyEl(BACKEND.online
+      ? "no fox has told the world anything yet — yours could be the first"
+      : "the shared map hasn't answered yet this session"));
+  }
+  for (const idea of recent) {
+    lately.append(ideaRowEl(idea.name, idea.title, ideaStateText(idea),
+      idea.name === playerName));
+  }
+}
+function toggleIdeas(force) {
+  const el = $("ideas");
+  if (!el) return;
+  const show = force !== undefined ? force : el.style.display !== "block";
+  el.style.display = show ? "block" : "none";
+  if (show) {
+    renderIdeas();
+    if (document.exitPointerLock) document.exitPointerLock();
+  }
+}
+// One submit = one queued line = one insert when it flushes. A
+// short cooldown keeps a double-tap from spending two.
+let lastIdeaSubmitAt = 0;
+function submitIdea(titleRaw, bodyRaw) {
+  const title = String(titleRaw ?? "").trim();
+  const body = String(bodyRaw ?? "").trim();
+  const v = validateIdea(title, body);
+  if (!v.ok) {
+    ideaNote(
+      v.reason === "title-cap" ? `a title can be at most ${IDEA_TITLE_MAX} letters — yours is ${v.count}. Shorten it; nothing was told.`
+      : v.reason === "body-cap" ? `a telling can be at most ${IDEA_BODY_MAX} letters — yours is ${v.count}. Shorten it; nothing was told.`
+      : v.reason === "title-empty" ? "give your idea a short name first — that's how the world will know it."
+      : "say what you wish the world had, in the telling — an empty telling tells nothing.");
+    return { ok: false, reason: v.reason };
+  }
+  const now = Date.now();
+  if (now - lastIdeaSubmitAt < 3000) {
+    ideaNote("one telling at a time — that one is already on its way.");
+    return { ok: false, reason: "cooldown" };
+  }
+  // The id is checked against everything the chart has read back
+  // and everything still queued here; a collision rolls again.
+  const taken = new Set([
+    ...BACKEND.ideaRows.map((r) => r.id),
+    ...ideaOutbox.map((s) => { const p = parseIdeaLine(s.line); return p ? p.id : null; }),
+  ]);
+  let id = makeIdeaId(now, Math.random);
+  for (let tries = 0; tries < 8 && taken.has(id); tries++) id = makeIdeaId(now, Math.random);
+  if (taken.has(id)) {
+    ideaNote("the door stumbled over its own names just now — try the telling again.");
+    return { ok: false, reason: "id-collision" };
+  }
+  const line = serializeIdea({ id, name: playerName, ts: now, title, body });
+  if (!line) {
+    ideaNote("that telling couldn't be written down — nothing was told.");
+    return { ok: false, reason: "serialize" };
+  }
+  queueIdeaLine(line);
+  lastIdeaSubmitAt = now;
+  ideaNote(gameToken()
+    ? "your telling is on its way — it will stand as told once the shared map reads it back."
+    : "your telling is kept on this machine. Sign in, and it travels to the shared map.");
+  renderIdeas();
+  backendProbe().then(() => backendFlush());
+  return { ok: true, id };
+}
+function submitIdeaFromPanel() {
+  const res = submitIdea($("idea-title").value, $("idea-body").value);
+  if (res.ok) {
+    $("idea-title").value = "";
+    $("idea-body").value = "";
+    renderIdeas();
+  }
+}
+$("btn-idea-tell").addEventListener("click", () => submitIdeaFromPanel());
+$("btn-idea-close").addEventListener("click", () => toggleIdeas(false));
+$("btn-idea-login").addEventListener("click", () => {
+  if (gameToken()) { ideaNote("you're signed in — your tellings travel as you make them."); return; }
+  ideaNote("taking you to sign in — your telling stays on this machine and travels when you get back.");
+  location.href = loginUrl();
+});
+$("btn-board-idea").addEventListener("click", () => toggleIdeas(true));
+$("idea-title").addEventListener("input", () => renderIdeas());
+$("idea-body").addEventListener("input", () => renderIdeas());
 
 // ---------- player forms: the phext a fox wears (demo6) -------------------------
 // The logic lives in forms.js (pure, unit-tested); this glue owns
@@ -4268,6 +4992,9 @@ function saveFileContents() {
     // demo6: the worn form's phext rides in the copy too — a
     // form is part of the player's record, and a copy restores it.
     form: formState,
+    // demo8: tellings still waiting on this machine ride too —
+    // a waiting idea is part of the player's record, like a mark.
+    ideaOutbox: [...ideaOutbox],
   }, null, 2);
 }
 function downloadLocalSave() {
@@ -4300,6 +5027,7 @@ function loadLocalSave(file) {
       // worn: over the ceiling, unparseable, or unfit, and the
       // copy simply carries no form (v2/v3-era copies predate it).
       LS.set("nova-phox-form", loadFormState(data.form || null));
+      LS.set("nova-phox-idea-outbox", Array.isArray(data.ideaOutbox) ? data.ideaOutbox : []);
       location.reload();
     } catch (e) {
       saveNote("that file is not a Nova Phox save copy — nothing was loaded.");
@@ -4343,6 +5071,326 @@ function toggleRealms(force) {
   el.style.display = show ? "block" : "none";
   if (show) renderRealms();
 }
+
+// ---------- the Esc menu (2026-11-26) ----------------------------------
+// Will's spec: a menu on Esc — Start a New Game · Open to LAN ·
+// Save the world to .phext · Merge the local game to fox.phext.io ·
+// Key bindings · Video settings · Audio settings · Quit. The menu
+// and its three sub-panels wear the realms panel's dress. Like
+// every other panel in this game, the menu does NOT pause the
+// world: the animate loop runs under it, exactly as it runs under
+// the board and the map. While a menu panel is up, the keyboard
+// works the menu instead of the fox (the keydown handler routes
+// here first) — a menu you cannot type through.
+const MENU_PANELS = ["menu", "bindings-panel", "video-panel", "audio-panel"];
+let panelFocus = { panel: null, index: 0 };
+let bindingCapture = null; // the action awaiting a key, or null
+let newGameArmed = false;
+let mergeArmed = false; // the merge's sign-in step is a second, deliberate click
+
+function menuIsOpen() {
+  return MENU_PANELS.some((p) => $(p).style.display === "block");
+}
+function openPanel(id) {
+  for (const p of MENU_PANELS) $(p).style.display = p === id ? "block" : "none";
+  panelFocus = { panel: id, index: 0 };
+  if (id) { refreshMenuStates(); markSelection(); }
+}
+function toggleMenu(force) {
+  const show = force !== undefined ? force : $("menu").style.display !== "block";
+  if (show) { newGameArmed = false; mergeArmed = false; syncMenuConfirm(); openPanel("menu"); }
+  else openPanel(null);
+}
+function closeMenu() { openPanel(null); }
+function menuNote(msg) { $("menu-note").textContent = msg; }
+function syncMenuConfirm() {
+  $("menu-confirm").style.display = newGameArmed ? "block" : "none";
+}
+// The controls the keyboard can reach in the open panel, in order.
+function panelControls(id) {
+  if (id === "menu") {
+    if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
+    return ["menu-newgame", "menu-lan", "menu-savephext", "menu-merge",
+      "menu-keys", "menu-video", "menu-audio", "menu-quit", "menu-close"].map($);
+  }
+  if (id === "bindings-panel") {
+    return [...$("bindings-list").querySelectorAll("button"),
+      $("bindings-reset"), $("bindings-back")];
+  }
+  if (id === "video-panel") {
+    return [$("vid-scale"), $("vid-view"), $("vid-full"), $("video-back")];
+  }
+  if (id === "audio-panel") {
+    return [$("aud-master"), $("aud-narration"), $("aud-mute"), $("audio-back")];
+  }
+  return [];
+}
+function markSelection() {
+  for (const p of MENU_PANELS) {
+    for (const el of $(p).querySelectorAll(".sel")) el.classList.remove("sel");
+  }
+  if (!panelFocus.panel) return;
+  const ctl = panelControls(panelFocus.panel)[panelFocus.index];
+  if (ctl) ctl.classList.add("sel");
+}
+function handleMenuKey(e) {
+  const id = panelFocus.panel;
+  if (!id) return;
+  if (e.code === "Escape") {
+    if (id === "menu") closeMenu(); else openPanel("menu");
+    return;
+  }
+  const ctls = panelControls(id);
+  if (!ctls.length) return;
+  panelFocus.index = Math.min(panelFocus.index, ctls.length - 1);
+  const ctl = ctls[panelFocus.index];
+  if (e.code === "ArrowDown" || e.code === "ArrowUp") {
+    const d = e.code === "ArrowDown" ? 1 : -1;
+    panelFocus.index = (panelFocus.index + d + ctls.length) % ctls.length;
+    markSelection();
+  } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+    const d = e.code === "ArrowRight" ? 1 : -1;
+    if (ctl.type === "range") {
+      ctl.value = Math.max(0, Math.min(100, Number(ctl.value) + d * 5));
+      ctl.dispatchEvent(new Event("input"));
+    } else if (ctl.tagName === "BUTTON") ctl.click();
+  } else if (e.code === "Enter") {
+    if (ctl.tagName === "BUTTON") ctl.click();
+  }
+}
+function refreshMenuStates() {
+  $("menu-lan-state").textContent = LAN.open ? "open" : "closed";
+  const waiting = marksWaiting();
+  $("menu-merge-state").textContent = !BACKEND.online
+    ? "the shared map is out of reach"
+    : waiting ? `${waiting} mark${waiting === 1 ? "" : "s"} waiting` : "in step with the shared map";
+  $("vid-scale").textContent = `${Math.round(SETTINGS.renderScale * 100)}%`;
+  $("vid-view").textContent =
+    SETTINGS.viewDistance === 2 ? "near" : SETTINGS.viewDistance === 4 ? "far" : "standard";
+  $("vid-full").textContent = document.fullscreenElement ? "leave" : "enter";
+  $("aud-master").value = Math.round(SETTINGS.master * 100);
+  $("aud-narration").value = Math.round(SETTINGS.narration * 100);
+  $("aud-mute").textContent = sfx.muted ? "off" : "on";
+  renderBindings();
+}
+
+// --- Start a New Game ---------------------------------------------------
+// The reset is the game's own save model, cleared: the record a
+// save copy carries (name, standings, the mark queues, the posted
+// standing) plus the economy and the introduced-realms set. What
+// stays is what a save copy never carried either: the phext.tech
+// sign-in, the control prefs, the key bindings, the settings —
+// machine keepings, not game progress. Then a reload, so the new
+// game boots exactly as a brand-new player's does (the same door
+// loadLocalSave takes).
+const NEW_GAME_KEYS = [
+  "nova-phox-name", "nova-phox-standings", "nova-phox-introduced",
+  "nova-phox-outbox", "nova-phox-outbox-folded", "nova-phox-outbox-dropped",
+  "nova-phox-posted", "nova-phox-economy", "nova-phox-eco-outbox",
+];
+function startNewGame() {
+  for (const k of NEW_GAME_KEYS) {
+    try { localStorage.removeItem(k); } catch (e) { /* private mode */ }
+  }
+  location.reload();
+}
+
+// --- Open to LAN ---------------------------------------------------------
+// D2 rules LAN play for the download build. The honest state of
+// this build: there is no LAN transport in it at all — no socket,
+// no peer machinery, nothing to open. The item is wired to this
+// state object, whose only truthful answer today is "closed, and
+// cannot open"; when a transport lands, openToLan is where it
+// plugs in, and the menu's state line will say "open" only when
+// open is a fact.
+const LAN = {
+  transport: null, // no LAN transport exists in this build
+  open: false,
+  state() { return { open: this.open, available: this.transport !== null }; },
+  openToLan() {
+    if (!this.transport) return { ok: false, reason: "no-transport" };
+    this.open = true;
+    return { ok: true };
+  },
+};
+
+// --- Save the world to .phext -------------------------------------------
+// worldToPhext (world.js) serializes the actual subspace — opened
+// pages, marks, things, monsters, the inscription log — as a real
+// phext document; this is the download door, the same shape as the
+// local save copy's.
+function downloadWorldPhext() {
+  const r = worldToPhext(sub, {
+    player: playerName, score: totalScore(sub),
+    exportedAt: new Date().toISOString(),
+  });
+  const blob = new Blob([r.text], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `nova-fox-world-${todayStr()}.phext`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  menuNote(`the world is written out — ${r.scrolls} scrolls, ${r.bytes} bytes, in the .phext file.`);
+  return r;
+}
+
+// --- Merge the local game to fox.phext.io -------------------------------
+// What a merge can mean here is what the shared chart holds:
+// inscriptions (the mark queues), the standing, and the economy
+// ledger — all append-only, all already carried by backendFlush,
+// the same machinery the 20-second cycle runs. Merging overwrites
+// nothing anywhere, so it needs no confirm gate; the one gate it
+// does have is the platform's own: writing takes a phext.tech
+// sign-in, and going to sign in is a second, deliberate click —
+// never a surprise navigation out of the menu. What does NOT
+// merge, because the chart holds no such thing: the local subspace
+// itself (this session's pages and life) — the chart takes the
+// written record of the world, not the world.
+async function mergeToHosted() {
+  menuNote("reaching for the shared map…");
+  if (!BACKEND.probed || !BACKEND.online) await backendProbe();
+  if (!BACKEND.online) {
+    menuNote("can't reach fox.phext.io — nothing was merged. Your game stays whole on this machine.");
+    return { merged: false, reason: "offline" };
+  }
+  if (!gameToken()) {
+    if (!mergeArmed) {
+      mergeArmed = true;
+      menuNote("merging writes your marks to the shared chart under your phext.tech sign-in. Choose “Merge the local game” again to go and sign in — the game comes right back to this page.");
+      return { merged: false, reason: "needs-signin" };
+    }
+    location.href = loginUrl();
+    return { merged: false, reason: "signing-in" };
+  }
+  const before = marksWaiting() + ecoOutbox.length;
+  await backendFlush();
+  const after = marksWaiting() + ecoOutbox.length;
+  const sent = before - after;
+  refreshMenuStates();
+  if (after === 0) {
+    menuNote(sent > 0
+      ? `merged — ${sent} entr${sent === 1 ? "y" : "ies"} reached the shared chart, and your standing stands there. Nothing is left waiting.`
+      : "merged — there was nothing waiting; your standing stands on the shared chart.");
+    return { merged: true, sent };
+  }
+  menuNote(`the merge stopped partway — ${sent} entr${sent === 1 ? "y" : "ies"} reached the shared chart, ${after} still waiting on this machine. Nothing was lost; merging again resumes it.`);
+  return { merged: false, reason: "partial", sent, waiting: after };
+}
+
+// --- Quit -----------------------------------------------------------------
+// What quitting can honestly be in a single-file build: try to
+// close the window (browsers allow it only where a script opened
+// the window), and otherwise land back on the title — the phext
+// logo panel the game booted behind. The session's world is not
+// destroyed by quitting; stepping past the title resumes it.
+function quitToTitle() {
+  closeMenu();
+  narration.stop();
+  if (document.exitPointerLock) document.exitPointerLock();
+  try { window.close(); } catch (e) { /* most windows refuse */ }
+  state.splash = true;
+  const el = $("splash");
+  if (el) el.style.display = "flex";
+}
+
+// --- Key bindings panel ---------------------------------------------------
+function renderBindings() {
+  const rows = BINDING_ACTIONS.map((a) => `
+    <div class="setrow"><span>${a.label}</span>
+    <button class="ghost bindbtn" data-action="${a.id}">${bindingCapture === a.id ? "press a key… (Esc cancels)" : keyName(BIND[a.id])}</button></div>`);
+  rows.push(`
+    <div class="setrow"><span>Walk — the scheme</span>
+    <button class="ghost" id="bind-scheme">${state.scheme}</button></div>`);
+  $("bindings-list").innerHTML = rows.join("");
+}
+$("bindings-list").addEventListener("click", (ev) => {
+  if (ev.target.id === "bind-scheme") { $("btn-keys").click(); renderBindings(); return; }
+  const b = ev.target.closest("button[data-action]");
+  if (b) { bindingCapture = b.dataset.action; renderBindings(); markSelection(); }
+});
+$("bindings-reset").addEventListener("click", () => {
+  for (const a of BINDING_ACTIONS) BIND[a.id] = a.def;
+  saveBindings();
+  bindingCapture = null;
+  renderBindings();
+  $("bindings-note").textContent = "the bindings are the defaults again.";
+});
+$("bindings-back").addEventListener("click", () => openPanel("menu"));
+
+// --- Video + audio panels ---------------------------------------------------
+const RENDER_SCALES = [1, 0.75, 0.5];
+$("vid-scale").addEventListener("click", () => {
+  const i = RENDER_SCALES.indexOf(SETTINGS.renderScale);
+  SETTINGS.renderScale = RENDER_SCALES[(i + 1) % RENDER_SCALES.length];
+  saveSettings();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * SETTINGS.renderScale);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  refreshMenuStates();
+});
+const VIEW_DISTANCES = [3, 4, 2];
+$("vid-view").addEventListener("click", () => {
+  const i = VIEW_DISTANCES.indexOf(SETTINGS.viewDistance);
+  SETTINGS.viewDistance = VIEW_DISTANCES[(i + 1) % VIEW_DISTANCES.length];
+  RENDER_R = SETTINGS.viewDistance; // chunk maintenance re-reads it every frame
+  saveSettings();
+  refreshMenuStates();
+});
+$("vid-full").addEventListener("click", () => {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else {
+      const p = document.documentElement.requestFullscreen();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+  } catch (e) { /* fullscreen unavailable here */ }
+  setTimeout(refreshMenuStates, 300);
+});
+$("video-back").addEventListener("click", () => openPanel("menu"));
+$("aud-master").addEventListener("input", (e) => {
+  SETTINGS.master = Number(e.target.value) / 100;
+  saveSettings();
+  applyMasterVolume();
+});
+$("aud-narration").addEventListener("input", (e) => {
+  SETTINGS.narration = Number(e.target.value) / 100;
+  saveSettings();
+  applyNarrationVolume();
+});
+$("aud-mute").addEventListener("click", () => {
+  $("btn-sound").click(); // the one mute, shared with the sound button
+  refreshMenuStates();
+});
+$("audio-back").addEventListener("click", () => openPanel("menu"));
+
+// --- The menu's own rows ----------------------------------------------------
+$("btn-menu").addEventListener("click", () => toggleMenu());
+$("menu-close").addEventListener("click", () => closeMenu());
+$("menu-newgame").addEventListener("click", () => {
+  newGameArmed = true;
+  syncMenuConfirm();
+  panelFocus = { panel: "menu", index: 0 };
+  markSelection();
+});
+$("menu-confirm-no").addEventListener("click", () => {
+  newGameArmed = false;
+  syncMenuConfirm();
+  panelFocus = { panel: "menu", index: 0 };
+  markSelection();
+});
+$("menu-confirm-yes").addEventListener("click", () => startNewGame());
+$("menu-lan").addEventListener("click", () => {
+  const r = LAN.openToLan();
+  menuNote(r.ok
+    ? "open to LAN — this session can be joined from the local network."
+    : "Open to LAN: this build has no LAN transport yet, so nothing was opened. LAN play is ruled for the download build (D2) and is still being built.");
+  refreshMenuStates();
+});
+$("menu-savephext").addEventListener("click", () => downloadWorldPhext());
+$("menu-merge").addEventListener("click", () => { mergeToHosted(); });
+$("menu-keys").addEventListener("click", () => openPanel("bindings-panel"));
+$("menu-video").addEventListener("click", () => openPanel("video-panel"));
+$("menu-audio").addEventListener("click", () => openPanel("audio-panel"));
+$("menu-quit").addEventListener("click", () => quitToTitle());
 
 // ---------- the load panel (feedback #15) --------------------------------------
 // First thing on the page: the phext logo panel. The game boots
@@ -4406,6 +5454,7 @@ document.addEventListener("mousedown", (e) => {
       // if a thing of the dark is in reach — and otherwise the
       // chisel, so shaping is one click away like everything else.
       if (introScreenAimed()) { openIntroViewer(); return; }
+      if (tellingDoorAimed()) { toggleIdeas(true); return; }
       if (!tryStrike()) tryChisel();
     }
   }
@@ -4528,6 +5577,12 @@ function doJump() {
     state.onGround = false;
     state.jumped++;
     sfx.jump();
+    banterAirStart = performance.now();
+    banterAirX = state.pos.x; banterAirY = state.pos.y; banterAirZ = state.pos.z;
+    banterAirFired = false;
+    banterFire({ type: "jump",
+      pauseBeforeMs: banterLastPauseMs,
+      sincePauseEndMs: banterPauseEndAt > 0 ? performance.now() - banterPauseEndAt : Infinity });
     guideNotify("jump");
   }
 }
@@ -4535,7 +5590,36 @@ document.addEventListener("keydown", (e) => {
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.code)) {
     e.preventDefault();
   }
+  // Typing in the telling door's fields is typing: no game verb
+  // fires from inside them (a title with an "i" in it must not
+  // shut the door it is being written at).
+  if (e.target && (e.target.id === "idea-title" || e.target.id === "idea-body")) {
+    if (e.code === "Escape") e.target.blur();
+    return;
+  }
   if (state.splash) { dismissSplash(); return; } // any key steps the panel aside (#15)
+  // The Esc menu's key capture (2026-11-26): while a binding waits
+  // for its key, the next keydown IS the answer — Escape cancels,
+  // a reserved key is refused with its reason, anything else is
+  // assigned (swapping with whatever held it).
+  if (bindingCapture) {
+    e.preventDefault();
+    if (e.code !== "Escape") {
+      const why = RESERVED_BIND_CODES[e.code];
+      if (why) {
+        $("bindings-note").textContent = `${keyName(e.code)} ${why}.`;
+      } else {
+        setBinding(bindingCapture, e.code);
+        $("bindings-note").textContent = "";
+      }
+    }
+    bindingCapture = null;
+    renderBindings();
+    markSelection();
+    return;
+  }
+  // While a menu panel is up, the keyboard works the menu.
+  if (menuIsOpen()) { handleMenuKey(e); return; }
   if (e.repeat) return;
   keys.add(e.code);
   if (e.code === "ArrowLeft") state.yaw += 0.32 * state.gravDir;
@@ -4549,21 +5633,44 @@ document.addEventListener("keydown", (e) => {
   }
   // In the AWEF scheme, E is a walking key, not a note (feedback #5).
   if (state.scheme === "AWEF" && e.code === "KeyE") return;
+  // The telling door (demo8): I opens it from anywhere. (The
+  // letter row's note 8 keeps its number-row key, Digit8.)
+  if (e.code === "KeyI") { toggleIdeas(); return; }
   const li = LETTER_KEYS.indexOf(e.code);
   if (li >= 0) return playNote(li + 1);
+  // The remappable verbs consult the binding store (Esc menu, 2026-11-26).
+  if (e.code === BIND.jump) { doJump(); return; }
+  if (e.code === BIND.flip) { flipGravityHere(); return; }
+  if (e.code === BIND.strike) {
+    // In AWEF, F walks backward — while the strike is bound to F,
+    // it lives on the click there, as before.
+    if (!(state.scheme === "AWEF" && BIND.strike === "KeyF")) tryStrike();
+    return;
+  }
+  if (e.code === BIND.chisel || e.code === "KeyX") { tryChisel(); return; }
+  if (e.code === BIND.brushDown) { cycleBrush(-1); return; }
+  if (e.code === BIND.brushUp) { cycleBrush(1); return; }
+  if (e.code === BIND.lamp) { toggleLamp(); return; }
+  if (e.code === BIND.board) { toggleBoard(); return; }
+  if (e.code === BIND.realms) { toggleRealms(); return; }
+  if (e.code === BIND.log) {
+    const el = $("readout");
+    el.style.display = el.style.display === "none" ? "block" : "none";
+    return;
+  }
   switch (e.code) {
-    case "Space": doJump(); break;
-    case "KeyG": flipGravityHere(); break;
-    case "KeyF":
-      // In AWEF, F walks backward — the strike lives on the click.
-      if (state.scheme !== "AWEF") tryStrike();
+    case "Escape":
+      if (state.introOpen) closeIntroViewer(); else toggleMenu();
       break;
     case "KeyC": case "KeyX": tryChisel(); break;
     case "Comma": cycleBrush(-1); break;
     case "Period": cycleBrush(1); break;
     case "KeyV": toggleLamp(); break;
     case "KeyN": toggleFoxVision(); break;
-    case "Escape": if (state.introOpen) closeIntroViewer(); break;
+    case "Escape":
+      if (state.introOpen) closeIntroViewer();
+      if ($("ideas").style.display === "block") toggleIdeas(false);
+      break;
     case "KeyB": toggleBoard(); break;
     case "KeyM": case "Tab": toggleRealms(); break;
     case "KeyL": {
@@ -4612,7 +5719,7 @@ $("btn-guide").addEventListener("click", () => {
 });
 $("btn-sound").addEventListener("click", (e) => {
   sfx.muted = !sfx.muted;
-  if (sfx.master) sfx.master.gain.value = sfx.muted ? 0 : 0.9;
+  applyMasterVolume();
   if (sfx.muted) narration.stop(); // sound off means the voice too
   e.target.textContent = sfx.muted ? "sound: off" : "sound: on";
 });
@@ -4627,15 +5734,35 @@ $("btn-log").addEventListener("click", () => {
   const el = $("readout");
   el.style.display = el.style.display === "none" ? "block" : "none";
 });
-$("btn-keys").textContent = `keys: ${state.scheme}`;
+syncSchemeControls();
 $("btn-keys").addEventListener("click", () => {
-  state.scheme = state.scheme === "WASD" ? "AWEF" : "WASD";
-  saveCtlPrefs();
-  $("btn-keys").textContent = `keys: ${state.scheme}`;
+  setScheme(otherScheme(state.scheme));
   toast(state.scheme === "AWEF"
     ? "Keys: A W E F — F walks backward in this scheme, so strike with the click."
     : "Keys: W A S D.", 4000);
 });
+// The same choice on the title panel (demo19): the splash is where a
+// player first lands, so the scheme can be set before the first
+// step is taken. The press is claimed at the button — mousedown and
+// touchstart are stopped here so the document's any-press-steps-
+// aside handlers never see it, and the click itself is stopped so
+// the panel's own click-to-dismiss never fires. Setting the scheme
+// must not start the game by accident.
+{
+  const schemeBtn = $("btn-scheme-splash");
+  if (schemeBtn) {
+    schemeBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+    schemeBtn.addEventListener("touchstart", (e) => e.stopPropagation(),
+      { passive: true });
+    schemeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setScheme(otherScheme(state.scheme));
+      toast(state.scheme === "AWEF"
+        ? "Keys: A W E F — F walks backward in this scheme, so strike with the click."
+        : "Keys: W A S D.", 4000);
+    });
+  }
+}
 // The version (2026-11-26): the ship stamp speaks two ways, both
 // from the one SHIP_EE above. The number stands on screen at all
 // times in #ee-line, on the title's own line in the title
@@ -4674,6 +5801,7 @@ $("guide-btn").addEventListener("click", () => {
 $("guide-dismiss").addEventListener("click", () => {
   state.guideDone = true;
   narration.stop(); // exploring on your own means Emise stops talking
+  banterGoLive(); // — and Joy's ambient voice starts
   renderGuide();
   syncHud();
 });
@@ -4837,6 +5965,7 @@ document.addEventListener("touchend", (e) => {
                performance.now() - touch.lookT < 300 && touch.lookMoved < 10) {
       // A tap is the click (see the header): screen, strike, chisel.
       if (introScreenAimed()) { openIntroViewer(); return; }
+      if (tellingDoorAimed()) { toggleIdeas(true); return; }
       if (!tryStrike()) tryChisel();
     }
   }
@@ -4906,6 +6035,7 @@ function animate() {
   // Fox Vision is a Hall sense: leaving the Hall puts it down,
   // silently, the same quiet with which it refused to wake outside.
   if (state.foxVision && !playerInHall()) state.foxVision = false;
+  banterObserveTick(now);
   chunkMaintenance();
   syncMonsterMeshes(dt);
   syncItemMeshes(now);
@@ -4940,21 +6070,27 @@ function animate() {
     const bx = Math.floor(state.pos.x), bz = Math.floor(state.pos.z);
     if (inDungeon(bx, bz) && !inDungeonBefore) {
       playBeat("BEAT-barrow");
-      toast("The barrow hall. Something guards the deep room below — watch for its glimpses, and strike when it shows itself.", 7000);
+      toast(BEAT_LINES["BEAT-barrow"], 7000);
+      banterHallEnterAt = performance.now();
+      banterFire({ type: "hallEnter", first: !banterHallVisited, walkedAboveBefore: banterWasAbove });
+      banterHallVisited = true;
     }
     inDungeonBefore = inDungeon(bx, bz);
     if (sub.checkQuest(bx, Math.floor(state.pos.y), bz)) {
       playBeat("BEAT-quest");
+      banterFire({ type: "quest",
+        hallTimeMs: banterHallEnterAt ? performance.now() - banterHallEnterAt : 0 });
       sfx.chime();
       sfx.melody([1, 4, 9, 11, 9], { gap: 130 }); // v5: the quest fanfare (#13)
       flashPortal();
-      toast("The Deep Stone — and with it, a hat. It's yours for good.", 9000);
+      toast(BEAT_LINES["BEAT-quest"], 9000);
       guideNotify("quest");
       syncHud();
       syncReadout();
     }
   }
   questWasDone = sub.questDone;
+  speedrunTick(now);
   // Camera: eye + stride bob + strafe weave + the gravity roll.
   const eye = eyePos();
   const bobY = state.onGround ? Math.abs(Math.sin(state.bobPhase)) * 0.055 : 0;
@@ -4974,6 +6110,7 @@ function animate() {
     renderGuide();
   }
   if (introScreen) introScreen.visible = state.realm === "nova";
+  doorStep();
   renderer.render(scene, camera);
 }
 
@@ -5040,7 +6177,7 @@ syncHud();
 syncReadout();
 updateSyncLabel();
 playBeat("BEAT-arrival");
-toast("Nova Prime. I'm Emise — my panel is at the bottom of your screen.", 6000);
+toast(BEAT_LINES["BEAT-arrival"], 6000);
 // The chart-line: probe now, re-probe and flush every 20 s. Offline
 // is a first-class state (the ranch itself goes dark some days):
 // play never waits on it.
@@ -5368,11 +6505,357 @@ async function nfConsoleRun(line) {
   catch (err) { nfPrint(`  ERROR  ${err && err.message ? err.message : err}`, "fail"); }
   finally { if (cmd.probe) nfCon.busy = false; }
 }
+// ---------- speedrun mode (demo16) -------------------------------------
+// Will's spec (2026-11-26): "include modes for speed runners to
+// play and record and stream their telemetry." The pure logic —
+// what a run is, what its recording says, how a recording checks
+// out — lives in speedrun.js; this section owns the clock, the
+// panel, and the socket. The run's terms, stated there for Will's
+// ratification: arm at Arrival in a clean state, the clock starts
+// on your first movement, and the finish is standing at the Deep
+// Stone — tested against the stone's own near-box every frame, so
+// a run repeats even after the quest itself is done.
+const sr = {
+  phase: "idle", // idle | armed | running | finished
+  t0: 0,
+  finalMs: null,
+  rec: null,
+  movedAtArm: 0,
+  lastT: 0,
+  lastRealm: state.realm,
+  wasDead: false,
+  wasInDungeon: false,
+  lastPosAt: 0,
+  lastTeleAt: 0,
+  splitsHit: new Set(),
+  ws: null,
+  wsState: "closed", // closed | connecting | open
+};
+const SR_RUNS_KEY = "nova-phox-runs";
+function srRecordings() { return LS.get(SR_RUNS_KEY, []); }
+function srSaveRecording(rec) {
+  const all = srRecordings();
+  all.push(rec);
+  while (all.length > 20) all.shift(); // the last twenty runs stand
+  LS.set(SR_RUNS_KEY, all);
+}
+
+// The stream is a witness, never a gate: a dead socket must never
+// touch the run, so every send is wrapped and silent on failure.
+function srSend(type, payload = {}) {
+  if (sr.ws && sr.ws.readyState === 1) {
+    try { sr.ws.send(telemetryMessage(type, payload)); } catch (e) { /* witness only */ }
+  }
+}
+function srStreamConnect(url) {
+  srStreamClose();
+  sr.wsState = "connecting";
+  srRenderPanel();
+  let ws;
+  try { ws = new WebSocket(url); } catch (e) {
+    sr.wsState = "closed";
+    srRenderPanel();
+    return false;
+  }
+  sr.ws = ws;
+  ws.onopen = () => {
+    sr.wsState = "open";
+    srRenderPanel();
+    srSend("hello", { player: playerName, shipEE: SHIP_EE });
+  };
+  ws.onclose = () => {
+    if (sr.ws === ws) { sr.ws = null; sr.wsState = "closed"; srRenderPanel(); }
+  };
+  ws.onerror = () => { /* onclose follows and tells the story */ };
+  return true;
+}
+function srStreamClose() {
+  if (sr.ws) { try { sr.ws.close(); } catch (e) { /* already gone */ } sr.ws = null; }
+  sr.wsState = "closed";
+}
+
+function speedrunArm() {
+  dismissSplash();
+  // A clean, defined start: Arrival in Nova Prime, whole, no notes
+  // carried, gravity down, standing at spawn. The shared world is
+  // NOT touched — a run is a way of travelling it, not a reset of
+  // it; standings, purse, and marks all stand.
+  state.realm = "nova";
+  state.pos.set(
+    ARRIVAL.nova.x + 0.5,
+    heightAt("nova", ARRIVAL.nova.x, ARRIVAL.nova.z) + 1.01,
+    ARRIVAL.nova.z + 0.5);
+  state.vel.set(0, 0, 0);
+  state.hp = state.maxHp;
+  state.dead = false;
+  state.notes = [];
+  state.gravDir = 1;
+  const { sx, sy } = playerScroll();
+  ensureNeighborhood("nova", sx, sy);
+  sr.phase = "armed";
+  sr.rec = null;
+  sr.finalMs = null;
+  sr.splitsHit = new Set();
+  sr.movedAtArm = state.movedTotal;
+  sr.lastRealm = state.realm;
+  sr.wasDead = false;
+  sr.wasInDungeon = false;
+  srSend("run-armed", { player: playerName });
+  srRenderTimer(performance.now());
+  srRenderPanel();
+  toast("Speed run armed — the clock starts when you move. Reach the Deep Stone.", 6000);
+}
+
+// The run's one clock. Events are stamped when the code that
+// reports them runs — a frame's start time would lie about its
+// own late beats (a slow frame spans seconds under load, and its
+// beats land ahead of its frame stamp, which put a real stream
+// out of order in testing). One clock, clamped so a stream can
+// never run backwards.
+function srNow() {
+  const t = performance.now() - sr.t0;
+  if (t > sr.lastT) sr.lastT = t;
+  return sr.lastT;
+}
+
+function srStart(now) {
+  sr.t0 = now;
+  sr.lastT = 0;
+  sr.phase = "running";
+  sr.lastPosAt = -250; // the first sample lands on the first frame
+  sr.lastTeleAt = -500;
+  sr.rec = newRunRecording({
+    player: playerName,
+    shipEE: SHIP_EE,
+    startedAt: new Date().toISOString(),
+    stone: DUNGEON.deepStone,
+  });
+  recEvent(sr.rec, 0, "start", { realm: state.realm });
+  srSend("run-start", { player: playerName });
+  srRenderPanel();
+}
+
+function srFinish(now) {
+  if (sr.phase !== "running") return;
+  const t = srNow();
+  sr.phase = "finished";
+  sr.finalMs = Math.round(t);
+  recEvent(sr.rec, t, "finish", { x: state.pos.x, y: state.pos.y, z: state.pos.z });
+  srSaveRecording(sr.rec);
+  srSend("run-finish", {
+    player: playerName,
+    finishMs: sr.finalMs,
+    splits: sr.rec.events.filter((e) => e.k === "split").map((e) => ({ beat: e.beat, atMs: e.t })),
+  });
+  toast(`Run complete — ${formatRunTime(sr.finalMs)}. It's written down.`, 8000);
+  srRenderTimer(now);
+  srRenderPanel();
+}
+
+function speedrunAbort() {
+  if (sr.phase === "running" && sr.rec) {
+    const t = srNow();
+    recEvent(sr.rec, t, "abort", {});
+    srSend("run-abort", { player: playerName, elapsedMs: Math.round(t) });
+  }
+  // An aborted run is not written into the standings — only a
+  // finished run is a record. The stream hears about it; the
+  // book does not keep it.
+  sr.phase = "idle";
+  sr.rec = null;
+  srRenderTimer(performance.now());
+  srRenderPanel();
+}
+
+// The frame's word on the run, called from animate() beside the
+// quest check: start on first movement, sample the path, watch
+// the crossings and the deaths, feed the stream, test the finish.
+function speedrunTick(now) {
+  if (sr.phase === "armed" && state.movedTotal > sr.movedAtArm) srStart(now);
+  if (sr.phase === "running") {
+    const t = srNow();
+    if (t - sr.lastPosAt >= 250) {
+      sr.lastPosAt = t;
+      recEvent(sr.rec, t, "pos", {
+        realm: state.realm,
+        x: state.pos.x, y: state.pos.y, z: state.pos.z,
+        hp: state.hp, grav: state.gravDir,
+      });
+    }
+    if (state.realm !== sr.lastRealm) {
+      recEvent(sr.rec, t, "cross", { from: sr.lastRealm, to: state.realm });
+      sr.lastRealm = state.realm;
+    }
+    if (state.dead && !sr.wasDead) recEvent(sr.rec, t, "death", {});
+    sr.wasDead = state.dead;
+    // The barrow split: the narration beat is quest-gated (it
+    // speaks only until the quest is done), but the milestone is
+    // the doorway itself — so the tick watches the doorway too,
+    // and whichever of the beat or the doorway speaks first, the
+    // split is taken once.
+    const inDung = state.realm === DUNGEON.realm &&
+      inDungeon(Math.floor(state.pos.x), Math.floor(state.pos.z));
+    if (inDung && !sr.wasInDungeon) srFireSplit("BEAT-barrow", t);
+    sr.wasInDungeon = inDung;
+    if (t - sr.lastTeleAt >= 500) {
+      sr.lastTeleAt = t;
+      srSend("telemetry", {
+        player: playerName,
+        elapsedMs: Math.round(t),
+        realm: state.realm,
+        pos: { x: state.pos.x, y: state.pos.y, z: state.pos.z },
+        hp: state.hp,
+        grav: state.gravDir,
+      });
+    }
+    const bx = Math.floor(state.pos.x);
+    const by = Math.floor(state.pos.y);
+    const bz = Math.floor(state.pos.z);
+    if (state.realm === DUNGEON.realm && deepStoneNear(bx, by, bz, DUNGEON.deepStone)) {
+      srFinish(now);
+    }
+  }
+  if (sr.phase !== "idle") srRenderTimer(now);
+}
+
+// The beats are the splits, and playBeat is the one door every
+// beat passes through — so the recorder stands at that door. The
+// strike and the flip get the same treatment: one wrap each, at
+// the verb itself, so the stream hears the attempt and not a
+// retelling of it.
+function srFireSplit(beat, t) {
+  if (sr.phase !== "running" || !sr.rec) return;
+  const split = splitForBeat(beat);
+  if (!split || sr.splitsHit.has(beat)) return;
+  sr.splitsHit.add(beat);
+  recEvent(sr.rec, t, "split", { beat });
+  srSend("split", { player: playerName, beat, name: split.name, atMs: Math.round(t) });
+  toast(`${split.name} — ${formatRunTime(t)}`, 3500);
+}
+const srPlayBeat = playBeat;
+playBeat = function (id) {
+  if (sr.phase === "running" && sr.rec) {
+    const t = srNow();
+    recEvent(sr.rec, t, "beat", { id });
+    srFireSplit(id, t);
+  }
+  return srPlayBeat(id);
+};
+const srTryStrike = tryStrike;
+tryStrike = function () {
+  if (sr.phase === "running" && sr.rec) {
+    recEvent(sr.rec, srNow(), "strike", {});
+  }
+  return srTryStrike();
+};
+const srFlipGravityHere = flipGravityHere;
+flipGravityHere = function () {
+  const before = state.gravDir;
+  const r = srFlipGravityHere();
+  if (sr.phase === "running" && sr.rec && state.gravDir !== before) {
+    recEvent(sr.rec, srNow(), "flip", { dir: state.gravDir });
+  }
+  return r;
+};
+// The inputs, as they arrive: key codes only, never characters —
+// a recording replays a run's shape, not its player's typing.
+window.addEventListener("keydown", (e) => {
+  if (sr.phase === "running" && sr.rec) {
+    recEvent(sr.rec, srNow(), "key", { code: e.code });
+  }
+}, true);
+
+function srRenderTimer(now) {
+  const el = $("runtimer");
+  if (!el) return;
+  if (sr.phase === "idle") { el.style.display = "none"; return; }
+  el.style.display = "block";
+  if (sr.phase === "armed") el.textContent = "0:00.000 — move to start the clock";
+  else if (sr.phase === "finished") el.textContent = formatRunTime(sr.finalMs);
+  else el.textContent = formatRunTime(now - sr.t0);
+}
+
+function srRenderPanel() {
+  const st = $("sr-stream-state");
+  if (st) {
+    st.textContent = `stream: ${sr.wsState}` +
+      (sr.wsState === "open" ? " — telemetry is flowing" : "") +
+      (sr.wsState === "connecting" ? " — reaching for the listener…" : "");
+  }
+  const cb = $("sr-connect");
+  if (cb) cb.textContent = sr.wsState === "open" || sr.wsState === "connecting" ? "disconnect" : "connect";
+  const ph = $("sr-phase");
+  if (ph) {
+    ph.textContent =
+      sr.phase === "armed" ? "Armed at Arrival — the clock starts when you move." :
+      sr.phase === "running" ? "Running — the Deep Stone is the finish." :
+      sr.phase === "finished" ? `Finished — ${formatRunTime(sr.finalMs)}. It's written down below.` :
+      "No run in progress.";
+  }
+  const list = $("sr-runs");
+  if (list) {
+    const all = srRecordings();
+    if (!all.length) {
+      list.innerHTML = `<div class="sub">No runs written down yet.</div>`;
+    } else {
+      list.innerHTML = all.slice().reverse().map((r, i) => {
+        const idx = all.length - 1 - i;
+        const v = verifyRecording(r);
+        return `<div class="realmrow"><span class="realmname2">${v.finishMs !== null ? formatRunTime(v.finishMs) : "—"}</span>` +
+          `<span class="realmstatus">${(r.startedAt || "").slice(0, 10)} · ${v.ok ? "verified ✓" : "does not verify"} ` +
+          `<button class="ghost" data-sr-dl="${idx}">download .phext</button></span></div>`;
+      }).join("");
+      list.querySelectorAll("[data-sr-dl]").forEach((b) =>
+        b.addEventListener("click", () => srDownload(Number(b.getAttribute("data-sr-dl")))));
+    }
+  }
+}
+
+function srDownload(idx) {
+  const rec = srRecordings()[idx];
+  if (!rec) return;
+  const blob = new Blob([serializeRecording(rec)], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `nova-fox-run-${(rec.startedAt || "run").slice(0, 19).replace(/[:T]/g, "-")}.phext`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function toggleSpeedrun(force) {
+  const el = $("speedrun");
+  const show = force !== undefined ? force : el.style.display !== "block";
+  el.style.display = show ? "block" : "none";
+  if (show) srRenderPanel();
+}
+$("btn-speedrun").addEventListener("click", () => toggleSpeedrun());
+$("sr-start").addEventListener("click", () => speedrunArm());
+$("sr-abort").addEventListener("click", () => speedrunAbort());
+$("sr-connect").addEventListener("click", () => {
+  if (sr.wsState === "open" || sr.wsState === "connecting") {
+    srStreamClose();
+    srRenderPanel();
+  } else {
+    srStreamConnect($("sr-url").value.trim());
+  }
+});
 
 // Demo instrumentation: a handle for headless playtests (and for
 // Will's own poking in devtools). Not part of the fiction.
 window.NOVA_FOX3 = {
   state, sub, kernels, BACKEND, playerName, standings,
+  speedrun: {
+    arm: () => speedrunArm(),
+    abort: () => speedrunAbort(),
+    phase: () => sr.phase,
+    elapsed: () => (sr.phase === "running" ? performance.now() - sr.t0
+      : sr.phase === "finished" ? sr.finalMs : 0),
+    recordings: () => srRecordings(),
+    verify: (rec) => verifyRecording(rec || srRecordings()[srRecordings().length - 1]),
+    streamState: () => sr.wsState,
+    connect: (url) => srStreamConnect(url),
+    disconnect: () => { srStreamClose(); srRenderPanel(); },
+  },
   playNote, playChord, flipGravityHere, tryStrike, tryChisel, hurtPlayer,
   guideAdvance, guideCurrent: () => GUIDE[state.guideStep] || null,
   isWarded, classifyStroke, boardData, scoreNow: () => totalScore(sub),
@@ -5381,6 +6864,19 @@ window.NOVA_FOX3 = {
     play: (id) => narration.play(id),
     manifest: () => (typeof NARRATION_MANIFEST !== "undefined" ? NARRATION_MANIFEST : {}),
     state: () => narration.debugState(),
+  },
+  // demo17 handles: Joy's banter — what she has said, and a way to
+  // offer her a moment headlessly.
+  banter: {
+    state: () => ({
+      live: banterLive, plays: bs.plays, lastPlayedAt: bs.lastPlayedAt,
+      quietUntil: bs.quietUntil,
+      lines: [...bs.linePlay.entries()].map(([n, r]) => ({ n, count: r.count })),
+      visitedRealms: [...bs.visitedRealms],
+      marks: bs.marksMade,
+    }),
+    fire: (ev) => banterEvent(bs, ev, performance.now()),
+    say: (line) => banterSay(line),
   },
   backendFlush: () => backendFlush(),
   // demo10 handles: gravity in subspace — read what this fox knows
@@ -5561,6 +7057,17 @@ window.NOVA_FOX3 = {
   }),
   applyPalette: (id) => applyRealmPalette(id),
   screenPos: () => (introScreen ? introScreen.position : null),
+  // demo8 handles: the telling door — queue, read-back, the door.
+  ideaState: () => ({
+    coord: BACKEND.ideaCoord,
+    queued: ideaOutbox.length,
+    rows: JSON.parse(JSON.stringify(BACKEND.ideaRows)),
+    panelOpen: $("ideas").style.display === "block",
+  }),
+  ideaSubmit: (title, body) => submitIdea(title, body),
+  ideaToggle: (force) => toggleIdeas(force),
+  doorPos: () => (tellingDoor ? tellingDoor.position : null),
+  doorAimed: () => tellingDoorAimed(),
   teleportTo(x, z) {
     state.pos.set(x + 0.5, heightAt(state.realm, x, z) + 1.01, z + 0.5);
     state.vel.set(0, 0, 0);
@@ -5568,6 +7075,32 @@ window.NOVA_FOX3 = {
     ensureNeighborhood(state.realm, sx, sy);
   },
   surfaceY(x, z) { return heightAt(state.realm, x, z) + 1; },
+  // The Esc menu (2026-11-26): state + the same doors the menu's
+  // own rows take, so tests exercise the real behavior.
+  menuState() {
+    return {
+      open: menuIsOpen(),
+      panel: MENU_PANELS.find((p) => $(p).style.display === "block") || null,
+      newGameArmed,
+    };
+  },
+  toggleMenu: (f) => toggleMenu(f),
+  newGameKeys: () => [...NEW_GAME_KEYS],
+  bindings: () => ({ ...BIND }),
+  bindingFor: (action) => BIND[action],
+  setBinding: (action, code) => { setBinding(action, code); return { ...BIND }; },
+  settings: () => ({ ...SETTINGS }),
+  masterGain: () => (sfx.master ? sfx.master.gain.value : null),
+  renderScaleNow: () => (renderer ? renderer.getPixelRatio() : null),
+  renderRadius: () => RENDER_R,
+  lanState: () => LAN.state(),
+  openToLan: () => LAN.openToLan(),
+  mergeState: () => ({
+    online: BACKEND.online, hasToken: !!gameToken(),
+    waiting: marksWaiting(), ecoWaiting: ecoOutbox.length,
+  }),
+  mergeToHosted: () => mergeToHosted(),
+  worldPhext: () => downloadWorldPhext(),
 
 };
 // The test console's handle (2026-11-26): the same surface the

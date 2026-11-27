@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Assemble demo3/index.html — the self-contained playable demo v3.
+"""Assemble demo22/index.html — the self-contained playable build.
 
-Same assembly as v2, plus the narration: every MP3 in
-../narration-audio/ is embedded base64 as NARRATION_AUDIO (beat ID
--> data URI) with NARRATION_MANIFEST parsed from its MANIFEST.md,
-so the single file carries Emise's recorded voice and still opens
-from file:// with no network. (~1.5 MB of MP3 -> ~2 MB embedded;
-the whole file lands near 3.4 MB, which PLAN.md states plainly.)
+Narration (demo22): the build carries JOY's recorded voice — the
+final script (NARRATION.md, Will's review 2026-11-26) read by
+Voice 1 — embedded base64 as NARRATION_AUDIO (beat ID -> data URI)
+with NARRATION_MANIFEST parsed from the set's MANIFEST.md, so the
+single file still opens from file:// with no network. The Joy set
+lives in the repo at audio/narration-audio-joy/; its files are
+named in lowercase (n-01.mp3, beat-arrival.mp3) and N-03 exists in
+both control-scheme variants (n-03-wasd.mp3 / n-03-awef.mp3), so
+filenames are mapped to beat IDs below. The ten banter takes ride
+in the set CARRIED BUT UNHOOKED: demo17's per-line audio hook is
+not in this lineage, so they are not embedded. (~2.5 MB of MP3 ->
+~3.3 MB embedded.)
 """
 import base64
 import json
@@ -14,7 +20,9 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-AUDIO_DIR = HERE.parent / "narration-audio"
+# Repo layout: this tree is builds/demo22, the audio sets live at
+# the repo root under audio/, the film under media/.
+AUDIO_DIR = HERE.parent.parent / "audio" / "narration-audio-joy"
 
 
 def read(p):
@@ -38,24 +46,60 @@ three = three[: m.start()] + "const THREE = {\n" + ",\n".join(entries) + "\n};\n
 
 world = re.sub(r"^export ", "", read("world.js"), flags=re.M)
 economy = re.sub(r"^export ", "", read("economy.js"), flags=re.M)
+speedrun = re.sub(r"^export ", "", read("speedrun.js"), flags=re.M)
+banter = re.sub(r"^export ", "", read("banter.js"), flags=re.M)
+scheme = re.sub(r"^export ", "", read("scheme.js"), flags=re.M)
 
-# Narration audio: embed every beat, keyed by beat ID.
+# Narration audio: embed every script beat, keyed by beat ID.
+# Joy filenames -> beat IDs: n-01.mp3 -> N-01, n-03-wasd.mp3 ->
+# N-03-WASD, beat-arrival.mp3 -> BEAT-arrival. Anything else in the
+# set (the banter takes) is carried in the repo set but NOT hooked
+# into this build — demo17's audio hook is not in this lineage.
+def beat_id_for(stem):
+    if stem.startswith("n-"):
+        return "N-" + stem[2:].upper()
+    if stem.startswith("beat-"):
+        return "BEAT-" + stem[5:]
+    if stem.startswith("banter-"):
+        # Joy's banter takes attach to demo17's line IDs (JOY-001..):
+        # the audio hook merged in the everything ship (EE 985+).
+        return "JOY-" + stem[7:].zfill(3)
+    return None
+
+
+EXPECTED_BEATS = [
+    "N-01", "N-02", "N-03-WASD", "N-03-AWEF", "N-04", "N-05", "N-06",
+    "N-07", "N-08", "N-09",
+    "BEAT-arrival", "BEAT-cross-ashfall", "BEAT-cross-nova",
+    "BEAT-pocket", "BEAT-stay", "BEAT-flip-up", "BEAT-flip-down",
+    "BEAT-border-up", "BEAT-barrow", "BEAT-quest",
+    "BEAT-guardian-contact", "BEAT-strike-kill", "BEAT-guardian-kill",
+    "BEAT-death", "BEAT-fall",
+]
 audio = {}
 manifest = {}
+carried = []
 if AUDIO_DIR.is_dir():
     man = (AUDIO_DIR / "MANIFEST.md").read_text(encoding="utf-8")
-    for row in re.finditer(r"\| (BEAT-[\w-]+|N-\d+) \| ([\w.-]+\.mp3) \| ([\d.]+) s \|", man):
+    for row in re.finditer(r"\| (BEAT-[\w-]+|N-\d+(?:-WASD|-AWEF)?) \| ([\w.-]+\.mp3) \| ([\d.]+) s \|", man):
         manifest[row.group(1)] = {"file": row.group(2), "seconds": float(row.group(3))}
     for mp3 in sorted(AUDIO_DIR.glob("*.mp3")):
-        beat = mp3.stem
+        beat = beat_id_for(mp3.stem)
+        if beat is None:
+            carried.append(mp3.name)  # unrecognized stem: carried, unhooked
+            continue
         audio[beat] = "data:audio/mpeg;base64," + base64.b64encode(mp3.read_bytes()).decode()
     missing = [b for b in manifest if b not in audio]
     assert not missing, f"manifest beats without audio files: {missing}"
+    assert sorted(k for k in audio if not k.startswith("JOY-")) == sorted(EXPECTED_BEATS), \
+        f"embedded beats differ from the script's 25: {sorted(audio)}"
 narration_js = (
     "const NARRATION_AUDIO = " + json.dumps(audio) + ";\n"
     "const NARRATION_MANIFEST = " + json.dumps(manifest) + ";\n"
 )
-print(f"narration: {len(audio)} beats embedded, {len(manifest)} in manifest")
+print(f"narration: {len(audio)} beats embedded, {len(manifest)} in manifest, "
+      f"{sum(1 for k in audio if k.startswith('JOY-'))} banter takes hooked as JOY-###, "
+      f"{len(carried)} unrecognized carried unhooked: {carried}")
 
 # The intro film (feedback #14): the phext intro, played in-world
 # through the memory screen at Arrival. The asset of record is the
@@ -63,7 +107,7 @@ print(f"narration: {len(audio)} beats embedded, {len(manifest)} in manifest")
 # copy here was reassembled from the prepass's own frames, kept in
 # ../video/ (360 frames, 24 fps, 854x480, ~1 MB). Embedded like the
 # narration so the single-file build and its one-step install hold.
-VIDEO_DIR = HERE.parent / "video"
+VIDEO_DIR = HERE.parent.parent / "media" / "video"
 intro_js = "window.__INTRO_VIDEO = null;\nwindow.__INTRO_POSTER = null;\n"
 _mp4 = VIDEO_DIR / "phext-intro.mp4"
 _poster = VIDEO_DIR / "phext-intro-poster.png"
@@ -96,6 +140,14 @@ parts = [
     economy,
     "// ===== player forms: the phext a fox wears (source: forms.js) =====",
     re.sub(r"^export ", "", read("forms.js"), flags=re.M),
+    "// ===== speedrun mode: the run, its recording, its stream (source: speedrun.js) =====",
+    speedrun,
+    "// ===== Joy's banter: the hundred lines + trigger engine (source: banter.js) =====",
+    banter,
+    "// ===== control schemes: preference, flip, N-03 variants (source: scheme.js) =====",
+    scheme,
+    "// ===== player ideas: the telling door's chart lines (source: ideas.js) =====",
+    re.sub(r"^export ", "", read("ideas.js"), flags=re.M),
     "// ===== game (source: game3.js) =====",
     read("game3.js"),
 ]

@@ -4,7 +4,7 @@
 // fresh-player path the re-sequenced guide guarantees:
 //   boot under the phext logo panel (bypass it) -> wake/rifts ->
 //   walk + jump -> the instrument (one number) -> the bridge tune
-//   crosses to Ashfall and home -> the hand-over: Emise goes quiet
+//   crosses to Ashfall and home -> the hand-over: Joy goes quiet
 //   -> the fight surfaces just in time at the wisp (two strikes,
 //   the Star Lance) -> the mark beat: a grand brush shapes the
 //   ground through -> gravity surfaces (G flips, ceiling; a second G is refused — one shift a day, demo10; another fox's read-back restores) ->
@@ -15,17 +15,15 @@
 //   memory screen opens the intro film -> zero console errors.
 // Run: node cdp_test3.mjs   (exits non-zero on any failure)
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 
-const CHROME = "/opt/meta-chromium/chrome";
-// demo12 runs its harness on its own port: every tree's suite
-// defaults to 9335, and parallel builds' Chromes collide there —
-// one suite ends up driving (or killing) another's browser.
-const PORT = 9352;
-const URL = "file:///home/hatch/workspace/nova-fox/demo20/index.html";
+const CHROME = process.env.NF_CHROME || "/opt/meta-chromium/chrome";
+const PORT = Number(process.env.NF_PORT || 9377); // demo23: its own private port (9377; 9369 is demo21's, 9361 the old demo20 harness's, 9353 demo14's) — sibling trees' harnesses share 9335 and navigate each other's pages; a shared port is the root cause of the CDP unsettled-await abort — see send() below
+const URL = process.env.NF_URL || pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "index.html")).href;
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -35,18 +33,29 @@ function check(name, cond, extra = "") {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const profile = mkdtempSync(join(tmpdir(), "novafox3-cdp-"));
-const POLICY =
+const POLICY = process.env.NF_POLICY ||
   "/var/lib/hatch-browser/rootfs-base/usr/share/hatch/chromium/webgl-allowed-domains.txt";
-const policySha = createHash("sha256").update(readFileSync(POLICY)).digest("hex");
-const chrome = spawn(CHROME, [
+const policyExists = existsSync(POLICY);
+const policySha = policyExists
+  ? createHash("sha256").update(readFileSync(POLICY)).digest("hex")
+  : null;
+const chromeArgs = [
   "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
   "--enable-unsafe-swiftshader", "--use-angle=swiftshader",
   "--autoplay-policy=no-user-gesture-required",
-  `--hatch-webgl-allowed-domains-file=${POLICY}`,
-  `--hatch-webgl-allowed-domains-sha256=${policySha}`,
+];
+if (policyExists) {
+  chromeArgs.push(
+    `--hatch-webgl-allowed-domains-file=${POLICY}`,
+    `--hatch-webgl-allowed-domains-sha256=${policySha}`,
+  );
+}
+chromeArgs.push(
   `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
   "about:blank",
-], { stdio: ["ignore", "ignore", "pipe"] });
+);
+const chrome = spawn(CHROME, chromeArgs,
+  { stdio: ["ignore", "ignore", "pipe"] });
 let chromeErr = "";
 chrome.stderr.on("data", (d) => { chromeErr += d; });
 
@@ -70,14 +79,45 @@ let ws;
 function send(method, params = {}) {
   return new Promise((resolve, reject) => {
     const id = ++msgId;
-    pending.set(id, { resolve, reject });
-    ws.send(JSON.stringify({ id, method, params }));
+    // Bounded wait (demo14, BUILD return for Item #1): a CDP
+    // response that never arrives must FAIL NAMING the call, not
+    // hang the harness into Node's "unsettled top-level await"
+    // (exit 13, no pass/fail summary — the EE 955 TEST failure).
+    // That abort's root cause: this harness shared debugging
+    // port 9335 with sibling trees' harnesses; a sibling's
+    // wsUrl() finds the FIRST page on the shared port — another
+    // tree's Chrome — and its Page.navigate / shutdown steals or
+    // kills this run's page mid-evaluate, so the response never
+    // comes and, with no timer and no close handling, nothing
+    // ever settled the promise. The port is private now (above);
+    // this timeout is the second half of the fix: 30 s is far
+    // beyond any single call's honest work here, and it does not
+    // swallow failures — the check awaiting the call fails, by
+    // name, and the summary still prints.
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(
+        `CDP timeout: no response to ${method} (id ${id}) within 30s`));
+    }, 30000);
+    pending.set(id, {
+      label: method,
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
+    try { ws.send(JSON.stringify({ id, method, params })); }
+    catch (e) { clearTimeout(timer); pending.delete(id); reject(e); }
   });
 }
 async function evalJs(expression) {
   const r = await send("Runtime.evaluate", {
     expression, returnByValue: true, awaitPromise: true,
   });
+  if (!r || !r.result) {
+    // A CDP error response carries no result; naming it beats the
+    // old crash ("Cannot read properties of undefined").
+    throw new Error("page evaluate returned no result for: " +
+      expression.slice(0, 80));
+  }
   if (r.exceptionDetails) {
     throw new Error("page exception: " +
       (r.exceptionDetails.exception?.description || r.exceptionDetails.text));
@@ -102,7 +142,7 @@ async function key(k, code) {
 // of teleporting — the crossing happens by walking through it. Hold
 // W long enough to reach and pass the ring (harness rendering is
 // slow; the fox's effective pace here is well under real-time).
-async function walkThroughRift(ms = 6000) {
+async function walkThroughRift(ms = 12000) {
   await keyDown("w", "KeyW");
   await sleep(ms);
   await keyUp("w", "KeyW");
@@ -136,11 +176,26 @@ async function waitFor(expr, timeoutMs, label) {
 try {
   ws = new WebSocket(await wsUrl());
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  ws.onclose = () => {
+    // A dead connection must settle every waiter, by name — an
+    // unrejected pending promise is the exit-13 abort above.
+    for (const p of pending.values()) {
+      p.reject(new Error(
+        `CDP connection closed while waiting for ${p.label}`));
+    }
+    pending.clear();
+  };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.id && pending.has(m.id)) {
-      pending.get(m.id).resolve(m.result);
+      const p = pending.get(m.id);
       pending.delete(m.id);
+      if (m.error) {
+        p.reject(new Error(`CDP error from ${p.label}: ` +
+          (m.error.message || JSON.stringify(m.error))));
+      } else {
+        p.resolve(m.result);
+      }
     } else if (m.method === "Runtime.consoleAPICalled" &&
                m.params.type === "error") {
       consoleErrors.push(JSON.stringify(m.params.args));
@@ -151,6 +206,9 @@ try {
   };
   await send("Runtime.enable");
   await send("Page.enable");
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1280, height: 800, deviceScaleFactor: 1, mobile: false,
+  });
   await send("Page.navigate", { url: URL });
   let booted = false;
   for (let i = 0; i < 60 && !booted; i++) {
@@ -187,17 +245,42 @@ try {
   check("the ward holds at spawn (feedback #4)",
     await evalJs("NOVA_FOX3.isWarded()") === true &&
     (await evalJs("document.getElementById('wardline').style.display")) === "block");
-  check("narration is embedded: all 27 beats ready",
-    await evalJs("Object.keys(NOVA_FOX3.narration.manifest()).length") === 27 &&
-    await evalJs("NOVA_FOX3.narration.ready('N-01') && NOVA_FOX3.narration.ready('BEAT-quest')"));
+  check("narration is embedded: all 25 Joy beats ready (demo22 — N-03 in both schemes, none for the silent beats)",
+    await evalJs("Object.keys(NOVA_FOX3.narration.manifest()).length") === 25 &&
+    await evalJs("NOVA_FOX3.narration.ready('N-01') && NOVA_FOX3.narration.ready('BEAT-quest')") &&
+    await evalJs("NOVA_FOX3.narration.ready('N-03-WASD') && NOVA_FOX3.narration.ready('N-03-AWEF') && !NOVA_FOX3.narration.ready('N-03') && !NOVA_FOX3.narration.ready('BEAT-border-down') && !NOVA_FOX3.narration.ready('BEAT-strike-hold')"));
   check("the save state is labeled in the HUD (waiting or saving, never silent)",
     (await evalJs("document.getElementById('syncline').textContent")).includes("marks"));
   check("score line is in the HUD",
     (await evalJs("document.getElementById('scoreline').textContent")).includes("score"));
   check("guide opens on the wake step",
     await evalJs("NOVA_FOX3.guideCurrent().id") === "wake");
+  check("the guide speaks Joy's script: the wake step shows N-01, under Joy's name (demo22)",
+    (await evalJs("document.querySelector('#guide .who').textContent")) === "Joy — your aperture shift" &&
+    (await evalJs("document.getElementById('guide-lines').textContent")).includes("Wake up, Fox! The rifts have opened. I'm Joy, your aperture shift."));
   check("narration queues the wake beat while playback is locked (no gesture yet)",
     await evalJs("NOVA_FOX3.narration.state().pending.includes('N-01')") === true);
+
+  // SCHEME PIN (demo19): first play now resolves the scheme by coin
+  // flip when nothing is stored (Will's ruling, 2026-11-26 15:07),
+  // and this suite's later legs are written against WASD (F strikes
+  // there; in AWEF it walks backward). Pin the stored preference and
+  // reload onto a deterministic boot; the preference machinery
+  // itself is exercised by cdp_scheme_test.mjs.
+  await evalJs("localStorage.setItem('nf.scheme', 'wasd')");
+  await send("Page.reload");
+  {
+    let rebooted = false;
+    for (let i = 0; i < 60 && !rebooted; i++) {
+      await sleep(250);
+      try { rebooted = await evalJs("!!window.NOVA_FOX3"); } catch (e) { /* loading */ }
+    }
+    check("the pinned boot returns", rebooted);
+    await sleep(800);
+  }
+  check("the stored preference resolves to WASD on reload (demo19)",
+    await evalJs("NOVA_FOX3.state.scheme") === "WASD" &&
+    await evalJs("localStorage.getItem('nf.scheme')") === "wasd");
 
   // THE LOAD PANEL (v5, feedback #15): the phext logo panel is the
   // first thing on the page, and any click steps it aside.
@@ -216,15 +299,18 @@ try {
     await evalJs("NOVA_FOX3.state.splash") === false &&
     (await evalJs("document.getElementById('splash').style.display")) === "none");
 
-  // CONTROL SCHEMES (v5, feedback #5): the keys button flips WASD
-  // <-> AWEF and the choice persists on this machine.
+  // CONTROL SCHEMES (v5, feedback #5; preference demo19): the keys
+  // button flips WASD <-> AWEF and the choice persists on this
+  // machine — in the controls record and in nf.scheme alike.
   await evalJs("document.getElementById('btn-keys').click()");
   check("the keys button switches to AWEF and persists it",
     await evalJs("NOVA_FOX3.state.scheme") === "AWEF" &&
-    await evalJs("JSON.parse(localStorage.getItem('nova-phox-controls')).scheme") === "AWEF");
+    await evalJs("JSON.parse(localStorage.getItem('nova-phox-controls')).scheme") === "AWEF" &&
+    await evalJs("localStorage.getItem('nf.scheme')") === "awef");
   await evalJs("document.getElementById('btn-keys').click()");
   check("and back to WASD",
-    await evalJs("NOVA_FOX3.state.scheme") === "WASD");
+    await evalJs("NOVA_FOX3.state.scheme") === "WASD" &&
+    await evalJs("localStorage.getItem('nf.scheme')") === "wasd");
 
   // THE LAMP (v5, feedback #12): V toggles the fox's own light.
   await key("v", "KeyV");
@@ -240,6 +326,8 @@ try {
   await sleep(200);
   check("guide advances to the move beat",
     await evalJs("NOVA_FOX3.guideCurrent().id") === "move");
+  check("the move step shows the scheme's N-03 text (WASD — the harness flipped back) (demo22)",
+    (await evalJs("document.getElementById('guide-lines').textContent")).includes("Feet first, Fox! W A S D to walk — the arrows work too."));
 
   // Walk + jump (the move beat), as in v2.
   await keyDown("w", "KeyW");
@@ -463,7 +551,13 @@ try {
 
   // THE GESTURE (feedback #5): a right-mouse triangle, drawn with
   // real mouse events (pointer-lock-free path).
-  const triVerts = [[300, 420], [460, 220], [620, 420], [300, 420]];
+  await evalJs("if (document.exitPointerLock) document.exitPointerLock()");
+  await waitFor("document.pointerLockElement === null", 4000,
+    "pointer lock released for the draw");
+  // Vertices in draw order, STARTING MID-EDGE (the base's midpoint):
+  // a stroke that starts exactly on a vertex can lose that vertex's
+  // corner to classifyStroke's closing seam (demo21 round-B, EE 976).
+  const triVerts = [[460, 420], [620, 420], [460, 220], [300, 420], [460, 420]];
   const tri = [];
   for (let v = 0; v < triVerts.length - 1; v++) {
     const [x0, y0] = triVerts[v], [x1, y1] = triVerts[v + 1];
@@ -940,9 +1034,13 @@ try {
   await evalJs("document.getElementById('intro-video').play()");
   check("the film plays for the visibility test",
     await waitFor("!document.getElementById('intro-video').paused", 8000, "film playing"));
-  await evalJs("NOVA_FOX3.narration.play('N-03')");
+  // N-03 speaks in the fox's scheme variant (demo22): resolve
+  // the take this player hears and drive the hold test with it.
+  const n03 = await evalJs(
+    "NOVA_FOX3.state.scheme === 'AWEF' ? 'N-03-AWEF' : 'N-03-WASD'");
+  await evalJs(`NOVA_FOX3.narration.play('${n03}')`);
   check("a fresh beat speaks for the visibility test, and gets past its opening",
-    await waitFor("NOVA_FOX3.narration.state().speaking === 'N-03' && " +
+    await waitFor(`NOVA_FOX3.narration.state().speaking === '${n03}' && ` +
       "NOVA_FOX3.narration.state().currentTime > 2", 10000, "N-03 well in"),
     JSON.stringify(await evalJs("NOVA_FOX3.narration.state()")));
   await setHidden(true);
@@ -950,7 +1048,7 @@ try {
   check("hidden tab: the voice holds — the beat is back at the queue's head, whole",
     await evalJs("NOVA_FOX3.narration.state().held") === true &&
     await evalJs("NOVA_FOX3.narration.state().speaking") === null &&
-    await evalJs("NOVA_FOX3.narration.state().pending[0]") === "N-03");
+    await evalJs("NOVA_FOX3.narration.state().pending[0]") === n03);
   check("hidden tab: the engine's clock is suspended — stopped, not muted",
     await evalJs("NOVA_FOX3.audioState().ctx") === "suspended" &&
     await evalJs("NOVA_FOX3.audioState().heldSuspend") === true);
@@ -958,7 +1056,7 @@ try {
     await evalJs("document.getElementById('intro-video').paused") === true);
   await setHidden(false);
   check("return: the held beat speaks again, from its start — not mid-line",
-    await waitFor("NOVA_FOX3.narration.state().speaking === 'N-03' && " +
+    await waitFor(`NOVA_FOX3.narration.state().speaking === '${n03}' && ` +
       "NOVA_FOX3.narration.state().currentTime < 1.5", 8000, "N-03 from its start"));
   check("return: the engine's clock runs again",
     await waitFor("NOVA_FOX3.audioState().ctx === 'running'", 5000, "ctx running"));
@@ -1141,10 +1239,10 @@ try {
         NOVA_FOX3.saveJson().includes('"form"'); })()`) === true);
   await sleep(300);
   const formFrameA = await evalJs("NOVA_FOX3.formWorld().frame");
-  await sleep(750);
   check("form: the worn form animates in-world, stepping its coordinates",
     (await evalJs("NOVA_FOX3.formWorld().spriteInScene")) === true &&
-    (await evalJs("NOVA_FOX3.formWorld().frame")) !== formFrameA,
+    (await waitFor("NOVA_FOX3.formWorld().frame !== " + formFrameA,
+      10000, "form frame steps")),
     `frame ${formFrameA} -> ${await evalJs("NOVA_FOX3.formWorld().frame")}`);
   check("form: an unfit form is refused at apply and the worn form stands",
     await evalJs(`(() => { const big = ['1.1.1/1.1.1/1.1.1','name: Big','',
@@ -1348,6 +1446,365 @@ try {
   check("console: play resumes unbroken after it closes",
     Math.hypot(resumePos2.x - resumePos.x, resumePos2.z - resumePos.z) > 0.5,
     `${JSON.stringify(resumePos)} -> ${JSON.stringify(resumePos2)}`);
+  // =====================================================================
+  // THE ESC MENU (demo13, 2026-11-26): every row's real behavior —
+  // open/close, keyboard navigation, the honest LAN state, the
+  // binding store (capture, swap, refusal, reset), the real video
+  // and audio settings, the .phext save, the merge's honest states,
+  // quit-to-title, and the new-game confirm gate (last: it reloads).
+  await key("Escape", "Escape");
+  check("menu: Esc opens the menu",
+    await evalJs("NOVA_FOX3.menuState().open") === true &&
+    (await evalJs("document.getElementById('menu').style.display")) === "block");
+  await key("Escape", "Escape");
+  check("menu: Esc closes it again",
+    await evalJs("NOVA_FOX3.menuState().open") === false);
+  await key("Escape", "Escape");
+  await key("ArrowDown", "ArrowDown");
+  await key("ArrowDown", "ArrowDown");
+  check("menu: the arrow keys move the selection",
+    await evalJs("document.querySelectorAll('#menu .menuitem')[2].classList.contains('sel')") === true);
+  await key("Enter", "Enter");
+  check("menu: Enter works the selected row (the .phext save speaks its count)",
+    (await evalJs("document.getElementById('menu-note').textContent")).includes("scrolls"));
+
+  await evalJs("document.getElementById('menu-lan').click()");
+  check("menu: Open to LAN never claims a session that does not exist",
+    await evalJs("NOVA_FOX3.lanState().open") === false &&
+    await evalJs("NOVA_FOX3.lanState().available") === false &&
+    (await evalJs("document.getElementById('menu-note').textContent")).includes("no LAN transport"));
+  check("menu: the LAN state line says closed",
+    (await evalJs("document.getElementById('menu-lan-state').textContent")) === "closed");
+
+  await evalJs("document.getElementById('menu-keys').click()");
+  check("menu: the key bindings panel opens",
+    await evalJs("NOVA_FOX3.menuState().panel") === "bindings-panel");
+  check("menu: the strike binding starts at the default",
+    await evalJs("NOVA_FOX3.bindingFor('strike')") === "KeyF");
+  await evalJs("document.querySelector('button[data-action=\"strike\"]').click()");
+  await key("h", "KeyH");
+  check("menu: capturing a key remaps the action and persists it",
+    await evalJs("NOVA_FOX3.bindingFor('strike')") === "KeyH" &&
+    await evalJs("JSON.parse(localStorage.getItem('nova-phox-bindings')).strike") === "KeyH");
+  await evalJs("document.querySelector('button[data-action=\"chisel\"]').click()");
+  await key("h", "KeyH");
+  check("menu: taking another action's key swaps the two bindings",
+    await evalJs("NOVA_FOX3.bindingFor('chisel')") === "KeyH" &&
+    await evalJs("NOVA_FOX3.bindingFor('strike')") === "KeyC");
+  await evalJs("document.querySelector('button[data-action=\"strike\"]').click()");
+  await key("q", "KeyQ");
+  check("menu: a note-row key is refused as a binding, with its reason",
+    await evalJs("NOVA_FOX3.bindingFor('strike')") === "KeyC" &&
+    (await evalJs("document.getElementById('bindings-note').textContent")).includes("already plays a note"));
+  await evalJs("document.getElementById('bindings-reset').click()");
+  check("menu: reset restores the default bindings",
+    await evalJs("NOVA_FOX3.bindingFor('strike')") === "KeyF" &&
+    await evalJs("NOVA_FOX3.bindingFor('chisel')") === "KeyC");
+  await key("Escape", "Escape");
+  check("menu: Esc from a sub-panel returns to the menu",
+    await evalJs("NOVA_FOX3.menuState().panel") === "menu");
+
+  await evalJs("document.getElementById('menu-video').click()");
+  check("menu: the video panel opens",
+    await evalJs("NOVA_FOX3.menuState().panel") === "video-panel");
+  const pr0 = await evalJs("NOVA_FOX3.renderScaleNow()");
+  await evalJs("document.getElementById('vid-scale').click()");
+  check("menu: render scale really reaches the renderer",
+    await evalJs("NOVA_FOX3.settings().renderScale") === 0.75 &&
+    Math.abs((await evalJs("NOVA_FOX3.renderScaleNow()")) - pr0 * 0.75) < 0.001,
+    `pixelRatio ${pr0} -> ${await evalJs("NOVA_FOX3.renderScaleNow()")}`);
+  await evalJs("document.getElementById('vid-view').click()");
+  check("menu: view distance really moves the chunk radius",
+    await evalJs("NOVA_FOX3.renderRadius()") === 4);
+  await evalJs("document.getElementById('vid-view').click()");
+  await evalJs("document.getElementById('vid-view').click()");
+  await evalJs("document.getElementById('vid-scale').click()");
+  await evalJs("document.getElementById('vid-scale').click()");
+  check("menu: and both cycle home to the shipped settings",
+    await evalJs("NOVA_FOX3.renderRadius()") === 3 &&
+    await evalJs("NOVA_FOX3.settings().renderScale") === 1);
+  await evalJs("document.getElementById('video-back').click()");
+
+  await evalJs("document.getElementById('menu-audio').click()");
+  check("menu: the audio panel opens",
+    await evalJs("NOVA_FOX3.menuState().panel") === "audio-panel");
+  await evalJs("(() => { const r = document.getElementById('aud-master'); r.value = 40; r.dispatchEvent(new Event('input')); })()");
+  check("menu: the master volume really reaches the master gain",
+    await evalJs("NOVA_FOX3.settings().master") === 0.4 &&
+    Math.abs((await evalJs("NOVA_FOX3.masterGain()")) - 0.4) < 0.001,
+    `gain ${await evalJs("NOVA_FOX3.masterGain()")}`);
+  await evalJs("document.getElementById('aud-mute').click()");
+  check("menu: the audio panel's mute is the game's one mute",
+    await evalJs("NOVA_FOX3.masterGain()") === 0);
+  await evalJs("document.getElementById('aud-mute').click()");
+  check("menu: and unmuting restores the set level",
+    Math.abs((await evalJs("NOVA_FOX3.masterGain()")) - 0.4) < 0.001);
+  await evalJs("document.getElementById('audio-back').click()");
+
+  const urlBefore = await evalJs("location.href");
+  await evalJs("document.getElementById('menu-merge').click()");
+  await sleep(2000);
+  check("menu: merging never navigates away uninvited",
+    (await evalJs("location.href")) === urlBefore);
+  check("menu: with no sign-in, the merge claims nothing it did not do",
+    (await evalJs("NOVA_FOX3.mergeState().hasToken")) === false &&
+    !(await evalJs("document.getElementById('menu-note').textContent")).startsWith("merged —"));
+
+  await evalJs("document.getElementById('menu-savephext').click()");
+  check("menu: saving the world says what it wrote",
+    (await evalJs("document.getElementById('menu-note').textContent")).includes("the world is written out"));
+  const wpMenu = await evalJs("(() => { const r = NOVA_FOX3.worldPhext(); return { scrolls: r.scrolls, genesis: r.text.includes('the world is loaded') }; })()");
+  check("menu: the export is this session's world, inscription log included",
+    wpMenu.scrolls >= 13 && wpMenu.genesis === true, `${wpMenu.scrolls} scrolls`);
+
+  await evalJs("document.getElementById('menu-quit').click()");
+  check("menu: quit closes the menu and lands on the title",
+    await evalJs("NOVA_FOX3.menuState().open") === false &&
+    await evalJs("NOVA_FOX3.state.splash") === true &&
+    (await evalJs("document.getElementById('splash').style.display")) === "flex");
+  await evalJs("document.getElementById('splash-btn').click()");
+  await sleep(200);
+
+  // The new game, last — confirming reloads the page.
+  await evalJs("localStorage.setItem('nova-phox-standings', JSON.stringify({ best: 4242, score: 4242 }))");
+  await evalJs("localStorage.setItem('nova-phox-name', JSON.stringify('e2e-old-name'))");
+  await key("Escape", "Escape");
+  await evalJs("document.getElementById('menu-newgame').click()");
+  check("menu: a new game asks first — nothing is wiped yet",
+    await evalJs("NOVA_FOX3.menuState().newGameArmed") === true &&
+    (await evalJs("JSON.parse(localStorage.getItem('nova-phox-standings')).best")) === 4242);
+  await evalJs("document.getElementById('menu-confirm-no').click()");
+  check("menu: keeping playing disarms the gate, record intact",
+    await evalJs("NOVA_FOX3.menuState().newGameArmed") === false &&
+    (await evalJs("JSON.parse(localStorage.getItem('nova-phox-standings')).best")) === 4242);
+  await evalJs("document.getElementById('menu-newgame').click()");
+  await evalJs("document.getElementById('menu-confirm-yes').click()");
+  let rebooted = false;
+  for (let i = 0; i < 60 && !rebooted; i++) {
+    await sleep(250);
+    try { rebooted = await evalJs("!!window.NOVA_FOX3"); } catch (e) { /* reloading */ }
+  }
+  await sleep(800);
+  check("menu: confirming starts over — the old record and name are gone",
+    rebooted === true &&
+    (await evalJs("JSON.parse(localStorage.getItem('nova-phox-standings') || '{}').best || 0")) !== 4242 &&
+    (await evalJs("NOVA_FOX3.saveJson().name")) !== "e2e-old-name");
+  check("menu: a new game keeps the machine's keepings (bindings, settings, controls)",
+    await evalJs("localStorage.getItem('nova-phox-bindings')") !== null &&
+    await evalJs("localStorage.getItem('nova-phox-settings')") !== null &&
+    await evalJs("localStorage.getItem('nova-phox-controls')") !== null);
+  check("menu: the fresh game wakes at the first guide beat",
+    await evalJs("NOVA_FOX3.guideCurrent().id") === "wake");
+  // ---- demo16: speedrun mode — play, record, stream ----------------
+  // Arm a run through the game's own handle, start its clock with a
+  // real key held down, finish it standing at the stone (the quest
+  // is already done by here — the finish is a place, tested every
+  // frame, so the run still counts), and read the recording back.
+  await evalJs("NOVA_FOX3.speedrun.arm()");
+  check("speedrun: arming a run stands the fox at Arrival, clock waiting",
+    await evalJs("NOVA_FOX3.speedrun.phase()") === "armed" &&
+    await evalJs("NOVA_FOX3.state.realm") === "nova");
+  await keyDown("w", "KeyW");
+  let srStarted = false;
+  for (let i = 0; i < 24 && !srStarted; i++) {
+    await sleep(500);
+    srStarted = await evalJs("NOVA_FOX3.speedrun.phase()") === "running";
+  }
+  await keyUp("w", "KeyW");
+  check("speedrun: the clock starts on first movement", srStarted);
+  check("speedrun: the race clock stands on screen while a run is live",
+    await evalJs("document.getElementById('runtimer').style.display") === "block");
+  await evalJs("NOVA_FOX3.state.pos.set(60.5, 7.01, 35.5)");
+  await waitFor("NOVA_FOX3.speedrun.phase() === 'finished'", 6000,
+    "the run finishes at the stone");
+  const srVerify = await evalJs("NOVA_FOX3.speedrun.verify()");
+  check("speedrun: the recorded run verifies against its own stream, finish reproduced",
+    !!srVerify && srVerify.ok === true && srVerify.finishMs > 0,
+    JSON.stringify(srVerify));
+  check("speedrun: the finished run is written into the book",
+    (await evalJs("NOVA_FOX3.speedrun.recordings().length")) >= 1);
+
+  // The stream: a minimal WebSocket listener in this process —
+  // handshake and masked-frame decode, just enough to drink what
+  // the game pours — and a second run under its eye.
+  const { createServer } = await import("node:http");
+  const srMessages = [];
+  const srHttp = createServer();
+  srHttp.on("upgrade", (req, socket) => {
+    const accept = createHash("sha1")
+      .update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+      .digest("base64");
+    socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
+      "Connection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n");
+    let buf = Buffer.alloc(0);
+    socket.on("data", (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      while (buf.length >= 2) {
+        const op = buf[0] & 0x0f;
+        let len = buf[1] & 0x7f;
+        let off = 2;
+        if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
+        else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10; }
+        const masked = buf[1] & 0x80;
+        const maskOff = off;
+        if (masked) off += 4;
+        if (buf.length < off + len) return;
+        const payload = Buffer.from(buf.subarray(off, off + len));
+        if (masked) {
+          const mask = buf.subarray(maskOff, maskOff + 4);
+          for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
+        }
+        buf = buf.subarray(off + len);
+        if (op === 1) { try { srMessages.push(JSON.parse(payload.toString("utf8"))); } catch (e) { /* not ours */ } }
+        if (op === 8) socket.end();
+      }
+    });
+    socket.on("error", () => {});
+  });
+  await new Promise((r) => srHttp.listen(9713, "127.0.0.1", r));
+  await evalJs("NOVA_FOX3.speedrun.connect('ws://127.0.0.1:9713')");
+  await waitFor("NOVA_FOX3.speedrun.streamState() === 'open'", 6000, "the stream connects");
+  await evalJs("NOVA_FOX3.speedrun.arm()");
+  await keyDown("w", "KeyW");
+  let srStarted2 = false;
+  for (let i = 0; i < 28 && !srStarted2; i++) {
+    await sleep(500);
+    srStarted2 = await evalJs("NOVA_FOX3.speedrun.phase()") === "running";
+  }
+  await keyUp("w", "KeyW");
+  await sleep(1200); // let at least two telemetry ticks flow
+  await evalJs("NOVA_FOX3.state.pos.set(60.5, 7.01, 35.5)");
+  await waitFor("NOVA_FOX3.speedrun.phase() === 'finished'", 6000, "the streamed run finishes");
+  await sleep(300);
+  check("speedrun: the stream carried hello, run-start, telemetry, and the finish",
+    srMessages.some((m) => m.type === "hello") &&
+    srMessages.some((m) => m.type === "run-start") &&
+    srMessages.some((m) => m.type === "telemetry" && m.pos && typeof m.elapsedMs === "number") &&
+    srMessages.some((m) => m.type === "run-finish" && m.finishMs > 0),
+    JSON.stringify(srMessages.map((m) => m.type)));
+  await evalJs("NOVA_FOX3.speedrun.disconnect()");
+  srHttp.close();
+
+  // THE TELLING DOOR (demo8, Item #1 — coverage added in demo14's
+  // BUILD return): the door stands in Nova Prime, its panel opens,
+  // and a telling's whole honest round trip runs against a fake
+  // chart stubbed at the fetch level (the game's own backend code
+  // — probe, flush, read-back — does the work; only the network
+  // is pretend, and the stub keeps the chart the way the real one
+  // does: an insert appends, a select reads back what landed).
+  check("idea door: the door stands in Nova Prime at blocks (13, 10)",
+    await evalJs("(() => { const p = NOVA_FOX3.doorPos(); " +
+      "return !!p && p.x === 13.5 && p.z === 10.5; })()") === true);
+  check("idea door: the aiming check answers (doorAimed is a live boolean)",
+    typeof (await evalJs("NOVA_FOX3.doorAimed()")) === "boolean");
+  await evalJs("NOVA_FOX3.ideaToggle(true)");
+  await sleep(200);
+  check("idea door: the panel opens and ideaState says so",
+    await evalJs("NOVA_FOX3.ideaState().panelOpen") === true &&
+    (await evalJs("document.getElementById('ideas').style.display")) === "block");
+  check("idea door: the door writes to the ideas scroll, 1.1.1/1.1.7/1.1.1",
+    await evalJs("NOVA_FOX3.ideaState().coord") === "1.1.1/1.1.7/1.1.1");
+  await evalJs(`(() => {
+    window.__ideaNet = { inserts: [], selects: [] };
+    window.__ideaScroll = "";
+    const IDEA_COORD = "1.1.1/1.1.7/1.1.1";
+    window.fetch = (url, opts = {}) => {
+      const u = String(url);
+      const ok = (body) => Promise.resolve(new Response(body, { status: 200 }));
+      if (u.includes("/api/v2/version")) return ok("{}");
+      const c = new URL(u).searchParams.get("c");
+      if (u.includes("/api/v2/select")) {
+        window.__ideaNet.selects.push(c);
+        return ok(c === IDEA_COORD ? window.__ideaScroll : "");
+      }
+      if (u.includes("/api/v2/insert")) {
+        window.__ideaNet.inserts.push({ coord: c, body: String(opts.body || "") });
+        if (c === IDEA_COORD) window.__ideaScroll += String(opts.body || "") + "\\n";
+        return ok("");
+      }
+      return ok("");
+    };
+    return true;
+  })()`);
+  check("idea door: signed out at the door (no token on this machine)",
+    await evalJs("NOVA_FOX3.hasToken()") === false &&
+    await evalJs("NOVA_FOX3.ideaState().queued") === 0);
+  await evalJs("document.getElementById('idea-title').value = 'a bridge of bells'");
+  await evalJs("document.getElementById('idea-body').value = 'so the dark water can be crossed by sound'");
+  await evalJs("document.getElementById('btn-idea-tell').click()");
+  await sleep(400);
+  check("idea door: an offline telling queues exactly one outbox entry",
+    await evalJs("NOVA_FOX3.ideaState().queued") === 1 &&
+    await evalJs("JSON.parse(localStorage.getItem('nova-phox-idea-outbox')).length") === 1);
+  check("idea door: nothing was inserted while signed out",
+    await evalJs("window.__ideaNet.inserts.filter(i => i.coord === '1.1.1/1.1.7/1.1.1').length") === 0);
+  check("idea door: the panel labels the waiting telling honestly — on this machine",
+    (await evalJs("document.getElementById('idea-yours').textContent"))
+      .includes("waiting on this machine"));
+  // (The token rides localStorage JSON-encoded — the game's LS
+  // wrapper JSON.parses it; a raw string would read back as no
+  // token at all, which is a harness bug, not a game bug.)
+  await evalJs("localStorage.setItem('nova-phox-token', JSON.stringify('e2e-door-token'))");
+  let ideaFlushed = false;
+  for (let i = 0; i < 40 && !ideaFlushed; i++) {
+    await evalJs("NOVA_FOX3.backendFlush()");
+    ideaFlushed =
+      (await evalJs("window.__ideaNet.inserts.filter(i => i.coord === '1.1.1/1.1.7/1.1.1').length")) === 1 &&
+      (await evalJs("NOVA_FOX3.ideaState().queued")) === 0;
+    if (!ideaFlushed) await sleep(5000);
+  }
+  check("idea door: signing in flushes exactly one insert to the ideas scroll",
+    ideaFlushed,
+    "idea-coord inserts: " +
+      JSON.stringify(await evalJs("window.__ideaNet.inserts.filter(i => i.coord === '1.1.1/1.1.7/1.1.1')")) +
+      " queued=" + (await evalJs("NOVA_FOX3.ideaState().queued")) +
+      " log-coord inserts=" +
+      (await evalJs("window.__ideaNet.inserts.filter(i => i.coord === '1.1.1/1.1.1/1.1.1').length")));
+  check("idea door: the flushed insert is one IDEA line, the panel's own words",
+    await evalJs("(() => { const i = window.__ideaNet.inserts" +
+      ".find(x => x.coord === '1.1.1/1.1.7/1.1.1'); " +
+      "return !!i && i.body.startsWith('IDEA|v1|') && !i.body.includes('\\n'); })()") === true);
+  check("idea door: read-back shows the telling as told — from the chart, not the click",
+    await evalJs("(() => { const s = NOVA_FOX3.ideaState(); " +
+      "return s.rows.length === 1 && s.rows[0].title === 'a bridge of bells' && " +
+      "s.rows[0].status === 'submitted'; })()") === true &&
+    (await evalJs("document.getElementById('idea-yours').textContent")).includes("told"));
+  await evalJs(`(() => {
+    const row = NOVA_FOX3.ideaState().rows[0];
+    if (!row) return false; // the read-back checks below fail by name
+    window.__ideaScroll += "STATUS|v1|" + row.id + "|picked|" + Date.now() + "|-\\n";
+    return true;
+  })()`);
+  for (let i = 0; i < 10; i++) {
+    await evalJs("NOVA_FOX3.backendFlush()");
+    if ((await evalJs("(NOVA_FOX3.ideaState().rows[0] || {}).status")) === "picked") break;
+    await sleep(2000);
+  }
+  check("idea door: a picked STATUS on the chart reads back as taken up",
+    await evalJs("(NOVA_FOX3.ideaState().rows[0] || {}).status") === "picked" &&
+    (await evalJs("document.getElementById('idea-yours').textContent")).includes("taken up"));
+  await evalJs(`(() => {
+    const row = NOVA_FOX3.ideaState().rows[0];
+    if (!row) return false;
+    window.__ideaScroll += "STATUS|v1|" + row.id + "|shipped|" + Date.now() + "|999\\n";
+    return true;
+  })()`);
+  for (let i = 0; i < 10; i++) {
+    await evalJs("NOVA_FOX3.backendFlush()");
+    if ((await evalJs("(NOVA_FOX3.ideaState().rows[0] || {}).status")) === "shipped") break;
+    await sleep(2000);
+  }
+  check("idea door: a shipped STATUS reads back as in the world, with its EE",
+    await evalJs("(() => { const r = NOVA_FOX3.ideaState().rows[0]; " +
+      "return !!r && r.status === 'shipped' && r.shipEE === 999; })()") === true &&
+    (await evalJs("document.getElementById('idea-yours').textContent")).includes("in the world") &&
+    (await evalJs("document.getElementById('idea-yours').textContent")).includes("EE 999"));
+  check("idea door: lately told carries the telling for every fox to see",
+    (await evalJs("document.getElementById('idea-lately').textContent"))
+      .includes("a bridge of bells"));
+  await evalJs("NOVA_FOX3.ideaToggle(false)");
+  check("idea door: the panel closes",
+    await evalJs("NOVA_FOX3.ideaState().panelOpen") === false);
 
   check("no page console errors", consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(" | "));
