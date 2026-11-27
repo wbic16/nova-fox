@@ -50,8 +50,8 @@ fox scroll claims audited and managed by one planner."*
 The established row is `1.1.1/1.1.N/1.1.1`, allocated sequentially:
 
 - N = 1 log · 2 board · 3 purchase · 4 economy · 5 gravity · 6 forms ·
-  7 ideas (allocated, unadopted) · 8 wormholes (demo34) · 9 geometry (demo45) · 10 realmgen (P-5)
-- **Next free: N = 11** — `1.1.1/1.1.11/1.1.1`, then 12, 13, … in order.
+  7 ideas (allocated, unadopted) · 8 wormholes (demo34) · 9 geometry (demo45) · 10 realmgen (P-5) · 11 solver (P-6)
+- **Next free: N = 12** — `1.1.1/1.1.12/1.1.1`, then 13, 14, … in order.
 - Allocate sequentially; do not skip numbers to "save" them, and do not
   squat a coordinate in code before its registry entry lands.
 
