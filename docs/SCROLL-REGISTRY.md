@@ -23,6 +23,7 @@ fox scroll claims audited and managed by one planner."*
 | 1.1.1/1.1.6/1.1.1 | **Player forms** — the shapes foxes wear (demo6) | `BACKEND.formCoord` | Game: queueEcoLine `form\|` / `formoff\|` lines | select read-back → `parseFormChart` (forms.js) | Append-only | **Staged** — coordinate applied in the merged ship tree (see Ratification) |
 | 1.1.1/1.1.7/1.1.1 | **Player ideas** — tellings at the idea door (demo8) | `BACKEND.ideaCoord` | Game: ideaOutbox (idea-door builds) | select read-back → `BACKEND.ideaRows`; dev-loop harvest | Append-only | **Allocated** (planner, this registry) — code adoption pending, see C2 note |
 | 1.1.1/1.1.8/1.1.1 | **Wormholes** — tunnels a player crafts between two realms; shared across all players, permanent (demo34, EE 1034 batch) | `BACKEND.tunnelCoord` | Game: ecoOutbox via queueEcoLine `tun\|` (craft) / `tunx\|` (retire) lines | select read-back → `parseTunnelScroll` / `resolveTunnels` (world.js) | Append-only; reads resolve the standing set — one tunnel per (crafter, realm-pair): a new craft between the same pair retires that crafter's old one (`tunx` written before the replacement `tun`) | **Built** — in the demo34 ship tree |
+| 1.1.1/1.1.9/1.1.1 | **Mutable subspace geometry** — the shaped world itself: one line per cell a player shapes, carve (AIR) or raise (block id) (P-1, EE 1087 batch, demo45) | `BACKEND.geoCoord` | Game: ecoOutbox via queueEcoLine `geo|` lines (the chisel in game3.js `tryChisel`; P-4's shaping strike writes through the same record path, demo44) | select read-back → `parseGeometryScroll` / `resolveGeometry` (world.js); `Subspace.geo` in `genChunk` | Append-only; replay resolves per cell — the last record in scroll order is the cell's truth. Ratified defaults (EE 1088): all players may edit; no per-player cap beyond the gateway budget; edits do not decay; record order resolves cross-player conflicts. Protected cells refused at write time by `geoEditRefusal` (spawn pad, Deep Stone + pedestal, Hall volume, sealing the entrance shaft) | **Built** — producer tree demo45 (merge request in DEV-LOOP-LOG); delta already stacked on by demo44 (P-4) |
 
 ## Allocation rule
 
@@ -48,8 +49,8 @@ fox scroll claims audited and managed by one planner."*
 The established row is `1.1.1/1.1.N/1.1.1`, allocated sequentially:
 
 - N = 1 log · 2 board · 3 purchase · 4 economy · 5 gravity · 6 forms ·
-  7 ideas (allocated, unadopted) · 8 wormholes (demo34)
-- **Next free: N = 9** — `1.1.1/1.1.9/1.1.1`, then 10, 11, … in order.
+  7 ideas (allocated, unadopted) · 8 wormholes (demo34) · 9 geometry (demo45)
+- **Next free: N = 10** — `1.1.1/1.1.10/1.1.1`, then 11, 12, … in order.
 - Allocate sequentially; do not skip numbers to "save" them, and do not
   squat a coordinate in code before its registry entry lands.
 
@@ -80,6 +81,19 @@ dev-loop lineage — and the two lineages must not merge until the move
 lands. Full evidence: SCROLL-AUDIT-REPORT (2026-11-26), collision C2.
 
 ## History
+
+- 2026-11-27 — Mutable subspace geometry allocated `1.1.1/1.1.9/1.1.1`
+  (EE 1087 feedback batch, Feature 1; producer tree demo45): the
+  shaped world is a shared subspace record under the same
+  append-only discipline as gravity and wormholes — `geo|` lines,
+  one per cell shaped; replay is last-record-per-cell; the four
+  open questions from the requirements window stand RATIFIED as
+  defaults (EE 1088, Will: "use your best judgement, nova fox is
+  how the wavefront expands"). Registry entry lands in the commit
+  immediately before the first writer's tree commit, per the
+  allocation rule; the P-4 tree (demo44) had already stacked on
+  the P-1 delta before this entry landed, and this entry cures
+  the allocation for the whole stack.
 
 - 2026-11-27 — Wormholes allocated `1.1.1/1.1.8/1.1.1` (EE 1034
   feedback batch, demo34): crafted tunnels are shared subspace records
