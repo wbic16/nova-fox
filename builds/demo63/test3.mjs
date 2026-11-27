@@ -1,6 +1,6 @@
 // Nova Fox demo3 — headless playtest of the world module.
 // Run: node test2.mjs   (uses the real nova_core.wasm from v1's core)
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import {
@@ -102,6 +102,14 @@ import {
 import {
   WIKI_FEEDBACK_URL, feedbackUrl,
 } from "./feedback.js";
+import {
+  MP_TOGETHER_RADIUS, MP_BONUS_PER_FOX, MP_BONUS_CAP, MP_PULSE_HEAL,
+  MP_PULSE_COOLDOWN_MS, MP_MAX_REMOTES, MP_STATE_MS,
+  mpEncodeHello, mpEncodeState, mpEncodePulse, mpDecode,
+  mpNewRoster, mpRosterApply, mpSampleAt,
+  mpNewHouse, mpHouseApply, mpHouseNote,
+  mpBonusFor, mpTogether, mpBonusLanded, mpPulseReady, mpPulseJudge,
+} from "./mp.js";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -4441,6 +4449,215 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     table.find(([id]) => id === "place")?.[1] === "KeyK" &&
     table.find(([id]) => id === "feint")?.[1] === "Slash");
 }
+
+
+// ---------- MP-1: multiplayer presence (echolocation, strength, the pulse) --
+{
+  // the wire codec round-trips, and judges what it cannot trust
+  const st = mpDecode(mpEncodeState(7, [1, 2, 3], 0.5, "strike"));
+  check("mp: the state codec round-trips",
+    st && st.t === "s" && st.seq === 7 && st.p.join() === "1,2,3" &&
+    st.h === 0.5 && st.a === "strike", JSON.stringify(st));
+  const he = mpDecode(mpEncodeHello("npt1.x.y", "ashfall"));
+  check("mp: the hello codec round-trips",
+    he && he.t === "hello" && he.realm === "ashfall", JSON.stringify(he));
+  const pu = mpDecode(mpEncodePulse([4, 5, 6]));
+  check("mp: the pulse codec round-trips",
+    pu && pu.t === "pulse" && pu.p.join() === "4,5,6", JSON.stringify(pu));
+  check("mp: garbage frames are judged null, never trusted",
+    mpDecode("not json") === null && mpDecode('{"t":"s","p":[1,2]}') === null &&
+    mpDecode('{"t":"hello","token":"","realm":"nova"}') === null &&
+    mpDecode('{"t":"room","realm":"Bad Realm"}') === null &&
+    mpDecode('{"t":"mystery"}') === null);
+
+  // the roster: the echo, the join, the part
+  const R = mpNewRoster();
+  let ev = mpRosterApply(R, { t: "welcome", id: "me",
+    roster: [{ id: "b", name: "B", p: [9, 3, 9], h: 1 }] }, "me", 1000);
+  check("mp: the welcome echo seats the room, never the fox itself",
+    ev.joined.join() === "b" && R.size === 1 && !R.has("me"), JSON.stringify(ev));
+  ev = mpRosterApply(R, { t: "join", id: "c", name: "C" }, "me", 1100);
+  check("mp: a join is heard", ev.joined.join() === "c" && R.size === 2);
+  mpRosterApply(R, { t: "s", id: "b", seq: 2, p: [11, 3, 9], h: 1.2, a: "" }, "me", 1200);
+  check("mp: a relayed state moves the fox in the roster",
+    R.get("b").samples.length === 2 && R.get("b").samples[1].p[0] === 11);
+  ev = mpRosterApply(R, { t: "part", id: "c" }, "me", 1300);
+  check("mp: a part removes the fox", ev.parted.join() === "c" && !R.has("c"));
+
+  // interpolation: between two samples, at the render delay
+  const E = { id: "x", name: "X", lastSeen: 1100, samples: [
+    { at: 1000, p: [0, 0, 0], h: 0, a: "" },
+    { at: 1100, p: [10, 0, -4], h: 2, a: "" }] };
+  const mid = mpSampleAt(E, 1150); // render time 1050: halfway
+  check("mp: interpolation steps between samples at the render delay",
+    mid && mid.p[0] === 5 && mid.p[2] === -2 && mid.h === 1, JSON.stringify(mid));
+  const held = mpSampleAt(E, 5000);
+  check("mp: past the newest sample the fox is held, never extrapolated",
+    held && held.p[0] === 10 && held.p[2] === -4, JSON.stringify(held));
+
+  // strength in numbers: the pinned curve
+  check("mp: the bonus curve is pinned (0/1/5/8 nearby)",
+    mpBonusFor(0) === 0 && mpBonusFor(1) === 0.1 &&
+    mpBonusFor(5) === 0.5 && mpBonusFor(8) === 0.5 &&
+    MP_BONUS_PER_FOX === 0.1 && MP_BONUS_CAP === 0.5);
+  const mk = (id, x, z, seen) => ({ id, name: id, lastSeen: seen,
+    samples: [{ at: seen, p: [x, 0, z], h: 0, a: "" }] });
+  const room = new Map([
+    ["near", mk("near", 12, 0, 10000)],      // exactly at the radius: in
+    ["far", mk("far", 12.5, 0, 10000)],      // beyond it: out
+    ["stale", mk("stale", 3, 0, 1000)],      // silent too long: out
+  ]);
+  const tg = mpTogether(room, mpNewHouse(), [0, 0, 0], 10000);
+  check("mp: togetherness counts the radius, fresh voices only",
+    tg.count === 1 && tg.bonus === 0.1 && MP_TOGETHER_RADIUS === 12,
+    JSON.stringify(tg));
+  check("mp: solo is unchanged — no foxes, no bonus, no penalty",
+    mpTogether(new Map(), mpNewHouse(), [0, 0, 0], 10000).bonus === 0);
+
+  // whole hits are the currency: the fraction pool pays the curve
+  let pool = 0, extra = 0;
+  for (let i = 0; i < 10; i++) {
+    const r = mpBonusLanded(1, 0.1, pool);
+    extra += r.landed - 1; pool = r.pool;
+  }
+  check("mp: at damage 1 and +10%, ten blows bank exactly one extra hit",
+    extra === 1 && Math.abs(pool) < 1e-9, `extra=${extra} pool=${pool}`);
+  check("mp: a landed nothing banks nothing (the shuttered Heart)",
+    (() => { const r = mpBonusLanded(0, 0.5, 0.9);
+      return r.landed === 0 && r.pool === 0.9; })());
+  check("mp: at damage 2 and +50% the extra hit lands at once",
+    mpBonusLanded(2, 0.5, 0).landed === 3);
+
+  // the pulse: heal curve + cooldown, judged on the receiving side
+  check("mp: the pulse heals one heart-step (2 hp — hearts step at 2)",
+    MP_PULSE_HEAL === 2 && MP_PULSE_COOLDOWN_MS === 10000 &&
+    MP_MAX_REMOTES === 40 && MP_STATE_MS === 100);
+  const lastBy = new Map();
+  const pulseFrom = (id, x, z) => ({ t: "pulse", id, name: id, p: [x, 0, z] });
+  let v = mpPulseJudge("me", [0, 0, 0], pulseFrom("b", 5, 0), lastBy, 20000);
+  check("mp: a friend's pulse in the radius heals",
+    v.ok && v.heal === 2, JSON.stringify(v));
+  lastBy.set("b", 20000);
+  v = mpPulseJudge("me", [0, 0, 0], pulseFrom("b", 5, 0), lastBy, 25000);
+  check("mp: the same source inside its cooldown is ignored (t, t+5s)",
+    !v.ok && v.reason === "cooldown", JSON.stringify(v));
+  v = mpPulseJudge("me", [0, 0, 0], pulseFrom("b", 5, 0), lastBy, 30000);
+  check("mp: the same source heals again once the cooldown runs",
+    v.ok, JSON.stringify(v));
+  v = mpPulseJudge("me", [0, 0, 0], pulseFrom("c", 5, 0), lastBy, 25000);
+  check("mp: a second source heals on its own clock (two sources, two heals)",
+    v.ok, JSON.stringify(v));
+  v = mpPulseJudge("me", [0, 0, 0], pulseFrom("me", 0, 0), new Map(), 20000);
+  check("mp: your own pulse never heals you",
+    !v.ok && v.reason === "own-pulse", JSON.stringify(v));
+  v = mpPulseJudge("me", [0, 0, 0], pulseFrom("b", 20, 0), new Map(), 20000);
+  check("mp: a pulse from beyond the radius does not reach",
+    !v.ok && v.reason === "too-far", JSON.stringify(v));
+  check("mp: the sending side keeps the same cooldown",
+    mpPulseReady(0, 20000) && !mpPulseReady(15000, 20000) &&
+    mpPulseReady(10000, 20000));
+
+  // source pins: the door, the chips, the key, the package
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const build = readFileSync(new URL("./build3.py", import.meta.url), "utf8");
+  const moduleSrc = readFileSync(new URL("./_built_module3.mjs", import.meta.url), "utf8");
+  check("mp: the menu carries the multiplayer row, the HUD its chips",
+    page.includes('id="menu-mp"') && page.includes('id="menu-mp-state"') &&
+    page.includes('id="together"') && page.includes('id="pulsecd"') &&
+    page.includes('id="pulsefill"'));
+  check("mp: the pulse is a remappable action key, dispatched like the others",
+    game.includes('id: "pulse", label: "Echolocation pulse"') &&
+    game.includes("e.code === BIND.pulse") &&
+    game.includes('$("menu-mp").addEventListener'));
+  check("mp: strength in numbers rides both strike verbs",
+    game.includes("mpLanded(baseLanded)") && game.includes("mpLanded(gated)"));
+  check("mp: the module ships in the built game, stamp still exactly once",
+    moduleSrc.includes("mpPulseJudge") && moduleSrc.includes("mpEncodeState") &&
+    (moduleSrc.match(/NF_SHIP_EE:/g) || []).length === 1);
+  check("mp: build3 carries the mp part in the parts and the package names",
+    build.includes('read("mp.js")') && build.includes('"shiplog", "mp", "game"'));
+  const eeDir = readdirSync(new URL("./assets", import.meta.url))
+    .filter((d) => /^\d+$/.test(d)).sort().pop();
+  const pkg = gunzipSync(readFileSync(
+    new URL(`./assets/${eeDir}/nova-fox.phext.gz`, import.meta.url))).toString("utf8");
+  const mapLine = pkg.split("\n").find((l) => l.startsWith("NF-MAP "));
+  check("mp: the Lite package carries the mp scroll by name",
+    !!mapLine && Object.values(JSON.parse(mapLine.slice(7)).moduleNames)
+      .includes("mp") && pkg.includes("mpPulseJudge"));
+}
+
+
+
+// ---------- MP-1 household: your house is your party (EE ~1157) --
+{
+  const H = mpNewHouse();
+  mpHouseApply(H, { t: "house", roster: [
+    { id: "kin", name: "Kin", realm: "ashfall" },
+    { id: "me", name: "Me", realm: "nova" }] }, "me", 5000);
+  check("mp-house: the sync seats the household, never the fox itself",
+    H.size === 1 && H.has("kin") && H.get("kin").realm === "ashfall");
+  mpHouseApply(H, { t: "house", roster: [] }, "me", 6000);
+  check("mp-house: a later sync replaces the set — the departed leave",
+    H.size === 0);
+  mpHouseApply(H, { t: "house", roster: [
+    { id: "kin", name: "Kin", realm: "ashfall" }] }, "me", 7000);
+  let tgH = mpTogether(mpNewRoster(), H, [0, 0, 0], 7500);
+  check("mp-house: a household fox counts toward together from another realm",
+    tgH.count === 1 && Math.abs(tgH.bonus - 0.1) < 1e-9, JSON.stringify(tgH));
+  tgH = mpTogether(mpNewRoster(), H, [0, 0, 0], 7000 + 3001);
+  check("mp-house: a household fox gone silent stops counting",
+    tgH.count === 0, JSON.stringify(tgH));
+  mpHouseNote(H, { t: "s", id: "kin", p: [900, 0, 900], h: 0 }, 9000);
+  tgH = mpTogether(mpNewRoster(), H, [0, 0, 0], 9500);
+  check("mp-house: a household fox's relayed word keeps it present",
+    tgH.count === 1, JSON.stringify(tgH));
+  const both = mpNewRoster();
+  mpRosterApply(both, { t: "welcome", id: "me",
+    roster: [{ id: "kin", name: "Kin", p: [1, 0, 1], h: 0 }] }, "me", 9000);
+  tgH = mpTogether(both, H, [0, 0, 0], 9500);
+  check("mp-house: a fox both near and household counts once, not twice",
+    tgH.count === 1, JSON.stringify(tgH));
+  const vHouse = mpPulseJudge("me", [0, 0, 0],
+    { t: "pulse", id: "kin", name: "Kin", p: [900, 0, 900] }, new Map(), 10000, H);
+  check("mp-house: a household pulse heals across the realm",
+    vHouse.ok === true && vHouse.heal === MP_PULSE_HEAL, JSON.stringify(vHouse));
+  const vFar = mpPulseJudge("me", [0, 0, 0],
+    { t: "pulse", id: "stranger", name: "S", p: [900, 0, 900] }, new Map(), 10000, H);
+  check("mp-house: a stranger's far pulse is still refused",
+    vFar.ok === false && vFar.reason === "too-far", JSON.stringify(vFar));
+  const vCool = mpPulseJudge("me", [0, 0, 0],
+    { t: "pulse", id: "kin", name: "Kin", p: [900, 0, 900] },
+    new Map([["kin", 9500]]), 10000, H);
+  check("mp-house: the household does not beat the cooldown",
+    vCool.ok === false && vCool.reason === "cooldown", JSON.stringify(vCool));
+  check("mp-house: a malformed house frame is judged null",
+    mpDecode('{"t":"house","roster":"kin"}') === null &&
+    (mpDecode('{"t":"house","roster":[{"id":"kin"}]}') || {}).t === "house");
+  const gSrc = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const mSrc = readFileSync(new URL("./_built_module3.mjs", import.meta.url), "utf8");
+  check("mp-house: the built game carries the household law",
+    mSrc.includes("mpHouseApply") &&
+    gSrc.includes("mpTogether(mp.roster, mp.house") &&
+    gSrc.includes("house: [...mp.house.values()]"));
+}
+
+
+
+// ---------- MP-1 roster law: a state seats nobody --
+{
+  const R2 = mpNewRoster();
+  mpRosterApply(R2, { t: "s", id: "elsewhere", seq: 1,
+    p: [1, 2, 3], h: 0, a: "" }, "me", 1000);
+  check("mp: a state from a fox outside the room does not seat it",
+    R2.size === 0);
+  mpRosterApply(R2, { t: "join", id: "roommate", name: "R" }, "me", 1100);
+  mpRosterApply(R2, { t: "s", id: "roommate", seq: 1,
+    p: [4, 5, 6], h: 0, a: "" }, "me", 1200);
+  check("mp: a roommate's state still lands on its seat",
+    R2.size === 1 && R2.get("roommate").samples.length === 1);
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

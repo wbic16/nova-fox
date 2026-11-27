@@ -1199,6 +1199,7 @@ const BINDING_ACTIONS = [
   { id: "dash", label: "Dash", def: "KeyJ" }, // EE 1037 (item 4): J likewise — no note, no scheme key
   { id: "feint", label: "Gravity feint", def: "Slash" }, // P-4 (tier 2): K was claimed by P-2's place in the composed stack — Slash is free in the store (consumer composition, build 42; T-1's resolution)
   { id: "shapeStrike", label: "Shaping strike", def: "BracketRight" }, // P-4 (tier 2): "]" — its left twin plays a note; this one shapes
+  { id: "pulse", label: "Echolocation pulse", def: "Equal" }, // MP-1: "=" — nothing dispatched it; the ping that finds your friends, and heals them
 ];
 const BIND = (() => {
   const stored = LS.get("nova-phox-bindings", {});
@@ -4475,7 +4476,7 @@ function stepDashCombat() {
       sfx.noise({ peak: 0.1, decay: 0.08, freq: 700 });
       continue; // a glance does not spend the ward
     }
-    applyStrikeHit(m, gated);
+    applyStrikeHit(m, mpLanded(gated)); // MP-1: strength in numbers rides the ward-strike too
     state.wardCharge = 0;
     damagePopup("the Ward turns outward", "#aef4ff");
     sfx.tone(660, { type: "sine", peak: 0.12, decay: 0.22, slide: 220 });
@@ -4521,8 +4522,9 @@ function tryStrike(opts = {}) {
   // here it becomes the read: a glance is a grey word and a clang,
   // never the flash of a landed blow. A charged blow (item 4) adds
   // its point everywhere else, and cracks the shutter itself.
-  const landed = best.kind === "guardian"
+  const baseLanded = best.kind === "guardian"
     ? guardianStrikeDamage(best, { damage, charged }) : damage + (charged ? 1 : 0);
+  const landed = mpLanded(baseLanded); // MP-1: strength in numbers
   if (landed <= 0) {
     damagePopup("its heart is shuttered", "#8d99b0");
     sfx.noise({ peak: 0.14, decay: 0.09, freq: 700 });
@@ -7764,7 +7766,7 @@ function syncMenuConfirm() {
 function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
-    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-savephext", "menu-merge",
+    return ["menu-newgame", "menu-unstick", "menu-lan", "menu-mp", "menu-savephext", "menu-merge",
       "menu-keys", "menu-video", "menu-audio", "menu-feedback", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
@@ -7814,6 +7816,10 @@ function handleMenuKey(e) {
 }
 function refreshMenuStates() {
   $("menu-lan-state").textContent = LAN.open ? "open" : "closed";
+  $("menu-mp-state").textContent = !mp.pref ? "off"
+    : !gameToken() ? "on — sign in to join the room"
+    : mp.connected ? `on — ${mp.roster.size} fox${mp.roster.size === 1 ? "" : "es"} in earshot`
+    : "on — reaching for the room…";
   const waiting = marksWaiting();
   $("menu-merge-state").textContent = !BACKEND.online
     ? "the shared map is out of reach"
@@ -7848,6 +7854,308 @@ function startNewGame() {
     try { localStorage.removeItem(k); } catch (e) { /* private mode */ }
   }
   location.reload();
+}
+
+
+// ---------- multiplayer: echolocation presence (MP-1, build 42) -------------
+// Will (EE ~1151): "multiplayer on launch day if we can make it
+// happen with echolocation and web sockets." The fox announces
+// itself to its realm's room at the gateway (the hello, carrying
+// the login token) and listens — the roster that answers is the
+// echo. State rides at ~10 Hz; remote foxes are rendered from the
+// relayed samples, interpolated by the pure half (mp.js), which
+// also judges the two gifts co-presence carries: strength in
+// numbers (EE ~1153 — nearby foxes lift your strike, solo never
+// penalized) and the pulse (EE ~1154 — your echolocation pulse
+// heals the friends it finds; it never heals you).
+//
+// v1 limits, named plainly: positions are client-reported and the
+// gateway only relays them — no server-side movement validation.
+// Remote foxes are VISUAL co-players: no collision, no combat
+// interaction. Each client is authoritative over its own fox —
+// its own bonus, its own healing. No fox-body renderer existed to
+// reuse (the player is first-person; the world's creatures are
+// brick-built), so a remote fox is built from primitives in the
+// same idiom as buildJoy and the monster meshes, with its name
+// on a canvas sprite in the Heart sprite's idiom. When the socket
+// drops, the game continues solo without a word of error noise;
+// the menu's state line is the only teller.
+const mp = {
+  pref: LS.get(MP_LS_KEY, true) !== false,
+  ws: null, connected: false, selfId: null, realm: null,
+  roster: mpNewRoster(), house: mpNewHouse(), seq: 0,
+  lastSentAt: 0, lastPingAt: 0, lastRealmCheck: 0, lastTogetherAt: 0,
+  together: { count: 0, bonus: 0 }, bonusPool: 0,
+  lastPulseSentAt: 0, lastPulseBy: new Map(),
+  lastHeal: null, pulsesSent: 0,
+  retryAt: 0, retryMs: 2000,
+  meshes: new Map(), rings: [],
+};
+
+function mpWsUrl() {
+  return BACKEND.base.replace(/^http/, "ws") + "/api/v2/mp";
+}
+
+function mpConnect(now) {
+  let sock;
+  try { sock = new WebSocket(mpWsUrl()); } catch (e) { mp.retryAt = now + mp.retryMs; return; }
+  mp.ws = sock;
+  mp.realm = state.realm;
+  sock.onopen = () => {
+    try { sock.send(mpEncodeHello(gameToken(), state.realm)); } catch (e) { /* the close will tell */ }
+  };
+  sock.onmessage = (ev) => mpOnMessage(ev);
+  sock.onclose = () => {
+    if (mp.ws !== sock) return; // a deliberate disconnect already handled it
+    mp.ws = null; mp.connected = false; mp.selfId = null;
+    mp.roster.clear(); mp.house.clear(); mpClearMeshes();
+    mp.together = { count: 0, bonus: 0 };
+    mp.retryAt = performance.now() + mp.retryMs;
+    mp.retryMs = Math.min(30000, mp.retryMs * 2);
+  };
+  sock.onerror = () => { try { sock.close(); } catch (e) { /* already gone */ } };
+}
+
+function mpDisconnect() {
+  const sock = mp.ws;
+  mp.ws = null; mp.connected = false; mp.selfId = null;
+  if (sock) { try { sock.close(); } catch (e) { /* already gone */ } }
+  mp.roster.clear(); mp.house.clear(); mpClearMeshes();
+  mp.together = { count: 0, bonus: 0 };
+}
+
+function mpOnMessage(ev) {
+  const msg = mpDecode(ev.data);
+  if (!msg) return;
+  const now = performance.now();
+  if (msg.t === "welcome") {
+    mp.selfId = msg.id; mp.connected = true; mp.retryMs = 2000;
+  }
+  if (msg.t === "pulse") { mpHouseNote(mp.house, msg, now); mpOnPulse(msg, now); return; }
+  if (msg.t === "house") { mpHouseApply(mp.house, msg, mp.selfId, now); return; }
+  if (msg.t === "s") mpHouseNote(mp.house, msg, now);
+  if (msg.t === "full") { mpDisconnect(); mp.retryAt = now + 30000; return; }
+  const evts = mpRosterApply(mp.roster, msg, mp.selfId, now);
+  for (const id of evts.parted) mpRemoveMesh(id);
+}
+
+// A pulse I hear: the ring shows from the fox who sent it, their
+// mesh glints, and the pure judge decides what it does to MY fox —
+// the receiver is the authority over its own heart. The floater
+// names the healer, in the damage floater's own idiom.
+function mpOnPulse(msg, now) {
+  mpSpawnRing(msg.p);
+  const mesh = mp.meshes.get(msg.id);
+  if (mesh) mesh.userData.glintUntil = now + 900;
+  const verdict = mpPulseJudge(mp.selfId,
+    [state.pos.x, state.pos.y, state.pos.z], msg, mp.lastPulseBy, now, mp.house);
+  if (!verdict.ok) return;
+  mp.lastPulseBy.set(msg.id, now);
+  if (state.dead) return;
+  const before = state.hp;
+  state.hp = Math.min(state.maxHp, state.hp + verdict.heal);
+  if (state.hp > before) {
+    mp.lastHeal = { from: verdict.name, at: now, amount: state.hp - before };
+    damagePopup(`+1 heart — ${verdict.name}'s pulse`, "#ff9db0");
+    sfx.chime();
+    syncHud();
+  }
+}
+
+// The player's own pulse: the pressable echolocation beat. Its
+// cooldown is judged here on the sending side (mpPulseReady) and
+// again on every receiving side (mpPulseJudge) — the rate is
+// bounded no matter what a client sends. Solo, the ring still
+// sounds; there is simply nobody in it to heal.
+function mpPulse() {
+  const now = performance.now();
+  if (!mpPulseReady(mp.lastPulseSentAt, now)) return false;
+  mp.lastPulseSentAt = now;
+  mp.pulsesSent++;
+  mpSpawnRing([state.pos.x, state.pos.y, state.pos.z]);
+  if (mp.connected && mp.ws) {
+    try { mp.ws.send(mpEncodePulse([state.pos.x, state.pos.y, state.pos.z])); }
+    catch (e) { /* the close will tell */ }
+  }
+  return true;
+}
+
+function mpSpawnRing(p) {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffc2d1, transparent: true, opacity: 0.85,
+    side: THREE.DoubleSide, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1.0, 48), mat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(p[0], p[1] - 0.9, p[2]);
+  scene.add(ring);
+  mp.rings.push({ mesh: ring, t0: performance.now() });
+}
+
+function mpStepRings(now) {
+  for (let i = mp.rings.length - 1; i >= 0; i--) {
+    const r = mp.rings[i], f = (now - r.t0) / 900;
+    if (f >= 1) {
+      scene.remove(r.mesh);
+      r.mesh.geometry.dispose(); r.mesh.material.dispose();
+      mp.rings.splice(i, 1);
+      continue;
+    }
+    r.mesh.scale.setScalar(0.5 + f * (MP_TOGETHER_RADIUS - 0.5));
+    r.mesh.material.opacity = 0.85 * (1 - f);
+  }
+}
+
+function mpNameSprite(name) {
+  const cv = document.createElement("canvas");
+  cv.width = 256; cv.height = 56;
+  const cx = cv.getContext("2d");
+  cx.font = "600 30px system-ui, sans-serif";
+  cx.textAlign = "center"; cx.textBaseline = "middle";
+  cx.shadowColor = "rgba(0,0,0,0.85)"; cx.shadowBlur = 6;
+  cx.fillStyle = "#ffe9b8";
+  cx.fillText(String(name || "?").slice(0, 24), 128, 28);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false }));
+  sp.scale.set(2.4, 0.53, 1);
+  return sp;
+}
+
+// A fox, brick-built from primitives the way this world builds
+// everything: fur, cream chest and snout, dark legs and nose, a
+// tail with a pale tip. It faces -z, so rotation.y is the fox's
+// own yaw, the same convention the camera obeys.
+function buildRemoteFoxMesh(name) {
+  const g = new THREE.Group();
+  const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const fur = mat(0xd9822b), cream = mat(0xf3e2c2), dark = mat(0x2a1a0e);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 1.15), fur);
+  body.position.y = 0.72; g.add(body);
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.3), cream);
+  chest.position.set(0, 0.68, -0.5); g.add(chest);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.48, 0.52), fur);
+  head.position.set(0, 1.12, -0.72); g.add(head);
+  const snout = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.3), cream);
+  snout.position.set(0, 1.02, -1.05); g.add(snout);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.06), dark);
+  nose.position.set(0, 1.06, -1.21); g.add(nose);
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 4), fur);
+    ear.position.set(0.17 * sx, 1.5, -0.66); g.add(ear);
+    const legF = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.45, 0.16), dark);
+    legF.position.set(0.2 * sx, 0.22, -0.38); g.add(legF);
+    const legB = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.45, 0.16), dark);
+    legB.position.set(0.2 * sx, 0.22, 0.42); g.add(legB);
+  }
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.7), fur);
+  tail.position.set(0, 0.95, 0.75); tail.rotation.x = -0.7; g.add(tail);
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.22), cream);
+  tip.position.set(0, 1.18, 0.98); tip.rotation.x = -0.7; g.add(tip);
+  const label = mpNameSprite(name);
+  label.position.y = 1.95; g.add(label);
+  const glint = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: heartTexture(), transparent: true, opacity: 0, depthWrite: false }));
+  glint.scale.setScalar(0.55); glint.position.y = 1.55; g.add(glint);
+  g.userData = { glint, glintUntil: 0 };
+  scene.add(g);
+  return g;
+}
+
+function mpRemoveMesh(id) {
+  const mesh = mp.meshes.get(id);
+  if (mesh) { scene.remove(mesh); mp.meshes.delete(id); }
+}
+function mpClearMeshes() {
+  for (const id of [...mp.meshes.keys()]) mpRemoveMesh(id);
+}
+
+// Remote foxes stand where the interpolation puts them — the same
+// lerp discipline syncMonsterMeshes keeps, over the relay's
+// samples instead of the subspace's monsters.
+function mpSyncMeshes(now) {
+  for (const e of mp.roster.values()) {
+    const s = mpSampleAt(e, now);
+    if (!s) continue;
+    let mesh = mp.meshes.get(e.id);
+    if (!mesh) { mesh = buildRemoteFoxMesh(e.name); mp.meshes.set(e.id, mesh); }
+    mesh.position.set(s.p[0], s.p[1] - 1.01, s.p[2]);
+    mesh.rotation.y = s.h;
+    const glint = mesh.userData.glint;
+    if (glint) glint.material.opacity =
+      now < mesh.userData.glintUntil
+        ? 0.95 * Math.max(0, (mesh.userData.glintUntil - now) / 900) : 0;
+  }
+  for (const id of [...mp.meshes.keys()]) {
+    if (!mp.roster.has(id)) mpRemoveMesh(id);
+  }
+}
+
+// Strength in numbers, applied to a landed blow: whole hits are
+// the currency, so the percentage rides the fraction pool the
+// pure half keeps (mpBonusLanded). A blow that lands nothing
+// banks nothing.
+function mpLanded(landed) {
+  if (!(landed > 0) || !mp.together.bonus) return landed;
+  const r = mpBonusLanded(landed, mp.together.bonus, mp.bonusPool);
+  mp.bonusPool = r.pool;
+  return r.landed;
+}
+
+function mpSyncHud() {
+  const t = $("together"), pc = $("pulsecd");
+  if (t) {
+    if (mp.together.count > 0) {
+      t.style.display = "block";
+      t.textContent = `together ×${mp.together.count} — strikes +${Math.round(mp.together.bonus * 100)}%`;
+    } else t.style.display = "none";
+  }
+  if (pc) {
+    pc.style.display = mp.connected ? "block" : "none";
+    if (mp.connected) {
+      const f = Math.max(0, Math.min(1,
+        (performance.now() - mp.lastPulseSentAt) / MP_PULSE_COOLDOWN_MS));
+      $("pulsefill").style.width = `${Math.round(f * 100)}%`;
+    }
+  }
+}
+
+// The per-frame step, called from animate() beside the monster
+// sync: keep the connection the player asked for, ride the state
+// at ~10 Hz, watch for a realm change, and keep the HUD honest.
+function mpStep(now, dt) {
+  const want = mp.pref && !!gameToken();
+  if (want && !mp.ws && now >= mp.retryAt) mpConnect(now);
+  if (!want && mp.ws) mpDisconnect();
+  if (mp.connected && mp.ws) {
+    if (now - mp.lastSentAt >= MP_STATE_MS) {
+      mp.lastSentAt = now;
+      mp.seq++;
+      try {
+        mp.ws.send(mpEncodeState(mp.seq,
+          [state.pos.x, state.pos.y, state.pos.z], state.yaw,
+          state.swingT < 1 ? "strike" : ""));
+      } catch (e) { /* the close will tell */ }
+    }
+    if (now - mp.lastPingAt >= 10000) {
+      mp.lastPingAt = now;
+      try { mp.ws.send(mpEncodePing()); } catch (e) { /* the close will tell */ }
+    }
+    if (now - mp.lastRealmCheck >= 500) {
+      mp.lastRealmCheck = now;
+      if (mp.realm !== state.realm) {
+        mp.realm = state.realm;
+        try { mp.ws.send(mpEncodeRoom(state.realm)); } catch (e) { /* the close will tell */ }
+      }
+    }
+  }
+  if (now - mp.lastTogetherAt >= 200) {
+    mp.lastTogetherAt = now;
+    mp.together = mp.connected
+      ? mpTogether(mp.roster, mp.house, [state.pos.x, state.pos.y, state.pos.z], now)
+      : { count: 0, bonus: 0 };
+    mpSyncHud();
+  }
+  if (mp.connected) mpSyncMeshes(now);
+  mpStepRings(now);
 }
 
 // --- Open to LAN ---------------------------------------------------------
@@ -8053,6 +8361,15 @@ $("menu-lan").addEventListener("click", () => {
   menuNote(r.ok
     ? "open to LAN — this session can be joined from the local network."
     : "Open to LAN: this build has no LAN transport yet, so nothing was opened. LAN play is ruled for the download build (D2) and is still being built.");
+  refreshMenuStates();
+});
+$("menu-mp").addEventListener("click", () => {
+  mp.pref = !mp.pref;
+  LS.set(MP_LS_KEY, mp.pref);
+  if (!mp.pref) mpDisconnect();
+  menuNote(mp.pref
+    ? "multiplayer on — your fox announces itself to its realm's room and hears who answers. Your pulse (the echolocation key) heals the friends it finds, and theirs heals you."
+    : "multiplayer off — this session is solo. Nothing announces, nothing renders.");
   refreshMenuStates();
 });
 $("menu-savephext").addEventListener("click", () => downloadWorldPhext());
@@ -8336,6 +8653,7 @@ document.addEventListener("keydown", (e) => {
   // The remappable verbs consult the binding store (Esc menu, 2026-11-26).
   if (e.code === BIND.jump) { doJump(); return; }
   if (e.code === BIND.flip) { flipGravityHere(); return; }
+  if (e.code === BIND.pulse) { mpPulse(); return; }
   if (e.code === BIND.strike) {
     // In AWEF, F walks forward — while the strike is bound to F,
     // it lives on the click there, as before.
@@ -8800,6 +9118,7 @@ function animate() {
   banterObserveTick(now);
   chunkMaintenance();
   syncMonsterMeshes(dt);
+  mpStep(now, dt); // MP-1: the room, the foxes in it, the pulse
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place
   stepStoneHeart(now); // EE 1037 (item 1): the Heart breathes at the stone
@@ -10092,6 +10411,21 @@ window.NOVA_FOX3 = {
   renderScaleNow: () => (renderer ? renderer.getPixelRatio() : null),
   renderRadius: () => RENDER_R,
   lanState: () => LAN.state(),
+  // MP-1 handle: the room as this client judges it — probes assert
+  // from the client's own state, never the server's log.
+  mpState: () => ({
+    pref: mp.pref, connected: mp.connected, id: mp.selfId, realm: mp.realm,
+    self: { p: [state.pos.x, state.pos.y, state.pos.z], realm: state.realm },
+    remotes: [...mp.roster.values()].map((e) => {
+      const s = mpSampleAt(e, performance.now());
+      return { id: e.id, name: e.name, p: s ? s.p : null, h: s ? s.h : null };
+    }),
+    together: { ...mp.together }, hp: state.hp, dead: state.dead,
+    house: [...mp.house.values()].map((e) => ({ id: e.id, name: e.name, realm: e.realm })),
+    lastHeal: mp.lastHeal, pulsesSent: mp.pulsesSent,
+  }),
+  mpPulse: () => mpPulse(),
+  mpHurt: (n) => { hurtPlayer(Number(n) || 0, null, null); return state.hp; },
   openToLan: () => LAN.openToLan(),
   mergeState: () => ({
     online: BACKEND.online, hasToken: !!gameToken(),

@@ -319,6 +319,8 @@ parts = [
     shiplog_js + re.sub(r"^export ", "", read("shiplog.js"), flags=re.M),
     "// ===== the feedback door: to the wiki, with the stamp (source: feedback.js) =====",
     re.sub(r"^export ", "", read("feedback.js"), flags=re.M),
+    "// ===== multiplayer presence: echolocation, strength in numbers, the healing pulse (source: mp.js) =====",
+    re.sub(r"^export ", "", read("mp.js"), flags=re.M),
     "// ===== game (source: game3.js) =====",
     read("game3.js"),
 ]
@@ -369,7 +371,7 @@ if LITE:
         "per-part strip assembly differs from the whole-module strip"
     PART_NAMES = ["three", "wasm-core", "narration", "intro", "world",
                   "economy", "solver", "forms", "speedrun", "banter",
-                  "scheme", "ideas", "gdial", "shiplog", "feedback", "game"]
+                  "scheme", "ideas", "gdial", "shiplog", "feedback", "mp", "game"]
     module_coords = []
     module_names = {}
     _ci = 0
