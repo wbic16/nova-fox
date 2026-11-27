@@ -7765,7 +7765,7 @@ function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
     return ["menu-newgame", "menu-unstick", "menu-lan", "menu-savephext", "menu-merge",
-      "menu-keys", "menu-video", "menu-audio", "menu-quit", "menu-close"].map($);
+      "menu-keys", "menu-video", "menu-audio", "menu-feedback", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
     return [...$("bindings-list").querySelectorAll("button"),
@@ -8019,6 +8019,17 @@ $("audio-back").addEventListener("click", () => openPanel("menu"));
 
 // --- The menu's own rows ----------------------------------------------------
 $("btn-menu").addEventListener("click", () => toggleMenu());
+// --- The feedback door (build 42, W-2) -----------------------------------
+// One action from the Esc menu to the Nova Wiki's feedback page:
+// the player tells us what the build did, in their own words. The
+// URL is feedback.js's named constant; the epoch attached is this
+// artifact's own runtime stamp (SHIP_EE), so a note always lands
+// on the build that was played. No sign-in, no token: the door
+// works signed out and in — the wiki keeps its own door policy.
+function openFeedbackDoor() {
+  window.open(feedbackUrl(SHIP_EE), "_blank", "noopener");
+  menuNote("The wiki's feedback page opens in a new tab — this build's epoch rides along, so your words land on the build you played.");
+}
 $("menu-close").addEventListener("click", () => { closeMenu(); lockPointer(); });
 $("menu-unstick").addEventListener("click", () => {
   closeMenu();
@@ -8049,6 +8060,7 @@ $("menu-merge").addEventListener("click", () => { mergeToHosted(); });
 $("menu-keys").addEventListener("click", () => openPanel("bindings-panel"));
 $("menu-video").addEventListener("click", () => openPanel("video-panel"));
 $("menu-audio").addEventListener("click", () => openPanel("audio-panel"));
+$("menu-feedback").addEventListener("click", () => openFeedbackDoor());
 $("menu-quit").addEventListener("click", () => quitToTitle());
 
 // ---------- the load panel (feedback #15) --------------------------------------
@@ -10087,6 +10099,10 @@ window.NOVA_FOX3 = {
   }),
   mergeToHosted: () => mergeToHosted(),
   worldPhext: () => downloadWorldPhext(),
+  // W-2: the feedback door — the URL this build would open, and
+  // the door itself, so probes exercise the real path.
+  feedbackUrl: () => feedbackUrl(SHIP_EE),
+  openFeedbackDoor: () => openFeedbackDoor(),
 
 };
 // The test console's handle (2026-11-26): the same surface the

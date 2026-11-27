@@ -99,6 +99,9 @@ import {
 import {
   SHIPLOG_MAX, shipLogRows, shipLogHeadline, shipLogLine,
 } from "./shiplog.js";
+import {
+  WIKI_FEEDBACK_URL, feedbackUrl,
+} from "./feedback.js";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -4385,6 +4388,39 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const pkgText = gunzipSync(readFileSync(new URL(`./assets/${eeM[1]}/nova-fox.phext.gz`, import.meta.url))).toString("utf8");
   check("W-4: the Lite package carries all five tier markers",
     GEAR_TIERS.every((t) => pkgText.includes(`id: "${t.id}"`) && pkgText.includes(SHAPE_SIG[t.id])));
+}
+// --- W-2: the feedback door (build 42) --------------------------------------
+// One action from the Esc menu to the Nova Wiki's feedback page,
+// the build's ship epoch attached. The URL is one named constant
+// in a pure module; the epoch is the artifact's own runtime
+// stamp, never a literal — these pins hold both halves.
+{
+  check("W-2: the wiki feedback URL is the named constant",
+    WIKI_FEEDBACK_URL === "https://fox.phext.io/wiki/feedback");
+  check("W-2: feedbackUrl attaches source and epoch",
+    feedbackUrl("1081") === "https://fox.phext.io/wiki/feedback?from=game&ee=1081");
+  const fbSrc = readFileSync(new URL("./feedback.js", import.meta.url), "utf8");
+  check("W-2: feedback.js carries no ship-stamp token at all",
+    !fbSrc.includes("NF_SHIP_EE"));
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("W-2: the door passes the runtime stamp, never a literal",
+    game.includes('window.open(feedbackUrl(SHIP_EE), "_blank", "noopener")'));
+  check("W-2: the menu row stands in the page, before Quit",
+    page.includes('id="menu-feedback"') && page.includes("Send feedback / playtest notes") &&
+    page.indexOf('id="menu-feedback"') < page.indexOf('id="menu-quit"'));
+  const focusList = game.slice(game.indexOf('"menu-newgame"'), game.indexOf('"menu-close"'));
+  check("W-2: the focus order reaches the door before Quit",
+    focusList.includes('"menu-feedback"') &&
+    focusList.indexOf('"menu-feedback"') < focusList.indexOf('"menu-quit"'));
+  const stamps = html.match(/NF_SHIP_EE:\d+/g) || [];
+  check("W-2: the built file still carries exactly one stamp",
+    stamps.length === 1, `found ${stamps.length}`);
+  check("W-2: the built door attaches the artifact's own stamp",
+    stamps.length === 1 && html.includes('id="menu-feedback"') &&
+    feedbackUrl(stamps[0].split(":")[1]) ===
+      WIKI_FEEDBACK_URL + "?from=game&ee=" + stamps[0].split(":")[1]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
