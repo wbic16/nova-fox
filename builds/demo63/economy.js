@@ -602,6 +602,55 @@ export const LADDER_RUNGS = [
 export function rungById(id) { return LADDER_RUNGS.find((r) => r.id === id) || null; }
 export function ownsRung(eco, id) { return !!eco.ladder[id]; }
 
+// ---------- W-4: gear tier markers (colorblind-safe tiers) ----------
+// Gear progression speaks in color — trash (white) below common
+// (grey), then green, red, blue (Will's canon order). Color alone
+// locks out red-green colorblind foxes, so every tier ALSO carries
+// a shape: one marker per tier, drawn the same way everywhere tier
+// is communicated. This helper is the ONLY hand that draws them —
+// the shop, the field guide, and every later surface call here, so
+// the shapes can never drift apart. Color stays exactly as it was;
+// the marker is a second channel, never a replacement. A rung's
+// `tiers` scope names its band's tiers (Band 1 spans white AND
+// grey — the docs state no per-rung split inside the band, so a
+// Band 1 rung wears both markers, in canon order).
+export const GEAR_TIERS = [
+  { id: "white", color: "#f2f2f2", shape: "circle" },
+  { id: "grey", color: "#9aa0a6", shape: "square" },
+  { id: "green", color: "#57d957", shape: "triangle" },
+  { id: "red", color: "#e5484d", shape: "diamond" },
+  { id: "blue", color: "#5b8def", shape: "hexagon" },
+];
+export const TIER_MARKER_SHAPES = Object.fromEntries(GEAR_TIERS.map((t) => [t.id, t.shape]));
+const TIER_MARKER_BODY = {
+  circle: (c) => `<circle cx="6" cy="6" r="4" fill="none" stroke="${c}" stroke-width="1.6"/>`,
+  square: (c) => `<rect x="2.2" y="2.2" width="7.6" height="7.6" fill="${c}"/>`,
+  triangle: (c) => `<path d="M6 1.8 L10.6 9.8 L1.4 9.8 Z" fill="${c}"/>`,
+  diamond: (c) => `<path d="M6 1.4 L10.4 6 L6 10.6 L1.6 6 Z" fill="${c}"/>`,
+  hexagon: (c) => `<path d="M6 1.2 L10.2 3.6 L10.2 8.4 L6 10.8 L1.8 8.4 L1.8 3.6 Z" fill="${c}"/>`,
+};
+export function gearTier(id) { return GEAR_TIERS.find((t) => t.id === id) || null; }
+export function tierMarkerSVG(id) {
+  const t = gearTier(id);
+  if (!t) return "";
+  return `<svg class="tiermark" data-tier="${t.id}" data-shape="${t.shape}" width="11" height="11" viewBox="0 0 12 12" role="img" aria-label="${t.id} tier"><title>${t.id}</title>${TIER_MARKER_BODY[t.shape](t.color)}</svg>`;
+}
+export function tierMarkersForScope(scope) {
+  return String(scope || "").split("/").map((s) => s.trim()).filter(Boolean)
+    .map((id) => tierMarkerSVG(id)).join("");
+}
+export function rungTierMarkers(rung) { return tierMarkersForScope(rung && rung.tiers); }
+export function bandTierMarkers(band) {
+  const seen = [];
+  for (const r of LADDER_RUNGS) {
+    if (r.band !== band) continue;
+    for (const id of String(r.tiers).split("/").map((s) => s.trim())) {
+      if (id && !seen.includes(id)) seen.push(id);
+    }
+  }
+  return seen.map((id) => tierMarkerSVG(id)).join("");
+}
+
 // Buying a rung: one-time per player, exact-once. Every refusal
 // leaves the purse and the ladder exactly as they were. The order
 // of checks names the refusal: unknown rung, the granted rung (it

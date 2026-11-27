@@ -39,6 +39,7 @@ import {
   verifyGumroadKey, applyGumroadVerification,
   purchaseClaimLine, parsePurchaseBoard, purchaseNumberFor,
   LADDER_RUNGS, LADDER_BEAT, rungById, ownsRung, buyRung, grantRung,
+  GEAR_TIERS, TIER_MARKER_SHAPES, gearTier, tierMarkerSVG, tierMarkersForScope, rungTierMarkers, bandTierMarkers,
   MATERIAL_DEFS, materialDef, materialCount, addMaterial, heldMaterials, sellMaterial,
   flightUnlocked,
   ladderLampBonuses,
@@ -4330,6 +4331,58 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("F-2 correction: the daily gate itself is unchanged by the window",
     gravityShiftAllowed([mine], "nova", "fox-f", DAY) === false &&
     gravityShiftAllowed([], "nova", "fox-f", DAY) === true);
+// ---------- W-4: gear tier markers (colorblind-safe tiers) ----------
+{
+  check("W-4: the five gear tiers stand in Will's canon order (white below grey, then green, red, blue)",
+    GEAR_TIERS.map((t) => t.id).join(",") === "white,grey,green,red,blue");
+  const shapes = GEAR_TIERS.map((t) => TIER_MARKER_SHAPES[t.id]);
+  check("W-4: the tier->marker mapping is injective — five tiers, five distinct markers",
+    new Set(shapes).size === 5 && shapes.join(",") === "circle,square,triangle,diamond,hexagon");
+  const svgs = GEAR_TIERS.map((t) => tierMarkerSVG(t.id));
+  check("W-4: every tier's marker SVG is distinct and names its tier and shape",
+    new Set(svgs).size === 5 &&
+    GEAR_TIERS.every((t, i) => svgs[i].includes(`data-tier="${t.id}"`) && svgs[i].includes(`data-shape="${t.shape}"`)));
+  check("W-4: an unknown tier draws nothing",
+    tierMarkerSVG("plaid") === "" && gearTier("plaid") === null);
+  const markCount = (m) => (m.match(/class="tiermark"/g) || []).length;
+  check("W-4: a Band 1 rung wears white AND grey, in canon order (the band's stated scope, no invented split)",
+    (() => { const m = rungTierMarkers(rungById("keepsake-tune-pip"));
+      return markCount(m) === 2 && m.indexOf('data-tier="white"') >= 0 &&
+        m.indexOf('data-tier="grey"') > m.indexOf('data-tier="white"'); })());
+  check("W-4: green, red, and blue rungs each wear exactly their own marker",
+    markCount(rungTierMarkers(rungById("grand-brush-2x2x3"))) === 1 && rungTierMarkers(rungById("grand-brush-2x2x3")).includes('data-tier="green"') &&
+    markCount(rungTierMarkers(rungById("dragonward-helm"))) === 1 && rungTierMarkers(rungById("dragonward-helm")).includes('data-tier="red"') &&
+    markCount(rungTierMarkers(rungById("nameless-sheath"))) === 1 && rungTierMarkers(rungById("nameless-sheath")).includes('data-tier="blue"'));
+  check("W-4: every rung on the ladder wears exactly its tier scope's markers",
+    LADDER_RUNGS.every((r) => { const m = rungTierMarkers(r); const scope = r.tiers.split("/");
+      return markCount(m) === scope.length && scope.every((id) => m.includes(`data-tier="${id}"`)); }));
+  check("W-4: band markers match each band's tier scope",
+    markCount(bandTierMarkers(1)) === 2 && bandTierMarkers(1).includes('data-tier="white"') && bandTierMarkers(1).includes('data-tier="grey"') &&
+    markCount(bandTierMarkers(2)) === 1 && bandTierMarkers(2).includes('data-tier="green"') &&
+    markCount(bandTierMarkers(3)) === 1 && bandTierMarkers(3).includes('data-tier="red"') &&
+    markCount(bandTierMarkers(4)) === 1 && bandTierMarkers(4).includes('data-tier="blue"'));
+  // The sites route through the helper — the view hand-draws no
+  // marker of its own, so the shapes cannot drift per site.
+  const g3 = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const shopBody = g3.slice(g3.indexOf("function renderShop()"), g3.indexOf("function buyRungFromPanel"));
+  const guideBody = g3.slice(g3.indexOf("function renderFieldGuide()"), g3.indexOf("function renderMaterials()"));
+  check("W-4: the shop routes its band titles and rung rows through the shared helper",
+    shopBody.includes("bandTierMarkers(band)") && shopBody.includes("rungTierMarkers(r)"));
+  check("W-4: the field guide routes its rung rows through the shared helper",
+    guideBody.includes("rungTierMarkers(r)"));
+  check("W-4: the view contains no hand-drawn marker (no <svg>, no tiermark literal in game3.js)",
+    !g3.includes("<svg") && !g3.includes("tiermark"));
+  // Built bytes: the Full artifact and the Lite package both carry
+  // the helper — every tier's table entry and drawn shape body.
+  const SHAPE_SIG = { white: '<circle cx="6" cy="6" r="4"', grey: '<rect x="2.2" y="2.2"',
+    green: 'M6 1.8 L10.6 9.8', red: 'M6 1.4 L10.4 6', blue: 'M6 1.2 L10.2 3.6' };
+  const full = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  check("W-4: the built Full carries all five tier markers",
+    GEAR_TIERS.every((t) => full.includes(`id: "${t.id}"`) && full.includes(SHAPE_SIG[t.id])));
+  const eeM = full.match(/NF_SHIP_EE:(\d+)/);
+  const pkgText = gunzipSync(readFileSync(new URL(`./assets/${eeM[1]}/nova-fox.phext.gz`, import.meta.url))).toString("utf8");
+  check("W-4: the Lite package carries all five tier markers",
+    GEAR_TIERS.every((t) => pkgText.includes(`id: "${t.id}"`) && pkgText.includes(SHAPE_SIG[t.id])));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

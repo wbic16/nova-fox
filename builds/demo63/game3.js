@@ -6595,7 +6595,7 @@ function renderFieldGuide() {
   }
   for (const r of LADDER_RUNGS) {
     const held = ownsRung(eco, r.id);
-    html += `<div class="realmrow ${held ? "here" : ""}"><span class="realmname2">${r.name}</span>` +
+    html += `<div class="realmrow ${held ? "here" : ""}"><span class="realmname2">${rungTierMarkers(r)}${r.name}</span>` +
       `<span class="realmstatus">${r.effect}</span>` +
       `<span class="realmstatus">${held ? "yours" : `${r.price} credits — the ladder shop, below`}</span></div>`;
   }
@@ -6780,7 +6780,7 @@ function renderShop() {
   if (!el) return;
   let html = "";
   for (const band of [1, 2, 3, 4]) {
-    html += `<div class="sub" style="margin-top:10px">${LADDER_BAND_TITLES[band]}</div>`;
+    html += `<div class="sub" style="margin-top:10px">${bandTierMarkers(band)} ${LADDER_BAND_TITLES[band]}</div>`;
     for (const r of LADDER_RUNGS.filter((x) => x.band === band)) {
       const owned = ownsRung(eco, r.id);
       const locked = r.beat > LADDER_BEAT;
@@ -6794,7 +6794,7 @@ function renderShop() {
               ? `${r.price} credits · after ${rungById(r.requires).name}`
               : `${r.price} credits`;
       html +=
-        `<div class="realmrow ${owned ? "here" : ""}"><span class="realmname2">${r.name}</span>` +
+        `<div class="realmrow ${owned ? "here" : ""}"><span class="realmname2">${rungTierMarkers(r)}${r.name}</span>` +
         `<span class="realmstatus">${r.effect}</span>` +
         `<span class="realmstatus">${status}</span>` +
         (!owned && !r.granted && !locked
