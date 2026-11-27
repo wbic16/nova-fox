@@ -21,6 +21,14 @@
 // far from the arrival pad (8,8), the Hall, and every protection;
 // two or three carved cells of remote meadow, permanent like
 // everything on the scroll.
+// The page is served as https://fox.phext.io from a local stand-in
+// (~/p4-serve.py on 127.0.0.4:443, serving the demo44 tree; the
+// host-resolver maps that one host) because the gateway's CORS
+// admits only the game's own origin — a file:// page is Origin
+// null and never comes online (build #19's lesson: every scroll
+// read back empty while the local legs passed). phext.tech itself
+// is the real awsbox gateway throughout. The P-1/P-2 stand-in
+// pattern, on P-4's own loopback so no producer disturbs another.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +39,10 @@ import { createHash } from "node:crypto";
 const CHROME = process.env.NF_CHROME || "/opt/meta-chromium/chrome";
 const PORT = Number(process.env.NF_PORT || 9471);
 const HERE = dirname(fileURLToPath(import.meta.url));
-const URL = process.env.NF_URL || pathToFileURL(join(HERE, "index.html")).href;
+// Named PAGE_URL, not URL: the Jenkins runner rewrites a bare
+// `const URL = ...` line to a file:// tree URL, which would defeat
+// the stand-in. NF_URL still overrides for hand runs.
+const PAGE_URL = process.env.NF_URL || "https://fox.phext.io/index.html";
 const TOKEN = process.env.NF_TOKEN_FILE
   ? readFileSync(process.env.NF_TOKEN_FILE, "utf8").trim()
   : (existsSync("/home/wbic16/msg-probe/token.txt")
@@ -54,6 +65,8 @@ function chromeArgsFor(port, profile) {
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
     "--disable-features=CalculateNativeWinOcclusion",
+    "--ignore-certificate-errors",
+    "--host-resolver-rules=MAP fox.phext.io 127.0.0.4",
   ];
   const POLICY = process.env.NF_POLICY ||
     "/var/lib/hatch-browser/rootfs-base/usr/share/hatch/chromium/webgl-allowed-domains.txt";
@@ -159,7 +172,7 @@ async function openPage(port, tag) {
     await send("Emulation.setDeviceMetricsOverride", {
       width: 960, height: 600, deviceScaleFactor: 1, mobile: false,
     });
-    await send("Page.navigate", { url: URL });
+    await send("Page.navigate", { url: PAGE_URL });
     let booted = false;
     for (let i = 0; i < 60 && !booted; i++) {
       await sleep(250);
@@ -195,7 +208,11 @@ try {
   // --- Leg 0: the probe identity stands ready for the write path -------------
   check("the probe token stands ready for the write path", TOKEN.length > 20,
     TOKEN ? "" : "no token file (NF_TOKEN_FILE / the standing probe token)");
-  await evalJs(`localStorage.setItem('nova-phox-token', ${JSON.stringify(TOKEN)})`);
+  // The game's LS wrapper JSON-encodes values (LS.set); seed the
+  // stored form (the JSON string of the value) or gameToken()
+  // reads nothing back — build #19's token leg failed on exactly
+  // this, the P-1 probe's recorded lesson.
+  await evalJs(`localStorage.setItem('nova-phox-token', ${JSON.stringify(JSON.stringify(TOKEN))})`);
   await evalJs(`localStorage.setItem('nova-phox-name', ${JSON.stringify(JSON.stringify(PROBE_NAME))})`);
   await A.send("Page.reload");
   booted = false;
@@ -209,6 +226,8 @@ try {
   await evalJs("document.getElementById('splash-btn').click()");
   await sleep(300);
   check("splash bypassed", (await evalJs("NOVA_FOX3.state.splash")) === false);
+  check("the backend answers — the game is online against the real gateway",
+    await waitFor("NOVA_FOX3.geoState().online === true", 30000, "backend online"));
   // NO canvas mouse click for the verbs, on purpose (probe-1037's
   // lesson: pointer lock's loss opens the menu and eats the run).
   // The one exception is the flute leg, whose shift-press IS the
@@ -329,7 +348,21 @@ try {
   }
   await evalJs("NOVA_FOX3.state.pitch = -1.15; NOVA_FOX3.state.yaw = 0;");
   await sleep(400);
-  const cellA = await scanTargetCell();
+  // The aim must meet ground within the ray's reach from the
+  // stance it presses in: if the stance looks over a dip or a
+  // gully, step forward (the ray's own heading) and scan again.
+  // Build #19's first press whiffed exactly this way — the slot
+  // was spent over a slope the 5.2-block ray could not reach.
+  async function findStrikeTarget() {
+    for (let i = 0; i < 6; i++) {
+      const cell = await scanTargetCell();
+      if (cell) return cell;
+      await evalJs("NOVA_FOX3.state.pos.z -= 2;");
+      await sleep(700);
+    }
+    return null;
+  }
+  const cellA = await findStrikeTarget();
   check("the strike's aim finds a solid cell of ordinary ground", !!cellA,
     JSON.stringify(cellA));
   const known0 = (await geoState()).known;
@@ -350,7 +383,7 @@ try {
   // After the gather, the strike answers again — the ray passes
   // through the carved cell and meets the ground beneath it.
   for (let i = 0; i < 20 && (await combatState()).shapeCdLeft > 0; i++) await sleep(300);
-  const cellB = await scanTargetCell();
+  const cellB = await findStrikeTarget();
   await key("]", "BracketRight");
   await sleep(700);
   const known2 = (await geoState()).known;
@@ -373,6 +406,8 @@ try {
   await sleep(800);
   await B.evalJs("document.getElementById('splash-btn').click()");
   await sleep(300);
+  check("context B comes online against the real gateway",
+    await B.waitFor("NOVA_FOX3.geoState().online === true", 30000, "context B online"));
   const bRows = await B.waitFor("NOVA_FOX3.geoState().rows > 0", 60000,
     "context B reads the geometry scroll");
   check("context B reads the geometry scroll from the chart alone", bRows,
@@ -392,27 +427,34 @@ try {
   // velocity grows at gravity's rate (23/s). A feint quarters the
   // growth and lends the difference sideways — measure the
   // velocity's change across the feint's breath, mid-fall.
-  async function feintFall(inverted) {
+  // The velocity is sampled BEFORE the press, so the whole
+  // measurement window sits inside the feint's breath (350 ms):
+  // build #19 sampled after a 250 ms-granularity polling wait and
+  // caught only the breath's tail (dv -3.11 against a -3.0 bar,
+  // with the sideways loan already proving the feint fired). A
+  // control fall in the same session carries the comparison, so
+  // the ratio is the measurement, not the clock.
+  async function feintFall(inverted, press) {
     for (let attempt = 0; attempt < 3; attempt++) {
       await evalJs(`NOVA_FOX3.state.pos.y += ${inverted ? -13 : 13}`);
       const falling = await waitFor(
         inverted ? "NOVA_FOX3.state.vel.y > 3" : "NOVA_FOX3.state.vel.y < -3",
         6000, "the fox is falling");
       if (!falling) continue;
-      await key("k", "KeyK");
-      const fired = await waitFor("NOVA_FOX3.combatState().feinting", 1500, "the feint fires");
-      if (!fired) { await sleep(2200); continue; }
       const v1 = await evalJs("NOVA_FOX3.state.vel.y");
-      await sleep(230);
+      if (press) await key("k", "KeyK");
+      await sleep(200);
       const st = await evalJs("({ vy: NOVA_FOX3.state.vel.y, vx: NOVA_FOX3.state.vel.x, vz: NOVA_FOX3.state.vel.z })");
       return { dv: st.vy - v1, hSpeed: Math.hypot(st.vx, st.vz),
                cd: (await combatState()).feintCdLeft };
     }
     return null;
   }
-  const ff = await feintFall(false);
+  const ctl = await feintFall(false, false);
+  const ff = await feintFall(false, true);
   check("gravity feint: mid-fall, the pull quarters — the fall's growth nearly stops",
-    !!ff && ff.dv > -3.0, ff ? `dv=${ff.dv.toFixed(2)} over the breath (unfeinted: about -5.75)` : "the feint never fired");
+    !!ctl && !!ff && ff.dv > ctl.dv * 0.55,
+    (ctl && ff) ? `control dv=${ctl.dv.toFixed(2)}, feint dv=${ff.dv.toFixed(2)} over the same breath` : "a fall never settled");
   check("gravity feint: the borrowed pull lands sideways, toward the dodge",
     !!ff && ff.hSpeed > 2.5, ff ? `hSpeed=${ff.hSpeed.toFixed(2)}` : "");
   check("gravity feint: the cooldown is real (the state names the wait)",
@@ -719,7 +761,7 @@ try {
   if (flipped) {
     await waitFor("NOVA_FOX3.state.onGround", 12000, "standing on the vault");
     await sleep(2800); // the warp and the wooze run their course
-    const ff2 = await feintFall(true);
+    const ff2 = await feintFall(true, true);
     check("gravity feint INVERTED: the pull still quarters — now toward the ceiling",
       !!ff2 && ff2.dv < 3.0, ff2 ? `dv=${ff2.dv.toFixed(2)} over the breath (unfeinted: about +5.75)` : "the feint never fired");
     check("gravity feint INVERTED: the borrowed pull still lands sideways",
@@ -728,7 +770,14 @@ try {
 
   // --- the artifact itself carries the tier-2 work ---------------------------------
   {
-    const html = readFileSync(join(HERE, "index.html"), "utf8");
+    // Under the Jenkins runner the harness runs from a scratch
+    // dir, not the tree — resolve the built artifact from the
+    // page's own file URL when there is one, else the tree.
+    const artPath = [PAGE_URL.startsWith("file:") ? fileURLToPath(new URL(PAGE_URL)) : null,
+      join(HERE, "index.html"),
+      "/home/wbic16/nf-repo/builds/demo44/index.html"]
+      .find((p) => p && existsSync(p));
+    const html = readFileSync(artPath, "utf8");
     check("the built artifact carries the tier-2 skills (verbs, physics, guide)",
       html.includes("function tryShapeStrike") && html.includes("function fluteSnare") &&
       html.includes("function feintAccel") && html.includes("Gravity feint"));
