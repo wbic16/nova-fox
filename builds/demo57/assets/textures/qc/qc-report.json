@@ -1,0 +1,290 @@
+{
+ "palette": [
+  {
+   "file": "atlas-handdrawn-1536x768.png",
+   "distinct_colors": 594,
+   "max_segment_dist": 2.74,
+   "worst_color": "#1a46ce",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-00-grass-top.png",
+   "distinct_colors": 34,
+   "max_segment_dist": 0.77,
+   "worst_color": "#265e99",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-01-grass-side.png",
+   "distinct_colors": 27,
+   "max_segment_dist": 0.7,
+   "worst_color": "#235185",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-02-dirt.png",
+   "distinct_colors": 20,
+   "max_segment_dist": 0.62,
+   "worst_color": "#223f5b",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-03-stone.png",
+   "distinct_colors": 42,
+   "max_segment_dist": 0.42,
+   "worst_color": "#6f8298",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-04-wood-side.png",
+   "distinct_colors": 26,
+   "max_segment_dist": 0.57,
+   "worst_color": "#2c527c",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-05-wood-top.png",
+   "distinct_colors": 34,
+   "max_segment_dist": 0.5,
+   "worst_color": "#97c7f4",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-06-leaf.png",
+   "distinct_colors": 25,
+   "max_segment_dist": 0.72,
+   "worst_color": "#044b66",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-07-ash-top.png",
+   "distinct_colors": 75,
+   "max_segment_dist": 0.75,
+   "worst_color": "#bfd4e1",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-08-ash-side.png",
+   "distinct_colors": 61,
+   "max_segment_dist": 0.6,
+   "worst_color": "#98b3c6",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-09-redrock.png",
+   "distinct_colors": 28,
+   "max_segment_dist": 1.36,
+   "worst_color": "#4f4486",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-10-basalt.png",
+   "distinct_colors": 20,
+   "max_segment_dist": 0.49,
+   "worst_color": "#333a45",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-11-ember.png",
+   "distinct_colors": 14,
+   "max_segment_dist": 0.45,
+   "worst_color": "#222731",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-12-brick.png",
+   "distinct_colors": 28,
+   "max_segment_dist": 0.33,
+   "worst_color": "#6b798b",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-13-deepstone.png",
+   "distinct_colors": 35,
+   "max_segment_dist": 2.74,
+   "worst_color": "#1a46ce",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-14-scar.png",
+   "distinct_colors": 10,
+   "max_segment_dist": 0.7,
+   "worst_color": "#04050c",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-15-crystal.png",
+   "distinct_colors": 53,
+   "max_segment_dist": 1.58,
+   "worst_color": "#46cffc",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-16-vault.png",
+   "distinct_colors": 37,
+   "max_segment_dist": 2.05,
+   "worst_color": "#0f63cc",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "tile-17-bedrock.png",
+   "distinct_colors": 29,
+   "max_segment_dist": 0.49,
+   "worst_color": "#505b6b",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  },
+  {
+   "file": "portrait-fox-288.png",
+   "distinct_colors": 9,
+   "max_segment_dist": 0.5,
+   "worst_color": "#1e66b8",
+   "pixels_off_palette_pct": 0.0,
+   "pass": true
+  }
+ ],
+ "tiling": [
+  {
+   "file": "tile-00-grass-top.png",
+   "left_right_edge_diff": 1.3,
+   "top_bottom_edge_diff": 27.7,
+   "pass": false
+  },
+  {
+   "file": "tile-01-grass-side.png",
+   "left_right_edge_diff": 0.8,
+   "top_bottom_edge_diff": 30.5,
+   "pass": false
+  },
+  {
+   "file": "tile-02-dirt.png",
+   "left_right_edge_diff": 0.7,
+   "top_bottom_edge_diff": 22.5,
+   "pass": false
+  },
+  {
+   "file": "tile-03-stone.png",
+   "left_right_edge_diff": 0.2,
+   "top_bottom_edge_diff": 37.7,
+   "pass": false
+  },
+  {
+   "file": "tile-04-wood-side.png",
+   "left_right_edge_diff": 1.2,
+   "top_bottom_edge_diff": 14.3,
+   "pass": false
+  },
+  {
+   "file": "tile-05-wood-top.png",
+   "left_right_edge_diff": 2.2,
+   "top_bottom_edge_diff": 29.8,
+   "pass": false
+  },
+  {
+   "file": "tile-06-leaf.png",
+   "left_right_edge_diff": 1.4,
+   "top_bottom_edge_diff": 24.7,
+   "pass": false
+  },
+  {
+   "file": "tile-07-ash-top.png",
+   "left_right_edge_diff": 0.6,
+   "top_bottom_edge_diff": 62.4,
+   "pass": false
+  },
+  {
+   "file": "tile-08-ash-side.png",
+   "left_right_edge_diff": 0.4,
+   "top_bottom_edge_diff": 55.7,
+   "pass": false
+  },
+  {
+   "file": "tile-09-redrock.png",
+   "left_right_edge_diff": 2.1,
+   "top_bottom_edge_diff": 26.5,
+   "pass": false
+  },
+  {
+   "file": "tile-10-basalt.png",
+   "left_right_edge_diff": 0.3,
+   "top_bottom_edge_diff": 13.5,
+   "pass": true
+  },
+  {
+   "file": "tile-11-ember.png",
+   "left_right_edge_diff": 0.5,
+   "top_bottom_edge_diff": 19.8,
+   "pass": false
+  },
+  {
+   "file": "tile-12-brick.png",
+   "left_right_edge_diff": 0.6,
+   "top_bottom_edge_diff": 14.9,
+   "pass": false
+  },
+  {
+   "file": "tile-13-deepstone.png",
+   "left_right_edge_diff": 0.4,
+   "top_bottom_edge_diff": 23.2,
+   "pass": false
+  },
+  {
+   "file": "tile-14-scar.png",
+   "left_right_edge_diff": 0.4,
+   "top_bottom_edge_diff": 16.3,
+   "pass": false
+  },
+  {
+   "file": "tile-15-crystal.png",
+   "left_right_edge_diff": 1.3,
+   "top_bottom_edge_diff": 42.8,
+   "pass": false
+  },
+  {
+   "file": "tile-16-vault.png",
+   "left_right_edge_diff": 4.0,
+   "top_bottom_edge_diff": 31.7,
+   "pass": false
+  },
+  {
+   "file": "tile-17-bedrock.png",
+   "left_right_edge_diff": 1.6,
+   "top_bottom_edge_diff": 21.0,
+   "pass": false
+  }
+ ],
+ "portrait": {
+  "hand": {
+   "fur": 50.0,
+   "muzzle": 13.7,
+   "hat": 30.5,
+   "dark": 3.8,
+   "opaque_pct": 42.4
+  },
+  "original_replica": {
+   "fur": 41.1,
+   "muzzle": 15.4,
+   "hat": 29.1,
+   "dark": 6.4,
+   "opaque_pct": 41.9
+  }
+ }
+}
