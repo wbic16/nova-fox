@@ -56,7 +56,20 @@
 // unit from a second break, reading as a +2 yield. An isolation
 // run proved the game exact (one stroke -> exactly one unit,
 // ground cell intact). The leg now fires ONE stroke and reads
-// the settled state before asserting the exact +1.
+// the settled state before asserting the exact +1. (4) REPLAY
+// COMPLETENESS: geoState() exposes rows vs known; carving
+// before the geometry replay finishes lets a stroke re-break
+// a cell the scroll already carved (the mirror still shows
+// base) and yield it a second time. The probe waits for
+// rows >= known, stable, before any carve. NOTE: even fully
+// revised, one leg is EXPECTED to fail until the game defect
+// it names is fixed — the carve-back yield: tryChisel yields
+// baseBlockAt on base-branch breaks, so a placed block over a
+// base-solid cell (a re-filled ground cell) yields the buried
+// base type and the placed type vanishes. That leg tests the
+// design's stated intent ("what you see break is what you
+// carry"); its failure is the defect's signature, recorded in
+// P2-PRODUCER-REPORT.md (EE 1101).
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -123,6 +136,25 @@ async function settleFox(F, label) {
     await sleep(1000);
   }
   console.log(`  .. settled (${label}): ${last} after ${Math.round((Date.now() - t0) / 1000)}s`);
+}
+// Wait until the geometry replay is complete: geoState().rows
+// (applied) catches up to geoState().known (on the scroll),
+// stable across two polls. Carving against a half-replayed
+// mirror re-breaks cells the scroll already carved.
+async function settleWorld(F, label) {
+  const t0 = Date.now();
+  let last = null, stable = 0;
+  while (Date.now() - t0 < 90000) {
+    try {
+      const g = await F.evalJs("NOVA_FOX3.geoState()");
+      const s = `${g.rows}/${g.known}`;
+      if (g.known > 0 && g.rows >= g.known && s === last) {
+        if (++stable >= 2) break;
+      } else { last = s; stable = 0; }
+    } catch (e) { /* page mid-load */ }
+    await sleep(1000);
+  }
+  console.log(`  .. world replay settled (${label}): rows/known ${last} after ${Math.round((Date.now() - t0) / 1000)}s`);
 }
 
 async function launch(profile) {
@@ -300,6 +332,7 @@ try {
   await A.enterWorld();
   check("A: the backend answers — the game is online against the real gateway",
     await A.waitFor("NOVA_FOX3.geoState().online === true", 30000, "backend online"));
+  await settleWorld(A, "A before carving");
   await settleFox(A, "A before the crossing");
   // The shared identity's pack persists across runs (see header):
   // record the baseline; every pack expectation below is a delta
@@ -495,6 +528,7 @@ try {
     `expected ${JSON.stringify(expectedAfterPlace)}, saw ${JSON.stringify(packA2)}`);
   try { await A2.enterWorld(); } catch (e) { /* a returning profile may skip the splash */ }
   await A2.waitFor("NOVA_FOX3.geoState().online === true", 30000, "backend online (A2)");
+  await settleWorld(A2, "A2 before the carve-back");
   const held = await A2.evalJs(`NOVA_FOX3.digState().materials[${PT}] || 0`);
   const soldBefore = await A2.evalJs("NOVA_FOX3.digState().sold");
   const tokensBefore = await A2.evalJs("NOVA_FOX3.digState().tokens");
