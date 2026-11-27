@@ -6811,6 +6811,22 @@ function ideaEmptyEl(text) {
   row.append(st);
   return row;
 }
+// ---------- the ship log (W-5): recent builds, on the start panel ------
+// SHIP_LOG is baked by build3.py from SHIPLOG.md — the log players
+// see is the log that shipped them. Filled once at boot, while the
+// splash is up; starting steps the panel aside with the splash.
+// Text nodes only: a build's line is data, never markup.
+function renderShipLog() {
+  const el = document.getElementById("shiplog-rows");
+  if (!el) return;
+  el.replaceChildren();
+  for (const row of shipLogHeadline(SHIP_LOG)) {
+    const div = document.createElement("div");
+    div.className = "shiplog-row";
+    div.textContent = shipLogLine(row, SHIP_EE);
+    el.append(div);
+  }
+}
 // ---------- the road ahead (Item #3, EE 1068 design) ---------------------------
 // A read-only section inside the board, under Place of the day:
 // the whole road from the one ideas chart — who told what, what
@@ -8419,6 +8435,7 @@ $("btn-keys").addEventListener("click", () => {
 // the title toggles it (the tap is claimed here, so it never
 // falls through to the world's tap-as-click).
 $("ver-line1").textContent = `Nova Fox — EE ${SHIP_EE}`;
+renderShipLog();
 $("ee-line").textContent = `EE ${SHIP_EE}`;
 {
   const title = $("realm-big"), top = $("topcenter");

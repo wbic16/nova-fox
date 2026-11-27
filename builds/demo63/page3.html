@@ -518,6 +518,19 @@
     min-height: 14px; white-space: nowrap; overflow: hidden;
     transition: opacity 0.6s ease;
   }
+  /* The ship log (W-5): recent builds, lettered on the start panel
+     under the trail line, in the splash's own dress. The rows box
+     scrolls in place, so the whole headline is one scroll away. */
+  #shiplog { margin: 16px auto 0; max-width: 460px; text-align: left; }
+  .shiplog-head {
+    color: #7fd8ff; letter-spacing: 0.32em; font-size: 11px;
+    text-transform: uppercase; text-align: center; margin-bottom: 4px;
+  }
+  #shiplog-rows { max-height: 172px; overflow-y: auto; }
+  .shiplog-row {
+    padding: 5px 2px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
+    font-size: 12.5px; color: #c8d6f2; line-height: 1.45;
+  }
   /* Lite (demo30): the honest progress element that rides with the
      trail — its width is real fetched bytes of the guide-voice
      prefetch set, counted by the narration seam in game3.js. */
@@ -642,6 +655,10 @@
     <div style="margin-top:12px"><button class="ghost" id="btn-scheme-splash">Controls: WASD</button></div>
     <div class="splash-hint">or click anywhere, or press any key — the panel steps aside</div>
     <div id="trail-line"></div>
+    <div id="shiplog">
+      <div class="shiplog-head">Recent builds</div>
+      <div id="shiplog-rows"></div>
+    </div>
   </div>
 </div>
 <div id="nf-progress" hidden><div id="nf-progress-track"><div id="nf-progress-bar"></div></div><div id="nf-progress-note"></div></div>

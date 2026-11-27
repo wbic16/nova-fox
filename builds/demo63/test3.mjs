@@ -95,6 +95,9 @@ import {
   ROADMAP_UPCOMING_MAX, ROADMAP_SHIPPED_MAX,
   ideaB64Encode, ideaB64Decode,
 } from "./ideas.js";
+import {
+  SHIPLOG_MAX, shipLogRows, shipLogHeadline, shipLogLine,
+} from "./shiplog.js";
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = "") {
@@ -4198,6 +4201,97 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("T-3: the assembled page is the game (one stamp, boot handle inside)",
     (page.match(/NF_SHIP_EE:/g) || []).length === 1 && page.includes("NOVA_FOX3"));
 }
+
+
+// ---------- W-5: the ship log on the start screen ----------
+{
+  const fx = (ee, name, note) => ({ ee, name, note });
+  check("shiplog: rows order newest first, the build being made at the head",
+    (() => { const rows = shipLogRows([
+        fx(1032, "demo30", "a"), fx(0, "build 42", "b"), fx(1081, "demo41", "c")]);
+      return rows.map((r) => r.name).join(",") === "build 42,demo41,demo30"; })());
+  check("shiplog: malformed rows never reach the panel",
+    (() => { const rows = shipLogRows([
+        fx(1081, "demo41", "a"), { ee: -1, name: "x", note: "y" },
+        { ee: 5, name: "", note: "y" }, { ee: 5, name: "x" }, null, "junk"]);
+      return rows.length === 1 && rows[0].name === "demo41"; })());
+  check("shiplog: the headline caps at SHIPLOG_MAX, the newest kept",
+    (() => { const many = [];
+        for (let i = 0; i < 12; i++) many.push(fx(1000 + i, "d" + i, "n"));
+        const head = shipLogHeadline(many);
+        return SHIPLOG_MAX === 8 && head.length === 8 &&
+          head[0].ee === 1011 && head[7].ee === 1004; })());
+  check("shiplog: a shipped row letters as its epoch, name, line",
+    shipLogLine(fx(1081, "demo41", "The roadmap panel."), 1149) ===
+      "EE 1081 \u00b7 demo41 \u00b7 The roadmap panel.");
+  check("shiplog: the build being made letters with the running build's own stamp",
+    shipLogLine(fx(0, "build 42", "The sell-ready build."), 1149) ===
+      "EE 1149 \u00b7 build 42 \u00b7 The sell-ready build." &&
+    shipLogLine(fx(0, "build 42", "The sell-ready build."), 0) ===
+      "this build \u00b7 build 42 \u00b7 The sell-ready build.");
+
+  // The source of record: SHIPLOG.md, parsed as build3.py parses it.
+  const src = readFileSync(new URL("./SHIPLOG.md", import.meta.url), "utf8");
+  const srcRows = [...src.matchAll(/\| (this|\d+) \| ([^|]+?) \| ([^|]+?) \|/g)]
+    .map((m) => ({ ee: m[1] === "this" ? 0 : Number(m[1]),
+                   name: m[2].trim(), note: m[3].trim() }));
+  check("shiplog: the source seeds the real ship history, newest first",
+    srcRows.map((r) => r.ee).join(",") === "0,1081,1073,1046,1037,1034,1032,1023" &&
+    srcRows.map((r) => r.name).join(",") ===
+      "build 42,demo41,demo35,demo34,demo32,demo31,demo30,demo29");
+  check("shiplog: the headline of the seeded log is the whole seed, in order",
+    shipLogHeadline(srcRows).map((r) => r.name).join(",") ===
+      "build 42,demo41,demo35,demo34,demo32,demo31,demo30,demo29");
+
+  // The bake: the built Full carries exactly the source's rows.
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const baked = JSON.parse(html.match(/const SHIP_LOG = (\[.*?\]);/s)[1]);
+  check("shiplog: the built panel's log is the source's log, row for row",
+    JSON.stringify(baked) === JSON.stringify(srcRows));
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  check("shiplog: the panel stands on the start screen; the version row stands as it was",
+    page.includes('id="shiplog"') && page.includes('id="shiplog-rows"') &&
+    html.includes('id="shiplog-rows"') &&
+    game.includes("renderShipLog()") &&
+    game.includes("Nova Fox \u2014 EE ${SHIP_EE}") &&
+    html.includes('id="ver-line1"'));
+
+  // The Lite boot: the package's shiplog scroll carries the same
+  // rows, its shell carries the panel, its game scroll the render.
+  const lite = readFileSync(new URL("./lite.html", import.meta.url), "utf8");
+  const ee = (lite.match(/"ee":\s*"?(\d+)"?/) || [])[1];
+  const phextBytes = gunzipSync(readFileSync(
+    new URL(`./assets/${ee}/nova-fox.phext.gz`, import.meta.url)));
+  const levels = new Map(PHEXT_LEVEL_BYTES.map((b, i) => [b, i]));
+  const coord = [1, 1, 1, 1, 1, 1, 1, 1, 1];
+  const scrolls = new Map();
+  let start = 0;
+  const keyOf = () => `${coord[0]}.${coord[1]}.${coord[2]}/${coord[3]}.${coord[4]}.${coord[5]}/${coord[6]}.${coord[7]}.${coord[8]}`;
+  for (let i = 0; i < phextBytes.length; i++) {
+    const lvl = levels.get(phextBytes[i]);
+    if (lvl !== undefined) {
+      scrolls.set(keyOf(), phextBytes.toString("utf8", start, i));
+      coord[lvl]++;
+      for (let j = lvl + 1; j < 9; j++) coord[j] = 1;
+      start = i + 1;
+    }
+  }
+  scrolls.set(keyOf(), phextBytes.toString("utf8", start));
+  const home = scrolls.get("1.1.1/1.1.1/1.1.1") || "";
+  const pkgMap = JSON.parse(home.split("\n").find((l) => l.startsWith("NF-MAP ")).slice(7));
+  const shipCoord = Object.keys(pkgMap.moduleNames)
+    .find((c) => pkgMap.moduleNames[c] === "shiplog");
+  const gameCoord = Object.keys(pkgMap.moduleNames)
+    .find((c) => pkgMap.moduleNames[c] === "game");
+  const shipScroll = scrolls.get(shipCoord) || "";
+  const liteBaked = JSON.parse(shipScroll.match(/const SHIP_LOG = (\[.*?\]);/s)[1]);
+  check("shiplog: the Lite package's log is the source's log, row for row",
+    JSON.stringify(liteBaked) === JSON.stringify(srcRows) &&
+    (scrolls.get(pkgMap.shell) || "").includes('id="shiplog-rows"') &&
+    (scrolls.get(gameCoord) || "").includes("renderShipLog"));
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

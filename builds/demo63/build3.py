@@ -112,6 +112,28 @@ narration_js = (
     "const NARRATION_AUDIO = " + json.dumps(audio) + ";\n"
     "const NARRATION_MANIFEST = " + json.dumps(manifest) + ";\n"
 )
+
+# The ship log (W-5): SHIPLOG.md is the source of record for the
+# start screen's "Recent builds" panel — parsed fail-closed like
+# the narration manifest above, and baked in as the SHIP_LOG block,
+# so the log players see is the log that shipped them. The top row
+# is the build being made: its EE reads "this" in the source and
+# bakes as 0; the running game letters that row with its own stamp.
+_ship_rows = []
+for _row in re.finditer(r"\| (this|\d+) \| ([^|]+?) \| ([^|]+?) \|",
+                        read("SHIPLOG.md")):
+    _ship_rows.append({
+        "ee": 0 if _row.group(1) == "this" else int(_row.group(1)),
+        "name": _row.group(2).strip(),
+        "note": _row.group(3).strip(),
+    })
+assert _ship_rows and _ship_rows[0]["ee"] == 0, \
+    "SHIPLOG.md: the first row must be the build being made (EE 'this')"
+assert all(a["ee"] > b["ee"] for a, b in
+           zip(_ship_rows[1:], _ship_rows[2:])), \
+    "SHIPLOG.md: ship epochs must descend, newest first"
+shiplog_js = "const SHIP_LOG = " + json.dumps(_ship_rows) + ";\n"
+print(f"ship log: {len(_ship_rows)} rows baked from SHIPLOG.md")
 # The ship EE: from the stamp token in game3.js, overridable at ship
 # time via NF_EE. The same value stamps both artifacts and names the
 # Lite asset directory, so a Lite can only ever request its own EE's
@@ -293,6 +315,8 @@ parts = [
     re.sub(r"^export ", "", read("ideas.js"), flags=re.M),
     "// ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====",
     re.sub(r"^export ", "", read("gdial.js"), flags=re.M),
+    "// ===== the ship log: recent builds, as shipped (data: SHIPLOG.md baked; helpers: shiplog.js) =====",
+    shiplog_js + re.sub(r"^export ", "", read("shiplog.js"), flags=re.M),
     "// ===== game (source: game3.js) =====",
     read("game3.js"),
 ]
@@ -343,7 +367,7 @@ if LITE:
         "per-part strip assembly differs from the whole-module strip"
     PART_NAMES = ["three", "wasm-core", "narration", "intro", "world",
                   "economy", "solver", "forms", "speedrun", "banter",
-                  "scheme", "ideas", "gdial", "game"]
+                  "scheme", "ideas", "gdial", "shiplog", "game"]
     module_coords = []
     module_names = {}
     _ci = 0
