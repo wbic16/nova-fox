@@ -43,10 +43,10 @@ but not embedded by the demo22 build — see "Banter takes" below.
 | BEAT-border-up | beat-border-up.mp3 | 2.28 s | Inverted Gravity Detected. |
 | BEAT-barrow | beat-barrow.mp3 | 7.51 s | The Unexpected Hall, Fox. Find the Shadow, strike at the Heart. Your vision alone can fix it. |
 | BEAT-quest | beat-quest.mp3 | 8.88 s | This ... is the (gasp) Nova Heart, Fox! You've earned this - take the hat. It's yours, for good! |
-| BEAT-guardian-contact | beat-guardian-contact.mp3 | 5.81 s | This guardian is confused, Fox. You must strike back. Strike, now! |
-| BEAT-strike-kill | beat-strike-kill.mp3 | 1.99 s | It is done. |
-| BEAT-guardian-kill | beat-guardian-kill.mp3 | 11.28 s | (Winds of Change) The ... shadow is ... gone, Fox! You've done it! The hall is quiet, Nova Prime calls to you. Another piece of Nova Heart is near. |
-| BEAT-death | beat-death.mp3 | 5.11 s | Oh no!! Fox, hold on. I'm getting you out of here. Stay with me...please. |
+| BEAT-guardian-contact | beat-guardian-contact.mp3 | 5.42 s | This guardian is confused, Fox. You must strike back. Strike, now! |
+| BEAT-strike-kill | beat-strike-kill.mp3 | 1.20 s | It is done. |
+| BEAT-guardian-kill | beat-guardian-kill.mp3 | 9.00 s | (Winds of Change) The ... shadow is ... gone, Fox! You've done it! The hall is quiet, Nova Prime calls to you. Another piece of Nova Heart is near. |
+| BEAT-death | beat-death.mp3 | 5.66 s | Oh no!! Fox, hold on. I'm getting you out of here. Stay with me...please. |
 | BEAT-fall | beat-fall.mp3 | 1.92 s | Fall home, fox. |
 
 ## Not recorded under this script (by the script's own ruling)
@@ -76,3 +76,24 @@ in the build, never triggered. They join when demo17's wiring merges.
 | banter-51.mp3 | 3.41 s | Joy banter line 51 (JOY-BANTER.md) |
 | banter-70.mp3 | 2.83 s | Joy banter line 70 (JOY-BANTER.md) |
 | banter-81.mp3 | 3.53 s | Joy banter line 81 (JOY-BANTER.md) |
+
+## Re-recorded EE 1047 (demo35, EE 1037 feedback item 5)
+
+Will (EE 1037): "joy needs more concern and joy in her voice during
+fight scenes." Four fight beats re-recorded with directed delivery —
+same voice (Voice 1, `avocado_v2:vdc_11859`), same verbatim script
+text, same stage-direction treatment (BEAT-guardian-kill's
+"(Winds of Change)" again NOT fed to the voice). The TTS is
+deterministic at the original settings (the speed-100 takes decode
+identical to the 2026-11-26 set), so direction was carried by
+pacing: BEAT-guardian-contact at speed 104 (5.42 s; ~2.4 dB more
+present, same rising contour onto "Strike, now!"),
+BEAT-strike-kill at speed 90 (1.20 s; firm, decaying tail — quiet
+triumph), BEAT-guardian-kill at speed 105 (9.00 s; breath kept —
+4 measured pauses — pace lifted into the joy), BEAT-death at
+speed 93 (5.66 s; slower, the ending still falling away on
+"please"). Takes were selected on measured pacing, energy contour,
+and pause placement against the written direction; the rejected
+takes and their measurements are recorded in
+FEEDBACK-1037-REPORT.md (demo35). The 2026-11-26 takes remain in
+git history.
