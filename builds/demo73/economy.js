@@ -268,7 +268,19 @@ export function flightUnlocked(eco, sessionPaid, purchaseRows, playerName) {
 // Active play only — the glue decides what "active" means (tab
 // visible, recent input) and passes whole seconds. Fractions carry
 // between calls, so a 5-second tick rhythm loses nothing.
-export function accrue(eco, seconds) {
+//
+// X factor (EE 1350, X-FACTOR-DESIGN.md section 5.4(c), D-5 as
+// ruled): the OG credit multiplier is read at the economy's two
+// system-paid bonus surfaces ONLY — this generator accrual and the
+// daily prize below. The multiplier arrives as a parameter from
+// the session read-back (the gateway's credit_multiplier: 2 for
+// OG, 1 otherwise); it is never computed here. It multiplies the
+// CREDITS the generation skill mints — never the flux drip, never
+// the spew (those are not credits, and D-5 names credit bonuses).
+// Hand-downs and flux->credit conversion take no multiplier
+// parameter at all: a transfer and an exchange are not bonuses.
+export function accrue(eco, seconds, creditMultiplier) {
+  const mult = creditMultiplier === 2 ? 2 : 1;
   const out = { tokensMinted: 0, tokensSpewed: 0, creditsMinted: 0 };
   if (!(seconds > 0)) return out;
   // The free drip runs for everyone, generator or not (PLAN §2.2).
@@ -290,7 +302,7 @@ export function accrue(eco, seconds) {
       eco.poolSpewed += spewWhole;
       eco.lifetime.tokensSpewed += spewWhole;
       out.tokensSpewed += spewWhole;
-      eco.frac.credit += spewWhole / ECO_RATES.TOKENS_SPEWED_PER_CREDIT;
+      eco.frac.credit += (spewWhole / ECO_RATES.TOKENS_SPEWED_PER_CREDIT) * mult;
       const creditWhole = Math.floor(eco.frac.credit);
       if (creditWhole > 0) {
         eco.frac.credit -= creditWhole;
@@ -308,21 +320,30 @@ export function accrue(eco, seconds) {
 // feat itself is once per day — world.js checkDaily). The draw is
 // a pure function of (player, date): the same answer on every
 // machine, every reload.
-export function dailyPrizeDraw(eco, playerName, dateStr) {
+export function dailyPrizeDraw(eco, playerName, dateStr, creditMultiplier) {
+  // X factor (EE 1350, D-5): the daily prize is the second of the
+  // two system-paid bonus surfaces — a won prize pays the session
+  // multiplier (read-back credit_multiplier, passed in by the
+  // glue; 2 for OG, 1 otherwise). The DRAW is untouched: the same
+  // (player, date) wins or loses exactly as without the factor.
+  const mult = creditMultiplier === 2 ? 2 : 1;
+  const prize = ECO_RATES.DAILY_PRIZE_CREDITS * mult;
   if (eco.dailyPrize.date === dateStr) {
-    return { already: true, won: eco.dailyPrize.won, credits: eco.dailyPrize.won ? ECO_RATES.DAILY_PRIZE_CREDITS : 0 };
+    return { already: true, won: eco.dailyPrize.won, credits: eco.dailyPrize.won ? prize : 0 };
   }
   const roll = fnv1a32(`nova-phox|prize|${playerName}|${dateStr}`) / 4294967296;
   const won = roll < ECO_RATES.DAILY_PRIZE_WIN_SHARE;
   eco.dailyPrize = { date: dateStr, won };
   if (won) {
-    eco.credits += ECO_RATES.DAILY_PRIZE_CREDITS;
-    eco.lifetime.creditsEarned += ECO_RATES.DAILY_PRIZE_CREDITS;
+    eco.credits += prize;
+    eco.lifetime.creditsEarned += prize;
   }
-  return { already: false, won, credits: won ? ECO_RATES.DAILY_PRIZE_CREDITS : 0 };
+  return { already: false, won, credits: won ? prize : 0 };
 }
 
 // ---------- Fork B faucet 2: token -> credit conversion (50 : 1) ---------------
+// X factor (D-5): conversion is an exchange, not a bonus — it is
+// NEVER multiplied. This function takes no multiplier, by design.
 export function convertTokens(eco, wantCredits, date = new Date()) {
   const affordable = Math.floor(eco.tokens / ECO_RATES.CONVERSION_TOKENS_PER_CREDIT);
   const n = Math.max(0, Math.min(Math.floor(wantCredits) || 0, affordable));
@@ -339,6 +360,8 @@ export function convertTokens(eco, wantCredits, date = new Date()) {
 
 // ---------- Fork B faucet 3 + the gift: hand-downs and gift keys ---------------
 // Hand-downs move existing credits; they mint none (ECONOMY §2.2).
+// X factor (D-5): a hand-down is a transfer, not a bonus — it is
+// NEVER multiplied, on either side. No multiplier enters here.
 // The transfer rides the shared chart as a ledger line; the
 // recipient's client credits it exactly once, by transfer id.
 export function handdownLine(id, from, to, amount, ts) {

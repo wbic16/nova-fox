@@ -2905,6 +2905,91 @@ function renderCollectBook() {
 }
 // COLLECT-ENC-END
 
+// X-SURFACES-BEGIN
+// ---------- the X factor on the game surface (EE 1350) ----------------
+// X-FACTOR-DESIGN.md sections 4 + 5.4(c): the game-surface halves
+// of the WELCOME and CREDIT-FLAG legs. The gateway half is LIVE
+// (EE 1340): POST /api/v2/xfactor performs the grant check-and-set
+// and its answer is the session read-back — status, og, halo,
+// credit_multiplier, and the welcome state ("beat" ONLY on the
+// granting login, "standing" on every later granted login, null
+// for no-match). The pure decisions live in xfactor.js; this block
+// owns the fetch, the toast, and the mirrors.
+//
+// IDENTITY, stated plainly (a gap, recorded — not smoothed): the
+// design (section 2 step 2) has the GATEWAY receive the X identity
+// asserted server-side by the SSO-X session, but the shipped
+// endpoint takes account_id + handle from the request body, and
+// the only identity this client holds is its game token's payload
+// (sub + name, minted from the phext.tech session). xFactorLogin
+// therefore presents exactly what the token carries — a numeric
+// sub as account_id, otherwise the payload's name/sub as handle —
+// and the gateway remains the judge: a presentation that matches
+// nothing answers no-match and nothing renders. If phext.tech's
+// sub is not the X identity, matching fails safe (no grant, no
+// beat, no copy line) until the gateway reads the identity from
+// the session itself; no client-side registry lookup or local
+// matching is invented here.
+const xfState = newXFactorState();
+BACKEND.xfState = xfState; // the read-back view, mirrored for readers
+let xfChecking = false;
+let xfAnswered = false; // a parsed gateway answer has landed this boot
+function xTokenPayload() {
+  try {
+    const t = gameToken();
+    if (!t) return null;
+    const p = String(t).split(".");
+    if (p.length !== 3) return null;
+    return JSON.parse(atob(p[1].replace(/-/g, "+").replace(/_/g, "/")));
+  } catch (e) { return null; }
+}
+function xFactorIdentity() {
+  const p = xTokenPayload();
+  if (!p) return null;
+  const sub = typeof p.sub === "string" ? p.sub : "";
+  const name = typeof p.name === "string" ? p.name : "";
+  const account_id = /^\d+$/.test(sub) ? sub : "";
+  const handle = name && name !== sub ? name : (/^\d+$/.test(sub) ? "" : sub);
+  if (!account_id && !handle) return null;
+  return { account_id, handle };
+}
+// The login read: once per boot (a failed or unanswered attempt
+// may retry on the 20 s cadence; a landed answer is final for the
+// boot). The welcome beat renders through the game's beat surface
+// (the toast the meeting beats use) exactly when applyXFactorAnswer
+// hands one back — the granting login only.
+async function xFactorLogin() {
+  if (xfAnswered || xfChecking) return null;
+  const token = gameToken();
+  if (!token || !BACKEND.online) return null;
+  const identity = xFactorIdentity();
+  if (!identity) return null;
+  xfChecking = true;
+  try {
+    const r = await fetch(`${BACKEND.base}/api/v2/xfactor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(identity),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const ans = await r.json().catch(() => null);
+    if (!parseXFactorAnswer(ans)) return null;
+    xfAnswered = true;
+    const view = applyXFactorAnswer(xfState, ans);
+    if (view.beatText) toast(view.beatText, 12000);
+    return view;
+  } catch (e) { /* the door did not answer; the session stands ungranted, as before */ return null; }
+  finally { xfChecking = false; }
+}
+// The economy's two read points (ecoTick's accrual and the daily
+// prize) read the multiplier from HERE — the session read-back's
+// word, folded into xfState — never from registry data.
+function xCreditMultiplier() { return xfState.creditMultiplier; }
+function xCopyLineNow() { return xWelcomeCopyLine(xfState); }
+function xSurfaceStringsNow() { return xGameSurfaceStrings(xfState); }
+// X-SURFACES-END
+
 async function enterRealmGravity(realmId) {
   state.realmSince = performance.now(); // entry restarts the warp dwell (demo18)
   reconcileGravity();
@@ -5328,7 +5413,7 @@ function updatePlayer(dt) {
     sfx.melody(dailyPocket(todayStr()).chord, { gap: 170 });
     // Fork B (D12): the daily prize draw — a small credit prize,
     // decided by the day itself, the same on every machine.
-    const prize = dailyPrizeDraw(eco, playerName, todayStr());
+    const prize = dailyPrizeDraw(eco, playerName, todayStr(), xCreditMultiplier());
     persistEco();
     toast(prize.won
       ? `You found the place of the day — and the day's prize is yours: ${prize.credits} credit${prize.credits === 1 ? "" : "s"}, in your purse.`
@@ -8337,7 +8422,7 @@ function statusBoardText() {
   }
   return `Status — HP ${Math.max(0, state.hp)} / ${state.maxHp} \u00b7 score ${d.mine.score} pts \u00b7 ` +
     (sub.questDone ? "Quest — the Deep Stone is reached: quest done."
-                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near + (collectBoardLineNow() ? ` \u00b7 ${collectBoardLineNow()}` : "");
+                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near + (collectBoardLineNow() ? ` \u00b7 ${collectBoardLineNow()}` : "") + (xCopyLineNow() ? ` \u00b7 ${xCopyLineNow()}` : "");
 }
 function renderBoard() {
   const el = document.getElementById("board");
@@ -11235,7 +11320,7 @@ function ecoTick() {
   const elapsed = Math.min((now - lastEcoTickAt) / 1000, 30); // a stalled tab grants no backlog
   lastEcoTickAt = now;
   if (document.hidden || now - lastActiveAt > 30000 || elapsed <= 0) return;
-  const minted = accrue(eco, elapsed);
+  const minted = accrue(eco, elapsed, xCreditMultiplier());
   if (minted.tokensMinted || minted.tokensSpewed || minted.creditsMinted) persistEco();
   // EE 1034 (item 4): minting is SEEN as it happens — a floater
   // for each whole coin that lands, and a soft chime when a
@@ -11269,8 +11354,8 @@ toast(BEAT_LINES["BEAT-arrival"], 6000);
 // The chart-line: probe now, re-probe and flush every 20 s. Offline
 // is a first-class state (the ranch itself goes dark some days):
 // play never waits on it.
-backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()).then(() => maybeShowAuthPrompt()).then(trailDone, trailDone);
-setInterval(() => { backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()); }, 20000);
+backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()).then(() => xFactorLogin()).then(() => maybeShowAuthPrompt()).then(trailDone, trailDone);
+setInterval(() => { backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()).then(() => xFactorLogin()); }, 20000);
 setInterval(() => { ecoTick(); recordStandings(); syncHud(); }, 5000);
 
 // ---------- the test console (Will, 2026-11-26) ---------------------------
@@ -12130,7 +12215,7 @@ window.NOVA_FOX3 = {
   solverStartNow: () => solverStart(),
   solverStopNow: () => solverStop(),
   ecoState: () => ({ tokens: eco.tokens, credits: eco.credits, frac: { ...eco.frac }, generator: isGenerator(eco) }),
-  ecoAccrue: (seconds) => accrue(eco, seconds),
+  ecoAccrue: (seconds) => accrue(eco, seconds, xCreditMultiplier()),
   waypoint: () => ({ beacon: !!(hallBeacon && hallBeacon.visible),
     hud: (() => { const el = $("waypoint"); return el ? el.style.display : "none"; })() }),
   isWarded, classifyStroke, boardData, scoreNow: () => totalScore(sub),
@@ -12155,6 +12240,8 @@ window.NOVA_FOX3 = {
   },
   backendFlush: () => backendFlush(),
   licenseSession: () => ({ paid: BACKEND.sessionPaid, source: BACKEND.sessionSource, answer: BACKEND.licenseAnswer }),
+  xFactor: () => ({ status: xfState.status, og: xfState.og, halo: xfState.halo, creditMultiplier: xfState.creditMultiplier, copyLine: xCopyLineNow(), surface: xSurfaceStringsNow() }),
+  xFactorLogin: () => xFactorLogin(),
   presentLicenseKey: () => presentLicenseKey(),
   // demo10 handles: gravity in subspace — read what this fox knows
   // of the gravity scroll, and feed a read-back line through the
@@ -12250,7 +12337,7 @@ window.NOVA_FOX3 = {
   // demo4 handles: the economy — ledgers, entitlement, the record.
   ecoState: () => JSON.parse(JSON.stringify(eco)),
   ecoAccrue: (seconds) => {
-    accrue(eco, seconds);
+    accrue(eco, seconds, xCreditMultiplier());
     persistEco();
     syncHud();
     return JSON.parse(JSON.stringify(eco));

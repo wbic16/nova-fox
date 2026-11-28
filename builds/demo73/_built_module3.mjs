@@ -57745,7 +57745,19 @@ function flightUnlocked(eco, sessionPaid, purchaseRows, playerName) {
 // Active play only — the glue decides what "active" means (tab
 // visible, recent input) and passes whole seconds. Fractions carry
 // between calls, so a 5-second tick rhythm loses nothing.
-function accrue(eco, seconds) {
+//
+// X factor (EE 1350, X-FACTOR-DESIGN.md section 5.4(c), D-5 as
+// ruled): the OG credit multiplier is read at the economy's two
+// system-paid bonus surfaces ONLY — this generator accrual and the
+// daily prize below. The multiplier arrives as a parameter from
+// the session read-back (the gateway's credit_multiplier: 2 for
+// OG, 1 otherwise); it is never computed here. It multiplies the
+// CREDITS the generation skill mints — never the flux drip, never
+// the spew (those are not credits, and D-5 names credit bonuses).
+// Hand-downs and flux->credit conversion take no multiplier
+// parameter at all: a transfer and an exchange are not bonuses.
+function accrue(eco, seconds, creditMultiplier) {
+  const mult = creditMultiplier === 2 ? 2 : 1;
   const out = { tokensMinted: 0, tokensSpewed: 0, creditsMinted: 0 };
   if (!(seconds > 0)) return out;
   // The free drip runs for everyone, generator or not (PLAN §2.2).
@@ -57767,7 +57779,7 @@ function accrue(eco, seconds) {
       eco.poolSpewed += spewWhole;
       eco.lifetime.tokensSpewed += spewWhole;
       out.tokensSpewed += spewWhole;
-      eco.frac.credit += spewWhole / ECO_RATES.TOKENS_SPEWED_PER_CREDIT;
+      eco.frac.credit += (spewWhole / ECO_RATES.TOKENS_SPEWED_PER_CREDIT) * mult;
       const creditWhole = Math.floor(eco.frac.credit);
       if (creditWhole > 0) {
         eco.frac.credit -= creditWhole;
@@ -57785,21 +57797,30 @@ function accrue(eco, seconds) {
 // feat itself is once per day — world.js checkDaily). The draw is
 // a pure function of (player, date): the same answer on every
 // machine, every reload.
-function dailyPrizeDraw(eco, playerName, dateStr) {
+function dailyPrizeDraw(eco, playerName, dateStr, creditMultiplier) {
+  // X factor (EE 1350, D-5): the daily prize is the second of the
+  // two system-paid bonus surfaces — a won prize pays the session
+  // multiplier (read-back credit_multiplier, passed in by the
+  // glue; 2 for OG, 1 otherwise). The DRAW is untouched: the same
+  // (player, date) wins or loses exactly as without the factor.
+  const mult = creditMultiplier === 2 ? 2 : 1;
+  const prize = ECO_RATES.DAILY_PRIZE_CREDITS * mult;
   if (eco.dailyPrize.date === dateStr) {
-    return { already: true, won: eco.dailyPrize.won, credits: eco.dailyPrize.won ? ECO_RATES.DAILY_PRIZE_CREDITS : 0 };
+    return { already: true, won: eco.dailyPrize.won, credits: eco.dailyPrize.won ? prize : 0 };
   }
   const roll = fnv1a32(`nova-phox|prize|${playerName}|${dateStr}`) / 4294967296;
   const won = roll < ECO_RATES.DAILY_PRIZE_WIN_SHARE;
   eco.dailyPrize = { date: dateStr, won };
   if (won) {
-    eco.credits += ECO_RATES.DAILY_PRIZE_CREDITS;
-    eco.lifetime.creditsEarned += ECO_RATES.DAILY_PRIZE_CREDITS;
+    eco.credits += prize;
+    eco.lifetime.creditsEarned += prize;
   }
-  return { already: false, won, credits: won ? ECO_RATES.DAILY_PRIZE_CREDITS : 0 };
+  return { already: false, won, credits: won ? prize : 0 };
 }
 
 // ---------- Fork B faucet 2: token -> credit conversion (50 : 1) ---------------
+// X factor (D-5): conversion is an exchange, not a bonus — it is
+// NEVER multiplied. This function takes no multiplier, by design.
 function convertTokens(eco, wantCredits, date = new Date()) {
   const affordable = Math.floor(eco.tokens / ECO_RATES.CONVERSION_TOKENS_PER_CREDIT);
   const n = Math.max(0, Math.min(Math.floor(wantCredits) || 0, affordable));
@@ -57816,6 +57837,8 @@ function convertTokens(eco, wantCredits, date = new Date()) {
 
 // ---------- Fork B faucet 3 + the gift: hand-downs and gift keys ---------------
 // Hand-downs move existing credits; they mint none (ECONOMY §2.2).
+// X factor (D-5): a hand-down is a transfer, not a bonus — it is
+// NEVER multiplied, on either side. No multiplier enters here.
 // The transfer rides the shared chart as a ledger line; the
 // recipient's client credits it exactly once, by transfer id.
 function handdownLine(id, from, to, amount, ts) {
@@ -61486,6 +61509,153 @@ function collectBookLines(entries, recordsById, state) {
     else if (waiting > 1) lines.push(`  ${waiting} more wait in ${realm}`);
   }
   return lines;
+}
+
+// ===== the X factor: welcome + credit-flag surfaces (source: xfactor.js) =====
+// ---------- the X factor (EE 1350): the game-surface half ------------
+// X-FACTOR-DESIGN.md sections 4 + 5.4(c), as ruled at EE ~1333
+// (recorded EE 1339): activation = all 520 placed people including
+// exiles (D-1); OG = strict mutual with first_contact prior to 2025
+// (D-2, OG = 443); 2x ONLY at generator accrual + the daily prize
+// (D-5 stands); X-login only (D-6 stands); unknown-era rows receive
+// the grant with the tier unresolved — their multiplier reads 1
+// (D-3 carried open, never invented past).
+//
+// The gateway half is LIVE (EE 1340): POST /api/v2/xfactor performs
+// the check-and-set grant and its answer IS the session read-back
+// for the X factor — status, og, halo, credit_multiplier, and the
+// welcome state. This module is the client half: pure logic, no
+// DOM, no storage, no clock, no network — exactly like economy.js /
+// collectibles.js. The game glue (game3.js) owns the fetch, the
+// toast, and the board; tests drive this file directly.
+//
+// The multiplier is READ from the read-back's credit_multiplier
+// field, never computed here from og, the registry, or any other
+// data: the gateway is the tier judge, the client is its reader.
+
+// ---------- the welcome copy (design section 4, DRAFT — D-8) -----------
+// The gateway carries this text in every answer that carries a
+// welcome (marked DRAFT in the gateway's own record — a record
+// annotation, never player copy: nothing in this module or on the
+// game surface ever renders the word DRAFT to the player). These
+// constants are the of-record text the read-back carries, kept so
+// the pins can hold the surface to the gateway's exact words; the
+// surface renders the READ-BACK's text, not these literals.
+const XF_COPY_LINE = "Yours — a gift of the wavefront.";
+const XF_BEAT_TEXT = "There you are. You were in the sky before there was a game — the fox kept your place. Nova Fox is yours. It always was.";
+const XF_BEAT_TEXT_OG = "There you are. You were in the sky before there was a game — the fox kept your place. Nova Fox is yours. It always was. And you answered back when it was only noise. The halo is lit for you on the wiki.";
+
+// ---------- the session read-back ---------------------------------------
+// The gateway's xfactor answer (gateway.py, EE 1339):
+//   { ok: true, status: "granted" | "already-granted" |
+//     "already-bought" | "no-match" | "not-grantable",
+//     og: true | false | "unknown-era", halo: bool,
+//     credit_multiplier: 2 | 1,
+//     welcome: null | { state: "beat", beat: true, beat_text,
+//                       copy_line, text_status }
+//                    | { state: "standing", beat: false, copy_line,
+//                        text_status },
+//     sales_count, sales_revenue, granted_count, ... }
+// welcome.state is the fresh-grant distinction: "beat" ONLY on the
+// granting login; "standing" on every later granted login. That is
+// what makes the welcome exactly-once without any client-side
+// memory of past logins — the client trusts the gateway's state,
+// never a local "has a grant" guess.
+function parseXFactorAnswer(data) {
+  if (!data || typeof data !== "object" || data.ok !== true) return null;
+  if (typeof data.status !== "string" || !data.status) return null;
+  let welcome = null;
+  const w = data.welcome;
+  if (w && typeof w === "object" && (w.state === "beat" || w.state === "standing")) {
+    welcome = {
+      state: w.state,
+      beat: w.beat === true,
+      beatText: typeof w.beat_text === "string" ? w.beat_text : "",
+      copyLine: typeof w.copy_line === "string" ? w.copy_line : "",
+    };
+  }
+  return {
+    status: data.status,
+    // og rides as true | false | "unknown-era"; only strict true is
+    // the OG tier here — unknown-era is unresolved, not OG (D-3).
+    og: data.og === true,
+    ogRaw: data.og,
+    halo: data.halo === true,
+    // The multiplier is the read-back's own field. Anything that is
+    // not the gateway's 2 reads 1 — including a missing field.
+    creditMultiplier: data.credit_multiplier === 2 ? 2 : 1,
+    welcome,
+  };
+}
+
+// ---------- the client state ---------------------------------------------
+// The cached view of the session's X-factor state. Before any
+// answer lands (signed out, free play, gateway silent) the state
+// is the no-grant state: multiplier 1, no welcome, no copy line —
+// the design does not advertise the entitlement to the excluded
+// (design section 2 step 7), and a silent gateway grants nothing.
+function newXFactorState() {
+  return {
+    status: null,          // the gateway's status word, once answered
+    og: false,
+    halo: false,
+    creditMultiplier: 1,
+    welcome: null,         // { state, beat, beatText, copyLine }
+    beatPlayed: false,     // this boot has rendered the beat
+  };
+}
+
+// Fold one gateway answer into the view. Returns what the surface
+// must do NOW: { beatText, copyLine } — beatText is the welcome
+// beat to render, non-null EXACTLY ONCE per granting login: only
+// when the answer's welcome state is "beat" (the gateway's fresh-
+// grant word) and this boot has not already rendered it. A
+// "standing" answer, a replayed "beat" answer in the same boot, a
+// no-match, and a malformed answer all render no beat. An answer
+// that does not parse leaves the view untouched.
+function applyXFactorAnswer(state, data) {
+  const parsed = parseXFactorAnswer(data);
+  if (!parsed) return { beatText: null, copyLine: xWelcomeCopyLine(state) };
+  state.status = parsed.status;
+  state.og = parsed.og;
+  state.halo = parsed.halo;
+  state.creditMultiplier = parsed.creditMultiplier;
+  state.welcome = parsed.welcome;
+  let beatText = null;
+  if (parsed.welcome && parsed.welcome.state === "beat" &&
+      parsed.welcome.beat && parsed.welcome.beatText && !state.beatPlayed) {
+    beatText = parsed.welcome.beatText;
+    state.beatPlayed = true;
+  }
+  return { beatText, copyLine: xWelcomeCopyLine(state) };
+}
+
+// The status board's copy line, as standing state: present for a
+// granted player (fresh grant and every later login alike), absent
+// for everyone else — no-match, not-grantable, signed-out, and
+// not-yet-answered sessions all read "".
+function xWelcomeCopyLine(state) {
+  if (!state || !state.welcome || !state.welcome.copyLine) return "";
+  return state.welcome.copyLine;
+}
+
+// Every string the game surface renders from the X-factor state —
+// the board copy line, plus the welcome beat while it stands
+// unplayed. The halo flag contributes NOTHING: there is no wiki
+// profile surface in the game and the game renders no mark, ring,
+// or line for halo (design section 5.4(b) — the flag is data-only
+// in this leg; the wiki halo is F-GAME-25, parked). Two states
+// differing only in halo render identically; the pins hold that.
+function xGameSurfaceStrings(state) {
+  const out = [];
+  if (!state) return out;
+  if (state.welcome && state.welcome.state === "beat" &&
+      state.welcome.beat && state.welcome.beatText && !state.beatPlayed) {
+    out.push(state.welcome.beatText);
+  }
+  const line = xWelcomeCopyLine(state);
+  if (line) out.push(line);
+  return out;
 }
 
 // ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====
@@ -65447,6 +65617,91 @@ function renderCollectBook() {
 }
 // COLLECT-ENC-END
 
+// X-SURFACES-BEGIN
+// ---------- the X factor on the game surface (EE 1350) ----------------
+// X-FACTOR-DESIGN.md sections 4 + 5.4(c): the game-surface halves
+// of the WELCOME and CREDIT-FLAG legs. The gateway half is LIVE
+// (EE 1340): POST /api/v2/xfactor performs the grant check-and-set
+// and its answer is the session read-back — status, og, halo,
+// credit_multiplier, and the welcome state ("beat" ONLY on the
+// granting login, "standing" on every later granted login, null
+// for no-match). The pure decisions live in xfactor.js; this block
+// owns the fetch, the toast, and the mirrors.
+//
+// IDENTITY, stated plainly (a gap, recorded — not smoothed): the
+// design (section 2 step 2) has the GATEWAY receive the X identity
+// asserted server-side by the SSO-X session, but the shipped
+// endpoint takes account_id + handle from the request body, and
+// the only identity this client holds is its game token's payload
+// (sub + name, minted from the phext.tech session). xFactorLogin
+// therefore presents exactly what the token carries — a numeric
+// sub as account_id, otherwise the payload's name/sub as handle —
+// and the gateway remains the judge: a presentation that matches
+// nothing answers no-match and nothing renders. If phext.tech's
+// sub is not the X identity, matching fails safe (no grant, no
+// beat, no copy line) until the gateway reads the identity from
+// the session itself; no client-side registry lookup or local
+// matching is invented here.
+const xfState = newXFactorState();
+BACKEND.xfState = xfState; // the read-back view, mirrored for readers
+let xfChecking = false;
+let xfAnswered = false; // a parsed gateway answer has landed this boot
+function xTokenPayload() {
+  try {
+    const t = gameToken();
+    if (!t) return null;
+    const p = String(t).split(".");
+    if (p.length !== 3) return null;
+    return JSON.parse(atob(p[1].replace(/-/g, "+").replace(/_/g, "/")));
+  } catch (e) { return null; }
+}
+function xFactorIdentity() {
+  const p = xTokenPayload();
+  if (!p) return null;
+  const sub = typeof p.sub === "string" ? p.sub : "";
+  const name = typeof p.name === "string" ? p.name : "";
+  const account_id = /^\d+$/.test(sub) ? sub : "";
+  const handle = name && name !== sub ? name : (/^\d+$/.test(sub) ? "" : sub);
+  if (!account_id && !handle) return null;
+  return { account_id, handle };
+}
+// The login read: once per boot (a failed or unanswered attempt
+// may retry on the 20 s cadence; a landed answer is final for the
+// boot). The welcome beat renders through the game's beat surface
+// (the toast the meeting beats use) exactly when applyXFactorAnswer
+// hands one back — the granting login only.
+async function xFactorLogin() {
+  if (xfAnswered || xfChecking) return null;
+  const token = gameToken();
+  if (!token || !BACKEND.online) return null;
+  const identity = xFactorIdentity();
+  if (!identity) return null;
+  xfChecking = true;
+  try {
+    const r = await fetch(`${BACKEND.base}/api/v2/xfactor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(identity),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const ans = await r.json().catch(() => null);
+    if (!parseXFactorAnswer(ans)) return null;
+    xfAnswered = true;
+    const view = applyXFactorAnswer(xfState, ans);
+    if (view.beatText) toast(view.beatText, 12000);
+    return view;
+  } catch (e) { /* the door did not answer; the session stands ungranted, as before */ return null; }
+  finally { xfChecking = false; }
+}
+// The economy's two read points (ecoTick's accrual and the daily
+// prize) read the multiplier from HERE — the session read-back's
+// word, folded into xfState — never from registry data.
+function xCreditMultiplier() { return xfState.creditMultiplier; }
+function xCopyLineNow() { return xWelcomeCopyLine(xfState); }
+function xSurfaceStringsNow() { return xGameSurfaceStrings(xfState); }
+// X-SURFACES-END
+
 async function enterRealmGravity(realmId) {
   state.realmSince = performance.now(); // entry restarts the warp dwell (demo18)
   reconcileGravity();
@@ -67870,7 +68125,7 @@ function updatePlayer(dt) {
     sfx.melody(dailyPocket(todayStr()).chord, { gap: 170 });
     // Fork B (D12): the daily prize draw — a small credit prize,
     // decided by the day itself, the same on every machine.
-    const prize = dailyPrizeDraw(eco, playerName, todayStr());
+    const prize = dailyPrizeDraw(eco, playerName, todayStr(), xCreditMultiplier());
     persistEco();
     toast(prize.won
       ? `You found the place of the day — and the day's prize is yours: ${prize.credits} credit${prize.credits === 1 ? "" : "s"}, in your purse.`
@@ -70879,7 +71134,7 @@ function statusBoardText() {
   }
   return `Status — HP ${Math.max(0, state.hp)} / ${state.maxHp} \u00b7 score ${d.mine.score} pts \u00b7 ` +
     (sub.questDone ? "Quest — the Deep Stone is reached: quest done."
-                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near + (collectBoardLineNow() ? ` \u00b7 ${collectBoardLineNow()}` : "");
+                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near + (collectBoardLineNow() ? ` \u00b7 ${collectBoardLineNow()}` : "") + (xCopyLineNow() ? ` \u00b7 ${xCopyLineNow()}` : "");
 }
 function renderBoard() {
   const el = document.getElementById("board");
@@ -73777,7 +74032,7 @@ function ecoTick() {
   const elapsed = Math.min((now - lastEcoTickAt) / 1000, 30); // a stalled tab grants no backlog
   lastEcoTickAt = now;
   if (document.hidden || now - lastActiveAt > 30000 || elapsed <= 0) return;
-  const minted = accrue(eco, elapsed);
+  const minted = accrue(eco, elapsed, xCreditMultiplier());
   if (minted.tokensMinted || minted.tokensSpewed || minted.creditsMinted) persistEco();
   // EE 1034 (item 4): minting is SEEN as it happens — a floater
   // for each whole coin that lands, and a soft chime when a
@@ -73811,8 +74066,8 @@ toast(BEAT_LINES["BEAT-arrival"], 6000);
 // The chart-line: probe now, re-probe and flush every 20 s. Offline
 // is a first-class state (the ranch itself goes dark some days):
 // play never waits on it.
-backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()).then(() => maybeShowAuthPrompt()).then(trailDone, trailDone);
-setInterval(() => { backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()); }, 20000);
+backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()).then(() => xFactorLogin()).then(() => maybeShowAuthPrompt()).then(trailDone, trailDone);
+setInterval(() => { backendProbe().then(() => backendFlush()).then(() => presentLicenseKey()).then(() => xFactorLogin()); }, 20000);
 setInterval(() => { ecoTick(); recordStandings(); syncHud(); }, 5000);
 
 // ---------- the test console (Will, 2026-11-26) ---------------------------
@@ -74672,7 +74927,7 @@ window.NOVA_FOX3 = {
   solverStartNow: () => solverStart(),
   solverStopNow: () => solverStop(),
   ecoState: () => ({ tokens: eco.tokens, credits: eco.credits, frac: { ...eco.frac }, generator: isGenerator(eco) }),
-  ecoAccrue: (seconds) => accrue(eco, seconds),
+  ecoAccrue: (seconds) => accrue(eco, seconds, xCreditMultiplier()),
   waypoint: () => ({ beacon: !!(hallBeacon && hallBeacon.visible),
     hud: (() => { const el = $("waypoint"); return el ? el.style.display : "none"; })() }),
   isWarded, classifyStroke, boardData, scoreNow: () => totalScore(sub),
@@ -74697,6 +74952,8 @@ window.NOVA_FOX3 = {
   },
   backendFlush: () => backendFlush(),
   licenseSession: () => ({ paid: BACKEND.sessionPaid, source: BACKEND.sessionSource, answer: BACKEND.licenseAnswer }),
+  xFactor: () => ({ status: xfState.status, og: xfState.og, halo: xfState.halo, creditMultiplier: xfState.creditMultiplier, copyLine: xCopyLineNow(), surface: xSurfaceStringsNow() }),
+  xFactorLogin: () => xFactorLogin(),
   presentLicenseKey: () => presentLicenseKey(),
   // demo10 handles: gravity in subspace — read what this fox knows
   // of the gravity scroll, and feed a read-back line through the
@@ -74792,7 +75049,7 @@ window.NOVA_FOX3 = {
   // demo4 handles: the economy — ledgers, entitlement, the record.
   ecoState: () => JSON.parse(JSON.stringify(eco)),
   ecoAccrue: (seconds) => {
-    accrue(eco, seconds);
+    accrue(eco, seconds, xCreditMultiplier());
     persistEco();
     syncHud();
     return JSON.parse(JSON.stringify(eco));

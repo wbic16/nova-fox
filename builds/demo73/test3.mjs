@@ -117,6 +117,11 @@ import {
   collectBoardLine, collectBookLines,
 } from "./collectibles.js";
 import {
+  XF_COPY_LINE, XF_BEAT_TEXT, XF_BEAT_TEXT_OG,
+  parseXFactorAnswer, newXFactorState, applyXFactorAnswer,
+  xWelcomeCopyLine, xGameSurfaceStrings,
+} from "./xfactor.js";
+import {
   SHIPLOG_MAX, shipLogRows, shipLogHeadline, shipLogLine,
 } from "./shiplog.js";
 import {
@@ -7376,6 +7381,177 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("collect: the Esc menu carries the Homecoming book and its panel (the player's own book — no keeper named)",
     cPage.includes('id="menu-collect"') && cPage.includes('id="collect-panel"') && cPage.includes('id="collect-book-body"') &&
     cGame.includes('"collect-panel"') && !cPage.includes("kept by Joy"));
+}
+
+// === X factor: welcome + credit-flag game surfaces (EE 1350) ===
+// X-FACTOR-DESIGN.md sections 4 + 5.4(c) under the EE ~1333 rulings.
+// The gateway answers below are shaped exactly as gateway.py's
+// xfactor endpoint shapes them (EE 1339/1340) — the client reads
+// the read-back, it never computes tier from registry data.
+{
+  const ANS_OG_BEAT = { ok: true, status: "granted", og: true, halo: true, credit_multiplier: 2,
+    welcome: { state: "beat", beat: true, text_status: "DRAFT", beat_text: XF_BEAT_TEXT_OG, copy_line: XF_COPY_LINE } };
+  const ANS_OG_STANDING = { ok: true, status: "already-granted", og: true, halo: true, credit_multiplier: 2,
+    welcome: { state: "standing", beat: false, text_status: "DRAFT", copy_line: XF_COPY_LINE } };
+  const ANS_GRANT = { ok: true, status: "granted", og: false, halo: false, credit_multiplier: 1,
+    welcome: { state: "beat", beat: true, text_status: "DRAFT", beat_text: XF_BEAT_TEXT, copy_line: XF_COPY_LINE } };
+  const ANS_NOMATCH = { ok: true, status: "no-match", og: false, halo: false, credit_multiplier: 1, welcome: null };
+
+  // --- the pure module: the read-back, parsed and folded ---
+  check("xfactor: a fresh state is the no-grant state — multiplier 1, no copy line, no surface strings",
+    (() => { const s = newXFactorState(); return s.creditMultiplier === 1 && xWelcomeCopyLine(s) === "" && xGameSurfaceStrings(s).length === 0; })());
+  check("xfactor: the OG granting answer parses whole — status, og, halo, multiplier 2, beat + copy line",
+    (() => { const p = parseXFactorAnswer(ANS_OG_BEAT); return p && p.status === "granted" && p.og === true && p.halo === true &&
+      p.creditMultiplier === 2 && p.welcome.state === "beat" && p.welcome.beatText === XF_BEAT_TEXT_OG && p.welcome.copyLine === XF_COPY_LINE; })());
+  check("xfactor: the welcome beat fires on the granting login — OG text and the gift copy line",
+    (() => { const s = newXFactorState(); const v = applyXFactorAnswer(s, ANS_OG_BEAT);
+      return v.beatText === XF_BEAT_TEXT_OG && v.copyLine === XF_COPY_LINE && s.creditMultiplier === 2; })());
+  check("xfactor: the beat fires exactly once — a replayed granting answer in the same boot renders no second beat, the copy line stands",
+    (() => { const s = newXFactorState(); applyXFactorAnswer(s, ANS_OG_BEAT); const v2 = applyXFactorAnswer(s, ANS_OG_BEAT);
+      return v2.beatText === null && v2.copyLine === XF_COPY_LINE; })());
+  check("xfactor: the second login (already-granted, standing welcome) plays NO beat — the copy line stands as state",
+    (() => { const s = newXFactorState(); const v = applyXFactorAnswer(s, ANS_OG_STANDING);
+      return v.beatText === null && v.copyLine === XF_COPY_LINE && xWelcomeCopyLine(s) === XF_COPY_LINE; })());
+  check("xfactor: a non-OG grant's beat carries NO OG line; the OG beat carries exactly the one additional line",
+    (() => { const s = newXFactorState(); const v = applyXFactorAnswer(s, ANS_GRANT);
+      return v.beatText === XF_BEAT_TEXT && !v.beatText.includes("answered back") &&
+        XF_BEAT_TEXT_OG.includes("And you answered back when it was only noise.") && !XF_BEAT_TEXT.includes("answered back"); })());
+  check("xfactor: a no-match session sees NO beat and NO copy line — the entitlement is not advertised to the excluded",
+    (() => { const s = newXFactorState(); const v = applyXFactorAnswer(s, ANS_NOMATCH);
+      return v.beatText === null && v.copyLine === "" && xGameSurfaceStrings(s).length === 0 && s.creditMultiplier === 1; })());
+  check("xfactor: an already-bought OG gets no beat, but the tier markers still read — multiplier 2, copy line standing",
+    (() => { const s = newXFactorState(); const v = applyXFactorAnswer(s, { ok: true, status: "already-bought", og: true, halo: true, credit_multiplier: 2,
+        welcome: { state: "standing", beat: false, text_status: "DRAFT", copy_line: XF_COPY_LINE } });
+      return v.beatText === null && v.copyLine === XF_COPY_LINE && s.creditMultiplier === 2 && s.halo === true; })());
+  check("xfactor: an unknown-era grant (D-3) fires the plain beat with the tier unresolved — multiplier reads 1, og false, halo false",
+    (() => { const s = newXFactorState(); const v = applyXFactorAnswer(s, { ok: true, status: "granted", og: "unknown-era", halo: false, credit_multiplier: 1,
+        welcome: { state: "beat", beat: true, text_status: "DRAFT", beat_text: XF_BEAT_TEXT, copy_line: XF_COPY_LINE } });
+      return v.beatText === XF_BEAT_TEXT && s.creditMultiplier === 1 && s.og === false && s.halo === false; })());
+  check("xfactor: the multiplier is READ from credit_multiplier, never computed from the og flag — og true with field 1 reads 1; og false with field 2 reads 2",
+    (() => { const a = newXFactorState(); applyXFactorAnswer(a, { ok: true, status: "granted", og: true, halo: true, credit_multiplier: 1, welcome: null });
+      const b = newXFactorState(); applyXFactorAnswer(b, { ok: true, status: "granted", og: false, halo: false, credit_multiplier: 2, welcome: null });
+      return a.creditMultiplier === 1 && b.creditMultiplier === 2; })());
+  check("xfactor: malformed answers (null, not-ok, status-less) leave the folded state untouched",
+    (() => { const s = newXFactorState(); applyXFactorAnswer(s, ANS_OG_BEAT);
+      const v = applyXFactorAnswer(s, null); applyXFactorAnswer(s, { ok: false }); applyXFactorAnswer(s, { ok: true });
+      return s.creditMultiplier === 2 && s.status === "granted" && v.beatText === null && xWelcomeCopyLine(s) === XF_COPY_LINE; })());
+  check("xfactor: the word DRAFT never reaches the player — no surface string of any granted state contains it",
+    (() => { const all = [];
+      for (const ans of [ANS_OG_BEAT, ANS_GRANT, ANS_OG_STANDING]) { const s = newXFactorState(); applyXFactorAnswer(s, ans); all.push(...xGameSurfaceStrings(s)); }
+      return all.length > 0 && all.every((t) => !t.includes("DRAFT")); })());
+  check("xfactor: HALO IS DATA-ONLY — two states differing only in the halo flag render identical surface strings",
+    (() => { const a = newXFactorState(); applyXFactorAnswer(a, ANS_OG_STANDING);
+      const b = newXFactorState(); applyXFactorAnswer(b, { ...ANS_OG_STANDING, halo: false });
+      return a.halo === true && b.halo === false && JSON.stringify(xGameSurfaceStrings(a)) === JSON.stringify(xGameSurfaceStrings(b)); })());
+  check("xfactor: a halo-true standing state renders ONLY the copy line — no ring, mark, or halo string of its own",
+    (() => { const s = newXFactorState(); applyXFactorAnswer(s, ANS_OG_STANDING);
+      const surf = xGameSurfaceStrings(s); return surf.length === 1 && surf[0] === XF_COPY_LINE; })());
+  check("xfactor: a non-OG grant's surface strings contain no halo mention at all",
+    (() => { const s = newXFactorState(); applyXFactorAnswer(s, ANS_GRANT);
+      return xGameSurfaceStrings(s).every((t) => !/halo/i.test(t)); })());
+
+  // --- the economy read points (economy.js) ---
+  const genEco = () => { const e = newEconomyState(); e.entitlement.status = "paid"; e.entitlement.source = "gumroad"; return e; };
+  check("xfactor: generator accrual at equal inputs — multiplier 2 mints exactly 2x the credits of multiplier 1 (20 vs 10 per active hour), flux untouched",
+    (() => { const a = genEco(); const ra = accrue(a, 3600, 1);
+      const b = genEco(); const rb = accrue(b, 3600, 2);
+      const c = genEco(); const rc = accrue(c, 3600);
+      return ra.creditsMinted === 10 && rb.creditsMinted === 20 && rc.creditsMinted === 10 &&
+        ra.tokensSpewed === rb.tokensSpewed && rb.tokensSpewed === 100 && a.credits === 10 && b.credits === 20; })());
+  check("xfactor: the multiplier creates nothing for a free fox — no generation skill, no credits, at multiplier 2",
+    (() => { const e = newEconomyState(); const r = accrue(e, 3600, 2);
+      return r.creditsMinted === 0 && e.credits === 0 && r.tokensSpewed === 0; })());
+  check("xfactor: the daily prize at equal inputs — a won day pays 2 credits at multiplier 2, 1 at multiplier 1; a lost day pays 0 at both",
+    (() => { let winName = null, loseName = null;
+      for (let i = 0; i < 500 && (!winName || !loseName); i++) {
+        const nm = `xf-prize-fox-${i}`;
+        const probe = dailyPrizeDraw(newEconomyState(), nm, "2027-03-04", 1);
+        if (probe.won && !winName) winName = nm;
+        if (!probe.won && !loseName) loseName = nm;
+      }
+      const w1 = dailyPrizeDraw(newEconomyState(), winName, "2027-03-04", 1);
+      const e2 = newEconomyState(); const w2 = dailyPrizeDraw(e2, winName, "2027-03-04", 2);
+      const l1 = dailyPrizeDraw(newEconomyState(), loseName, "2027-03-04", 1);
+      const l2 = dailyPrizeDraw(newEconomyState(), loseName, "2027-03-04", 2);
+      return winName && loseName && w1.credits === 1 && w2.credits === 2 && e2.credits === 2 && l1.credits === 0 && l2.credits === 0; })());
+  check("xfactor: NEGATIVE — flux->credit conversion is never multiplied: identical purse, identical outcome, and the function takes no multiplier",
+    (() => { const a = newEconomyState(); a.tokens = 500; const b = newEconomyState(); b.tokens = 500;
+      const ra = convertTokens(a, 3), rb = convertTokens(b, 3);
+      return ra.converted === 3 && rb.converted === 3 && ra.spent === 150 && rb.spent === 150 &&
+        a.credits === 3 && b.credits === 3 && !convertTokens.toString().includes("creditMultiplier"); })());
+  check("xfactor: NEGATIVE — a hand-down moves the named amount, never a multiplied one, on both sides of the transfer",
+    (() => { const giver = newEconomyState(); giver.credits = 100;
+      const sent = sendHanddown(giver, "xf-hd-1", "giver", "receiver", 30, 123);
+      const recv = newEconomyState(); const got = applyHanddowns(recv, parseEcoLedger(sent.line + "\n"), "receiver");
+      return sent.ok && giver.credits === 70 && got === 30 && recv.credits === 30 &&
+        !sendHanddown.toString().includes("creditMultiplier") && !applyHanddowns.toString().includes("creditMultiplier"); })());
+
+  // --- the game3 client block, extracted and driven on a mock gateway ---
+  const xGame = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const xAt = xGame.indexOf("// X-SURFACES-BEGIN");
+  const xEnd = xGame.indexOf("// X-SURFACES-END");
+  const xSec = (xAt >= 0 && xEnd > xAt) ? xGame.slice(xAt, xEnd) : "";
+  check("xfactor: the game-surface block extracts (X-SURFACES markers present, login read inside)",
+    xSec.includes("async function xFactorLogin"));
+  check("xfactor: the wiring reads the multiplier at exactly the two surfaces — accrual tick, both accrual handles, the daily prize — and the board carries the copy line",
+    xGame.includes("accrue(eco, elapsed, xCreditMultiplier())") &&
+    (xGame.match(/accrue\(eco, seconds, xCreditMultiplier\(\)\)/g) || []).length === 2 &&
+    xGame.includes("dailyPrizeDraw(eco, playerName, todayStr(), xCreditMultiplier())") &&
+    xGame.includes("xCopyLineNow() ? ` \\u00b7 ${xCopyLineNow()}` : \"\"") &&
+    (xGame.match(/xCreditMultiplier\(\)/g) || []).length === 5);
+  const xb64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const XTOKEN = `npt1.${xb64u({ sub: "999000000001", name: "xfog" })}.sig`;
+  function makeXClient(answer) {
+    const calls = []; const toasts = [];
+    const BACKEND3 = { base: "https://phext.tech", phext: "nova-phox-world", online: true };
+    let token = XTOKEN;
+    const fetchMock = async (url, opts = {}) => {
+      calls.push({ url, opts });
+      return { ok: true, status: 200, json: async () => answer };
+    };
+    const api = new Function("BACKEND", "gameToken", "toast", "fetch", "AbortSignal",
+      "newXFactorState", "parseXFactorAnswer", "applyXFactorAnswer", "xWelcomeCopyLine", "xGameSurfaceStrings",
+      xSec + "\nreturn { xfState, xFactorLogin, xCreditMultiplier, xCopyLineNow, xSurfaceStringsNow, BACKEND };")(
+      BACKEND3, () => token, (t) => toasts.push(t), fetchMock, AbortSignal,
+      newXFactorState, parseXFactorAnswer, applyXFactorAnswer, xWelcomeCopyLine, xGameSurfaceStrings);
+    return { api, calls, toasts, setToken: (t) => { token = t; } };
+  }
+  {
+    const c = makeXClient(ANS_OG_BEAT);
+    const view = await c.api.xFactorLogin();
+    check("xfactor: the granting login posts the token's identity to /api/v2/xfactor once, under the game token",
+      c.calls.length === 1 && c.calls[0].url === "https://phext.tech/api/v2/xfactor" &&
+      c.calls[0].opts.headers.Authorization === `Bearer ${XTOKEN}` &&
+      JSON.parse(c.calls[0].opts.body).account_id === "999000000001" &&
+      JSON.parse(c.calls[0].opts.body).handle === "xfog");
+    check("xfactor: the granting login toasts the OG beat exactly once and folds multiplier 2 + the standing copy line",
+      view && view.beatText === XF_BEAT_TEXT_OG && c.toasts.length === 1 && c.toasts[0] === XF_BEAT_TEXT_OG &&
+      c.api.xCreditMultiplier() === 2 && c.api.xCopyLineNow() === XF_COPY_LINE);
+    const again = await c.api.xFactorLogin();
+    check("xfactor: the login read runs once per boot — a second call issues no fetch and no second beat",
+      again === null && c.calls.length === 1 && c.toasts.length === 1);
+  }
+  {
+    const c = makeXClient(ANS_OG_STANDING);
+    const view = await c.api.xFactorLogin();
+    check("xfactor: a later login (standing answer) toasts nothing — the copy line stands, the multiplier reads 2",
+      view && view.beatText === null && c.toasts.length === 0 &&
+      c.api.xCopyLineNow() === XF_COPY_LINE && c.api.xCreditMultiplier() === 2);
+  }
+  {
+    const c = makeXClient(ANS_NOMATCH);
+    const view = await c.api.xFactorLogin();
+    check("xfactor: a no-match login renders nothing — no toast, no copy line, multiplier 1, empty surface",
+      view && view.beatText === null && c.toasts.length === 0 && c.api.xCopyLineNow() === "" &&
+      c.api.xCreditMultiplier() === 1 && c.api.xSurfaceStringsNow().length === 0);
+  }
+  {
+    const c = makeXClient(ANS_OG_BEAT);
+    c.setToken(null);
+    const view = await c.api.xFactorLogin();
+    check("xfactor: a signed-out session never calls the gateway and renders nothing",
+      view === null && c.calls.length === 0 && c.toasts.length === 0 && c.api.xCreditMultiplier() === 1);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
