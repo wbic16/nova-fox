@@ -5680,5 +5680,67 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     && pgFix.includes('id="btn-scheme-splash"'));
 }
 
+// =====================================================================
+// F-GROK-7 / F-GROK-11 (Grok's play report): an AWEF fox strikes from
+// the keyboard, and a keyboard start unlocks the synthesized audio.
+// =====================================================================
+{
+  console.log("\n== F-GROK-7 / F-GROK-11: AWEF keyboard strike, keyboard audio unlock ==");
+  const gG7 = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const kdG7 = gG7.slice(gG7.indexOf('document.addEventListener("keydown"'),
+    gG7.indexOf('document.addEventListener("keyup"'));
+
+  // The targeting the AWEF gate shares with the blow itself, exercised
+  // for real with stubbed world pieces (the strikeBindingLabel pattern).
+  const tgtSrc = gG7.match(/function strikeTarget\(\) \{[\s\S]*?\n\}/);
+  check("F-GROK-7: strikeTarget is the one targeting read (extractable, shared)",
+    !!tgtSrc && gG7.includes("const best = strikeTarget();"));
+  class V3 {
+    constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+    clone() { return new V3(this.x, this.y, this.z); }
+    sub(v) { return new V3(this.x - v.x, this.y - v.y, this.z - v.z); }
+    add(v) { return new V3(this.x + v.x, this.y + v.y, this.z + v.z); }
+    multiplyScalar(s) { return new V3(this.x * s, this.y * s, this.z * s); }
+    dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+    distanceTo(v) { return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z); }
+    applyEuler() { return this; }
+  }
+  const mkMonster = (over) => Object.assign(
+    { alive: true, realmId: "r", seen: true, pos: { x: 0, y: -0.95, z: -3 } }, over);
+  const tgtState = { weapon: null, realm: "r", pitch: 0, yaw: 0 };
+  const tgtSub = { monsters: [] };
+  const strikeTargetFn = tgtSrc ? new Function("state", "sub", "THREE", "eyePos",
+    "monsterWorldPos", "familiarSeen", "ITEM_DEFS",
+    `${tgtSrc[0]}; return strikeTarget;`)(
+    tgtState, tgtSub,
+    { Vector3: V3, Euler: class { constructor(...a) {} } },
+    () => new V3(0, 0, 0), (m) => m.pos, (m) => m.seen,
+    { lance: { range: 6.6 }, sword: { range: 5.5 } }) : () => null;
+  tgtSub.monsters = [mkMonster({})];
+  check("F-GROK-7: a seen monster in reach, faced, is the strike target",
+    strikeTargetFn() === tgtSub.monsters[0]);
+  tgtSub.monsters = [mkMonster({ pos: { x: 0, y: -0.95, z: -10 } }),
+                     mkMonster({ pos: { x: 0, y: -0.95, z: 3 } })];
+  check("F-GROK-7: beyond reach or behind is no target (the press just walks)",
+    strikeTargetFn() === null);
+  tgtSub.monsters = [mkMonster({ seen: false })];
+  check("F-GROK-7: an unseen monster is no target (the strike's own rule)",
+    strikeTargetFn() === null);
+
+  check("F-GROK-7: the AWEF F press strikes when a target is in reach (no unreachable guard remains)",
+    kdG7.includes('const awefWalkStrike = state.scheme === "AWEF" && BIND.strike === "KeyF";') &&
+    kdG7.includes("if (!awefWalkStrike || strikeTarget())") &&
+    !kdG7.includes('if (!(state.scheme === "AWEF" && BIND.strike === "KeyF"))'));
+  check("F-GROK-7: the scheme toasts name the in-reach F strike, and no longer say click-only",
+    (gG7.match(/strikes when a monster is in reach/g) || []).length === 2 &&
+    !gG7.includes("so strike with the click"));
+
+  check("F-GROK-11: sfx.unlock joins the capture-phase gesture that unlocks narration",
+    gG7.includes("window.addEventListener(ev, () => { narration.unlock(); sfx.unlock(); }, true);"));
+  check("F-GROK-11: sfx.unlock stands on the splash-dismissing keydown path, before the dismissal",
+    kdG7.indexOf("sfx.unlock();") > -1 &&
+    kdG7.indexOf("sfx.unlock();") < kdG7.indexOf("if (state.splash) dismissSplash();"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

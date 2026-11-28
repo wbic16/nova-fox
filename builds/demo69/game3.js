@@ -906,7 +906,11 @@ function playBeat(id) {
 // the gesture itself triggers (the guide button advancing) simply
 // takes its place in line behind whatever is speaking.
 for (const ev of ["pointerdown", "keydown"]) {
-  window.addEventListener(ev, () => narration.unlock(), true);
+  // F-GROK-11: the synthesized audio unlocks on the same first
+  // gesture as the narration -- a keyboard start (any key, e.g.
+  // ArrowUp alone) must leave sfx.ctx running, not silent until a
+  // note key, the dial, or a click happens by.
+  window.addEventListener(ev, () => { narration.unlock(); sfx.unlock(); }, true);
 }
 // ---------- the unwatched tab (2026-11-26) ---------------------------------
 // Will: "audio should stop when the tab isn't active." Every sound
@@ -4314,9 +4318,11 @@ function hurtPlayer(amount, fromPos, why) {
 //
 // The binding is read from the assignment itself, never lettered
 // by hand: under WASD the strike lives on F; under AWEF, F walks
-// forward (see the key handler) and the strike lives on the
-// click; on touch it is the strike button. One pure function of
-// the assignment, so the unit suite can hold it to account.
+// forward and strikes only when a target is already in reach
+// (see the key handler), so the hint names the click -- the
+// strike that always answers; on touch it is the strike button.
+// One pure function of the assignment, so the unit suite can
+// hold it to account.
 function strikeBindingLabel(scheme, touch) {
   if (touch) return "STRIKE";
   return scheme === "AWEF" ? "CLICK" : "F";
@@ -4821,6 +4827,33 @@ function stepDashCombat() {
   }
 }
 
+// The one targeting read both the blow and the AWEF key gate use:
+// the nearest seen thing of the dark inside the weapon's reach and
+// the facing cone -- exactly the monster tryStrike would hit, or
+// null. (F-GROK-7: in AWEF, F walks forward, so the keydown gate
+// asks this before spending a press on a strike; a press with a
+// target in reach strikes, a press without one just walks.)
+function strikeTarget() {
+  const weapon = state.weapon === "lance" ? ITEM_DEFS.lance
+    : state.weapon === "sword" ? ITEM_DEFS.sword : null;
+  const range = weapon ? weapon.range : 4.4;
+  const dir = new THREE.Vector3(0, 0, -1)
+    .applyEuler(new THREE.Euler(state.pitch, state.yaw, 0, "YXZ"));
+  const eye = eyePos();
+  let best = null, bestT = range;
+  for (const m of sub.monsters) {
+    if (!m.alive || m.realmId !== state.realm || !familiarSeen(m)) continue;
+    const p = monsterWorldPos(m);
+    const center = new THREE.Vector3(p.x, p.y + 0.95, p.z);
+    const to = center.clone().sub(eye);
+    const t = to.dot(dir);
+    if (t < 0 || t > bestT) continue;
+    const closest = eye.clone().add(dir.clone().multiplyScalar(t));
+    if (closest.distanceTo(center) < 1.3) { best = m; bestT = t; }
+  }
+  return best;
+}
+
 function tryStrike(opts = {}) {
   if (state.dead) return false;
   // P-4: while the spectral flute sounds, the strike window is
@@ -4837,22 +4870,8 @@ function tryStrike(opts = {}) {
   // the view, a flash and a number where it lands.
   const weapon = state.weapon === "lance" ? ITEM_DEFS.lance
     : state.weapon === "sword" ? ITEM_DEFS.sword : null;
-  const range = weapon ? weapon.range : 4.4;
   const damage = weapon ? weapon.damage : 1;
-  const dir = new THREE.Vector3(0, 0, -1)
-    .applyEuler(new THREE.Euler(state.pitch, state.yaw, 0, "YXZ"));
-  const eye = eyePos();
-  let best = null, bestT = range;
-  for (const m of sub.monsters) {
-    if (!m.alive || m.realmId !== state.realm || !familiarSeen(m)) continue;
-    const p = monsterWorldPos(m);
-    const center = new THREE.Vector3(p.x, p.y + 0.95, p.z);
-    const to = center.clone().sub(eye);
-    const t = to.dot(dir);
-    if (t < 0 || t > bestT) continue;
-    const closest = eye.clone().add(dir.clone().multiplyScalar(t));
-    if (closest.distanceTo(center) < 1.3) { best = m; bestT = t; }
-  }
+  const best = strikeTarget();
   if (!best) return false;
   // EE 1037 (item 3): the Shadow's Heart is shuttered except in its
   // exposure — the gate lives in subspace (guardianStrikeDamage);
@@ -9009,6 +9028,7 @@ document.addEventListener("keydown", (e) => {
     if (e.code === "Escape") e.target.blur();
     return;
   }
+  sfx.unlock(); // F-GROK-11: the same press that steps the splash aside and unlocks the narration also unlocks the synthesized audio
   if (state.splash) dismissSplash(); // any key steps the panel aside (#15) -- A2-MOVE (Play 1, item 1): and the SAME press still counts below, so a movement key held from spawn actually moves the fox
   // The Esc menu's key capture (2026-11-26): while a binding waits
   // for its key, the next keydown IS the answer — Escape cancels,
@@ -9065,9 +9085,14 @@ document.addEventListener("keydown", (e) => {
   if (e.code === BIND.flip) { flipGravityHere(); return; }
   if (e.code === BIND.pulse) { mpPulse(); return; }
   if (e.code === BIND.strike) {
-    // In AWEF, F walks forward — while the strike is bound to F,
-    // it lives on the click there, as before.
-    if (!(state.scheme === "AWEF" && BIND.strike === "KeyF")) {
+    // F-GROK-7: in AWEF, F walks forward AND is the strike binding.
+    // The press strikes when a thing of the dark is already in
+    // strike reach (strikeTarget -- the same targeting the blow
+    // itself uses), and walks on when there is nothing to hit, so
+    // an AWEF fox is never without a keyboard strike and a walking
+    // press is never spent on a swing at air. The click strikes too.
+    const awefWalkStrike = state.scheme === "AWEF" && BIND.strike === "KeyF";
+    if (!awefWalkStrike || strikeTarget()) {
       // EE 1037 (item 4): the tap lands now, as it always has; the
       // HOLD is the charge — release past the gather fires charged.
       if (!e.repeat) { tryStrike(); chargeBegin(); }
@@ -9213,7 +9238,7 @@ syncSchemeControls();
 $("btn-keys").addEventListener("click", () => {
   setScheme(otherScheme(state.scheme));
   toast(state.scheme === "AWEF"
-    ? "Keys: A W E F — F walks forward in this scheme, so strike with the click."
+    ? "Keys: A W E F — F walks forward in this scheme, and strikes when a monster is in reach; the click strikes too."
     : "Keys: W A S D.", 4000);
 });
 // The same choice on the title panel (demo19): the splash is where a
@@ -9233,7 +9258,7 @@ $("btn-keys").addEventListener("click", () => {
       e.stopPropagation();
       setScheme(otherScheme(state.scheme));
       toast(state.scheme === "AWEF"
-        ? "Keys: A W E F — F walks forward in this scheme, so strike with the click."
+        ? "Keys: A W E F — F walks forward in this scheme, and strikes when a monster is in reach; the click strikes too."
         : "Keys: W A S D.", 4000);
     });
   }
