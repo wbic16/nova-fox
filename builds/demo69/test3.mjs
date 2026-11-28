@@ -10,7 +10,7 @@ import {
   ITEM_DEFS, computeScore, totalScore, dailyPocket, checkDaily,
   BRUSHES, brushBlocks,
   REALMS, REALM_PALETTES, HOME_PALETTE, paletteFor,
-  SKY_DOME_RADIUS, SKY_STAR_COUNT, SKY_GALAXIES, skyStopsFor, skyColorAt, atmosphereFor, starField, galaxyCenter, galaxyPoints, allGalaxyPoints, mixHex,
+  SKY_DOME_RADIUS, SKY_STAR_COUNT, SKY_GALAXIES, skyStopsFor, skyColorAt, atmosphereFor, starField, galaxyCenter, galaxyPoints, allGalaxyPoints, mixHex, subspaceViewpoint, galaxyView, skyGalaxiesForRealm, galaxySubspacePoints, subspaceStars,
   REALM_TERRAIN, deltaRiver, ITEM_SPOTS, ARRIVAL,
   realmCoord, subspaceDelta, subspaceDistance, riftRingGeometry,
   gravityShiftLine, parseGravityScroll, latestGravityByRealm, gravityShiftAllowed, gravityCorrection, GRAVITY_CORRECTION_MS,
@@ -5324,13 +5324,37 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("sky: starfield is deterministic", JSON.stringify(starField()) === JSON.stringify(stars));
   check("sky: every star sits on the dome", stars.every((s) => Math.abs(Math.hypot(s.x, s.y, s.z) - SKY_DOME_RADIUS) < 0.01));
   check("sky: stars cover the upper sky in normal view", stars.filter((s) => s.y > 0).length > stars.length * 0.4);
-  check("sky: galaxies are named and several", SKY_GALAXIES.length >= 5 && SKY_GALAXIES.every((g) => g.name && g.radius > 0 && g.arms >= 2));
+  check("sky: galaxies are named and several", SKY_GALAXIES.length >= 5 && SKY_GALAXIES.every((g) => g.name && g.size > 0 && g.arms >= 2 && Array.isArray(g.pos) && g.pos.length === 3));
   const gp = allGalaxyPoints();
   check("sky: galaxy points are built", gp.length === SKY_GALAXIES.length * 140, String(gp.length));
-  check("sky: galaxy points stay near their galaxy centre", SKY_GALAXIES.every((g) => {
-    const c = galaxyCenter(g);
-    return galaxyPoints(g).every((pt) => Math.hypot(pt.x - c.x, pt.y - c.y, pt.z - c.z) <= g.radius * 1.05);
+  check("sky: galaxy subspace points stay within their galaxy's physical size", SKY_GALAXIES.every((g) =>
+    galaxySubspacePoints(g).every((pt) => Math.hypot(pt.pos[0] - g.pos[0], pt.pos[1] - g.pos[1], pt.pos[2] - g.pos[2]) <= g.size * 1.05)));
+  check("sky: galaxy projected points sit on the dome", gp.every((pt) => Math.abs(Math.hypot(pt.x, pt.y, pt.z) - SKY_DOME_RADIUS) < 0.01));
+  // EE 1286 (Will: stars render from a view of subspace) + F-GROK-13
+  // as Grok wrote it: from Nova, more than one galaxy at the zenith,
+  // large enough to tell from a star — asserted as a DERIVATION:
+  // every projected value below is recomputed from the authored
+  // subspace geography and Nova's coordinate, never a pinned
+  // screen/dome position.
+  check("sky: viewpoint mapping groups the rift coordinate by stride three, scaled", JSON.stringify(subspaceViewpoint("nova")) === "[6,6,6]" && JSON.stringify(subspaceViewpoint("trust")) === "[18,6,6]" && JSON.stringify(subspaceViewpoint("ashfall")) === "[24,42,24]",
+    JSON.stringify(subspaceViewpoint("nova")));
+  check("sky: F-GROK-13 zenith — from Nova, more than one galaxy within 25 deg of the zenith, each wider than 8 deg (no star is)", (() => {
+    const zen = skyGalaxiesForRealm("nova").filter((v) => v.zenithOffsetDeg < 25 && v.angularDiameterDeg > 8);
+    return zen.length >= 2 && zen.some((v) => v.name === "the Pale Wheel") && zen.some((v) => v.name === "the Ember Spiral");
+  })(), skyGalaxiesForRealm("nova").map((v) => `${v.name}:${v.zenithOffsetDeg.toFixed(1)}deg/${v.angularDiameterDeg.toFixed(1)}deg`).join(" "));
+  check("sky: projected centre is the viewpoint-to-galaxy direction at dome radius", SKY_GALAXIES.every((g) => {
+    const v = galaxyView(g, "nova"); const c = galaxyCenter(g, "nova");
+    return Math.abs(c.x - v.center.x) < 1e-9 && Math.abs(c.y - v.center.y) < 1e-9 && Math.abs(Math.hypot(c.x, c.y, c.z) - SKY_DOME_RADIUS) < 0.01
+      && Math.abs(v.angularRadiusRad - Math.atan(g.size / v.distance)) < 1e-12;
   }));
+  check("sky: the same subspace from another realm is a different sky (Trust Fall's zenith view differs)", (() => {
+    const n = galaxyView(SKY_GALAXIES[0], "nova"), t = galaxyView(SKY_GALAXIES[0], "trust");
+    const n2 = galaxyView(SKY_GALAXIES[1], "nova"), t2 = galaxyView(SKY_GALAXIES[1], "trust");
+    return Math.abs(t.zenithOffsetDeg - n.zenithOffsetDeg) > 5 && Math.abs(t2.zenithOffsetDeg - n2.zenithOffsetDeg) > 5
+      && JSON.stringify(starField("trust")) !== JSON.stringify(starField("nova"))
+      && starField("trust").every((s) => Math.abs(Math.hypot(s.x, s.y, s.z) - SKY_DOME_RADIUS) < 0.01);
+  })());
+  check("sky: stars are one subspace set, projected per realm", subspaceStars().length === SKY_STAR_COUNT && starField("nova").length === SKY_STAR_COUNT);
   const homeStops = skyStopsFor(HOME_PALETTE);
   check("sky: atmosphere gradient has depth (4 stops, horizon != zenith)", homeStops.length === 4 && homeStops[0].color !== homeStops[3].color);
   check("sky: horizon is the realm fog (haze agrees with world fog)", homeStops[0].color === HOME_PALETTE.fog);

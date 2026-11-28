@@ -56913,85 +56913,170 @@ function atmosphereFor(pal) {
   };
 }
 
-// The starfield: SKY_STAR_COUNT points spread over the dome
-// (full sphere — the fox can flip gravity and look down-sky too),
-// each with a brightness. Deterministic from SKY_STAR_SEED.
-let _stars = null;
-function starField() {
-  if (_stars) return _stars;
+// ---------- the view of subspace (Will, EE 1286) ----------------------
+// "stars in Nova Fox render from a view of subspace." The sky is
+// NOT a decorated dome: what a realm's sky shows is the view into
+// subspace from that realm's position. The galaxies and the stars
+// are structures IN subspace, at authored subspace positions; a
+// realm sees them from where it sits, by projection. Realm colour
+// already derives from the rift coordinate (EE 1244, numbers as
+// crude RGB keys); the sky composes with that rule — the sky is
+// the coordinate's VIEW of subspace, so realm-to-realm sky
+// differences follow from position: the same subspace, viewed
+// from a different coordinate, is a different sky. Nothing in the
+// sky is pinned per realm.
+//
+// The coordinate -> viewpoint mapping: a realm's 9-component rift
+// coordinate is grouped by stride three (the three phext triplets
+// interleaved) and summed, then scaled:
+//   viewpoint = SUBSPACE_VIEW_SCALE *
+//     [ c0+c3+c6, c1+c4+c7, c2+c5+c8 ]
+// Nova Prime [1,1,1, 1,1,1, 1,1,1] therefore views subspace from
+// (6,6,6); Trust Fall [7,1,1, 1,1,1, 1,1,1] from (18,6,6);
+// Ashfall Haven [10,10,1, 1,1,1, 1,10,10] from (24,42,24).
+const SUBSPACE_VIEW_SCALE = 2;
+function subspaceViewpoint(realmId) {
+  const c = realmCoord(realmId);
+  if (!c) return null;
+  return [
+    SUBSPACE_VIEW_SCALE * (c[0] + c[3] + c[6]),
+    SUBSPACE_VIEW_SCALE * (c[1] + c[4] + c[7]),
+    SUBSPACE_VIEW_SCALE * (c[2] + c[5] + c[8]),
+  ];
+}
+
+// The starfield IN subspace: SKY_STAR_COUNT points in a ball of
+// radius SUBSPACE_STAR_RADIUS about the subspace origin, from a
+// fixed seed — the same stars for every realm, seen from
+// different viewpoints. starField(realmId) projects them onto
+// that realm's dome (direction from the viewpoint, at dome
+// radius); starField() with no realm is Nova Prime's view.
+const SUBSPACE_STAR_RADIUS = 170;
+let _subStars = null;
+function subspaceStars() {
+  if (_subStars) return _subStars;
   const rnd = skyRandom(SKY_STAR_SEED);
   const out = [];
   for (let i = 0; i < SKY_STAR_COUNT; i++) {
-    const u = rnd() * 2 - 1; // cos of polar angle, uniform on sphere
+    const u = rnd() * 2 - 1;
     const th = rnd() * Math.PI * 2;
     const s = Math.sqrt(Math.max(0, 1 - u * u));
+    const r = SUBSPACE_STAR_RADIUS * Math.cbrt(rnd());
     out.push({
-      x: SKY_DOME_RADIUS * s * Math.cos(th),
-      y: SKY_DOME_RADIUS * u,
-      z: SKY_DOME_RADIUS * s * Math.sin(th),
+      pos: [r * s * Math.cos(th), r * u, r * s * Math.sin(th)],
       bright: 0.35 + rnd() * 0.65,
       size: rnd() < 0.08 ? 2 : 1,
     });
   }
-  _stars = out;
+  _subStars = out;
   return out;
 }
+function projectToDome(viewpoint, pos) {
+  const dx = pos[0] - viewpoint[0], dy = pos[1] - viewpoint[1], dz = pos[2] - viewpoint[2];
+  const d = Math.hypot(dx, dy, dz) || 1;
+  return { x: SKY_DOME_RADIUS * dx / d, y: SKY_DOME_RADIUS * dy / d, z: SKY_DOME_RADIUS * dz / d, distance: d };
+}
+function starField(realmId = "nova") {
+  const vp = subspaceViewpoint(realmId) || subspaceViewpoint("nova");
+  return subspaceStars().map((s) => {
+    const p = projectToDome(vp, s.pos);
+    return { x: p.x, y: p.y, z: p.z, bright: s.bright, size: s.size };
+  });
+}
 
-// The galaxies: a handful of named-by-index spiral discs high on
-// the dome, each with a palette-independent identity (position,
-// radius in dome units, colour, arm tightness) — the glue tints
-// them per-realm via atmosphereFor().galaxyTint.
-// F-GROK-13: three of them (the Pale Wheel, the Ember Spiral, the
-// Green Veil) now sit within ~23 degrees of the zenith with radii
-// of 46-52 dome units (a radius of ~8-9 degrees of sky each, before the glue's
-// extended glow discs), so a fox looking straight up sees more
-// than one galaxy at a size no star can match.
+// The galaxies: six named spiral structures IN subspace. Each
+// carries an authored subspace position (pos, in the frame above),
+// a physical size (size, subspace units — its disc radius), a disc
+// normal, and its palette-independent identity (colour, arms,
+// spin) — the glue tints them per-realm via
+// atmosphereFor().galaxyTint. The geography is authored ONCE, as a
+// map is: from Nova Prime's viewpoint (6,6,6) the Pale Wheel
+// (pos 8,26,4; distance ~20.2) lies ~8.1 degrees from the zenith
+// with an angular diameter of ~27.8 degrees, and the Ember Spiral
+// (pos 1,24,11; distance ~19.3) lies ~21.5 degrees from the zenith
+// with an angular diameter of ~31.8 degrees — F-GROK-13's zenith
+// legibility holds BY THE GEOGRAPHY, not by pinning. From Trust
+// Fall's viewpoint (18,6,6) the same two sit ~26.8 and ~44.4
+// degrees from the zenith (27.0 and 44.6): a different sky, derived, never
+// re-pinned.
 const SKY_GALAXIES = [
-  { name: "the Pale Wheel", azimuth: 0.7, elevation: 1.18, radius: 48, color: 0xbfd8ff, arms: 2, spin: 0.9 },
-  { name: "the Ember Spiral", azimuth: 2.4, elevation: 1.28, radius: 52, color: 0xffc9a3, arms: 2, spin: 1.2 },
-  { name: "the Violet Reach", azimuth: 3.6, elevation: 0.5, radius: 42, color: 0xd6b3ff, arms: 3, spin: 0.7 },
-  { name: "the Green Veil", azimuth: 4.8, elevation: 1.42, radius: 46, color: 0xa8ffd0, arms: 2, spin: 1.4 },
-  { name: "the Far Choir", azimuth: 5.7, elevation: 0.78, radius: 30, color: 0xfff0b3, arms: 3, spin: 1.0 },
-  { name: "the Low Halo", azimuth: 1.6, elevation: -0.55, radius: 24, color: 0xa3e6ff, arms: 2, spin: 1.1 },
+  { name: "the Pale Wheel", pos: [8, 26, 4], size: 5, normal: [-0.07, -0.99, 0.07], color: 0xbfd8ff, arms: 2, spin: 0.9 },
+  { name: "the Ember Spiral", pos: [1, 24, 11], size: 5.5, normal: [0.25, -0.91, -0.25], color: 0xffc9a3, arms: 2, spin: 1.2 },
+  { name: "the Violet Reach", pos: [-14, 8, 22], size: 6, normal: [0.77, -0.08, -0.62], color: 0xd6b3ff, arms: 3, spin: 0.7 },
+  { name: "the Green Veil", pos: [18, 20, 18], size: 4.5, normal: [-0.55, -0.64, -0.55], color: 0xa8ffd0, arms: 2, spin: 1.4 },
+  { name: "the Far Choir", pos: [24, 2, -10], size: 5, normal: [-0.73, 0.16, 0.65], color: 0xfff0b3, arms: 3, spin: 1.0 },
+  { name: "the Low Halo", pos: [4, -14, 9], size: 4, normal: [0.10, 0.98, -0.15], color: 0xa3e6ff, arms: 2, spin: 1.1 },
 ];
-function galaxyCenter(g) {
-  const ce = Math.cos(g.elevation), se = Math.sin(g.elevation);
+// One galaxy as seen from one realm: the full derivation —
+// direction from the realm's viewpoint, subspace distance,
+// zenith offset, azimuth/elevation, and apparent (angular) size
+// from its physical size and distance.
+function galaxyView(g, realmId = "nova") {
+  const vp = subspaceViewpoint(realmId) || subspaceViewpoint("nova");
+  const dx = g.pos[0] - vp[0], dy = g.pos[1] - vp[1], dz = g.pos[2] - vp[2];
+  const distance = Math.hypot(dx, dy, dz) || 1;
+  const dir = [dx / distance, dy / distance, dz / distance];
+  const angularRadiusRad = Math.atan(g.size / distance);
   return {
-    x: SKY_DOME_RADIUS * ce * Math.cos(g.azimuth),
-    y: SKY_DOME_RADIUS * se,
-    z: SKY_DOME_RADIUS * ce * Math.sin(g.azimuth),
+    name: g.name, realm: realmId, viewpoint: vp,
+    direction: dir, distance,
+    azimuth: Math.atan2(dir[2], dir[0]),
+    elevation: Math.asin(Math.max(-1, Math.min(1, dir[1]))),
+    zenithOffsetRad: Math.acos(Math.max(-1, Math.min(1, dir[1]))),
+    zenithOffsetDeg: Math.acos(Math.max(-1, Math.min(1, dir[1]))) * 180 / Math.PI,
+    angularRadiusRad,
+    angularRadiusDeg: angularRadiusRad * 180 / Math.PI,
+    angularDiameterDeg: 2 * angularRadiusRad * 180 / Math.PI,
+    center: { x: SKY_DOME_RADIUS * dir[0], y: SKY_DOME_RADIUS * dir[1], z: SKY_DOME_RADIUS * dir[2] },
   };
 }
-// Points of one galaxy: a flat spiral disc around its centre,
-// lying tangent to the dome. Deterministic per galaxy name.
-function galaxyPoints(g, perGalaxy = 140) {
+function skyGalaxiesForRealm(realmId = "nova") {
+  return SKY_GALAXIES.map((g) => galaxyView(g, realmId));
+}
+function galaxyCenter(g, realmId = "nova") {
+  return galaxyView(g, realmId).center;
+}
+// Points of one galaxy IN subspace: a flat spiral disc of radius
+// g.size around its subspace position, in the plane perpendicular
+// to its authored normal. Deterministic per galaxy name.
+function galaxySubspacePoints(g, perGalaxy = 140) {
   const rnd = skyRandom(SKY_STAR_SEED + ":" + g.name);
-  const c = galaxyCenter(g);
-  // Tangent basis at the centre: t1 = normalised cross with up
-  // (or with X when the centre is near a pole), t2 = centre x t1.
-  const n = [c.x / SKY_DOME_RADIUS, c.y / SKY_DOME_RADIUS, c.z / SKY_DOME_RADIUS];
-  const up = Math.abs(n[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
-  let t1 = [n[1] * up[2] - n[2] * up[1], n[2] * up[0] - n[0] * up[2], n[0] * up[1] - n[1] * up[0]];
+  const n = [...g.normal];
+  const nl = Math.hypot(...n) || 1;
+  const nn = n.map((v) => v / nl);
+  const up = Math.abs(nn[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+  let t1 = [nn[1] * up[2] - nn[2] * up[1], nn[2] * up[0] - nn[0] * up[2], nn[0] * up[1] - nn[1] * up[0]];
   const l1 = Math.hypot(...t1) || 1; t1 = t1.map((v) => v / l1);
-  const t2 = [n[1] * t1[2] - n[2] * t1[1], n[2] * t1[0] - n[0] * t1[2], n[0] * t1[1] - n[1] * t1[0]];
+  const t2 = [nn[1] * t1[2] - nn[2] * t1[1], nn[2] * t1[0] - nn[0] * t1[2], nn[0] * t1[1] - nn[1] * t1[0]];
   const out = [];
   for (let i = 0; i < perGalaxy; i++) {
     const arm = i % g.arms;
-    const f = Math.pow(rnd(), 0.6); // denser toward the core
+    const f = Math.pow(rnd(), 0.6);
     const ang = (arm / g.arms) * Math.PI * 2 + f * g.spin * 3.2 + (rnd() - 0.5) * 0.35;
-    const r = f * g.radius;
+    const r = f * g.size;
     out.push({
-      x: c.x + t1[0] * Math.cos(ang) * r + t2[0] * Math.sin(ang) * r,
-      y: c.y + t1[1] * Math.cos(ang) * r + t2[1] * Math.sin(ang) * r,
-      z: c.z + t1[2] * Math.cos(ang) * r + t2[2] * Math.sin(ang) * r,
+      pos: [
+        g.pos[0] + t1[0] * Math.cos(ang) * r + t2[0] * Math.sin(ang) * r,
+        g.pos[1] + t1[1] * Math.cos(ang) * r + t2[1] * Math.sin(ang) * r,
+        g.pos[2] + t1[2] * Math.cos(ang) * r + t2[2] * Math.sin(ang) * r,
+      ],
       bright: 0.25 + (1 - f) * 0.6 + rnd() * 0.15,
     });
   }
   return out;
 }
-function allGalaxyPoints(perGalaxy = 140) {
+// Points of one galaxy as one realm sees them: its subspace disc
+// projected onto that realm's dome.
+function galaxyPoints(g, perGalaxy = 140, realmId = "nova") {
+  const vp = subspaceViewpoint(realmId) || subspaceViewpoint("nova");
+  return galaxySubspacePoints(g, perGalaxy).map((p) => {
+    const pr = projectToDome(vp, p.pos);
+    return { x: pr.x, y: pr.y, z: pr.z, bright: p.bright };
+  });
+}
+function allGalaxyPoints(perGalaxy = 140, realmId = "nova") {
   const out = [];
-  for (const g of SKY_GALAXIES) for (const p of galaxyPoints(g, perGalaxy)) out.push({ ...p, galaxy: g.name, color: g.color });
+  for (const g of SKY_GALAXIES) for (const p of galaxyPoints(g, perGalaxy, realmId)) out.push({ ...p, galaxy: g.name, color: g.color });
   return out;
 }
 
@@ -64612,21 +64697,21 @@ function buildSky() {
     });
     return new THREE.Points(gg, mm);
   };
-  skyStars = mkPoints(starField(), 1.7, () => 0xffffff);
+  skyStars = mkPoints(starField(state.realm), 1.7, () => 0xffffff);
   skyGroup.add(skyStars);
-  skyGalaxies = mkPoints(allGalaxyPoints(), 4.2, (s) => s.color);
+  skyGalaxies = mkPoints(allGalaxyPoints(140, state.realm), 4.2, (s) => s.color);
   skyGroup.add(skyGalaxies);
-  // F-GROK-13: points alone read as pinpricks / a dotted doodle, so
+  // F-GROK-13 (EE 1286 rework): points alone read as pinpricks, so
   // each galaxy also gets an extended, structured glow disc — a
   // canvas spiral (bright core, halo, and its own arms at its own
-  // spin) on a tangent plane at its centre, sized from its radius.
-  // The disc diameter is 2.4x the point disc's radius span, so a
-  // galaxy spans roughly twenty degrees of sky, unmistakably
-  // wider and softer than any single star point.
+  // spin) on a tangent plane at its PROJECTED centre, sized from
+  // its PROJECTED angular radius (physical size / subspace
+  // distance from this realm's viewpoint), so a galaxy's span in
+  // the sky is derived, unmistakably wider than any star point.
   skyGalaxyGlows = new THREE.Group();
   for (const g of SKY_GALAXIES) {
-    const c = galaxyCenter(g);
-    const d = g.radius * 2.4;
+    const c = galaxyCenter(g, state.realm);
+    const d = 2 * SKY_DOME_RADIUS * Math.tan(galaxyView(g, state.realm).angularRadiusRad);
     const glow = new THREE.Mesh(
       new THREE.PlaneGeometry(d, d),
       new THREE.MeshBasicMaterial({
@@ -64700,6 +64785,31 @@ function updateSkyForPalette(pal) {
 }
 function applyRealmSky() {
   applyRealmPalette(state.realm);
+  refreshSkyForRealm(state.realm);
+}
+// EE 1286: the sky is this realm's view of subspace — when the
+// realm changes, every star and galaxy is re-projected from the
+// new viewpoint (positions and glow scales recomputed from the
+// geography in world.js; nothing is pinned per realm).
+function refreshSkyForRealm(realmId) {
+  const setPts = (obj, pts) => {
+    if (!obj) return;
+    const a = obj.geometry.getAttribute("position");
+    pts.forEach((s, i) => a.setXYZ(i, s.x, s.y, s.z));
+    a.needsUpdate = true;
+  };
+  setPts(skyStars, starField(realmId));
+  setPts(skyGalaxies, allGalaxyPoints(140, realmId));
+  if (skyGalaxyGlows) {
+    skyGalaxyGlows.children.forEach((glow, i) => {
+      const g = SKY_GALAXIES[i];
+      const view = galaxyView(g, realmId);
+      glow.position.set(view.center.x, view.center.y, view.center.z);
+      const d = 2 * SKY_DOME_RADIUS * Math.tan(view.angularRadiusRad);
+      glow.scale.set(d / glow.geometry.parameters.width, d / glow.geometry.parameters.height, 1);
+      glow.lookAt(0, 0, 0);
+    });
+  }
 }
 
 // ---------- the Arrival status screen (feedback #14; A2-LOAD item 5) --------
@@ -72554,10 +72664,12 @@ window.NOVA_FOX3 = {
   }),
   loginUrl: () => loginUrl(),
   hasToken: () => !!gameToken(),
-  skyInfo: () => ({ stars: starField().length, galaxies: SKY_GALAXIES.length,
-    galaxyPoints: allGalaxyPoints().length, dome: !!skyDome,
+  skyInfo: () => ({ stars: starField(state.realm).length, galaxies: SKY_GALAXIES.length,
+    galaxyPoints: allGalaxyPoints(140, state.realm).length, dome: !!skyDome,
     galaxyGlows: skyGalaxyGlows ? skyGalaxyGlows.children.length : 0,
-    galaxyGlowSizes: SKY_GALAXIES.map((g) => g.radius * 2.4),
+    realm: state.realm, viewpoint: subspaceViewpoint(state.realm),
+    galaxyViews: skyGalaxiesForRealm(state.realm),
+    galaxyGlowSizes: SKY_GALAXIES.map((g) => 2 * SKY_DOME_RADIUS * Math.tan(galaxyView(g, state.realm).angularRadiusRad)),
     stops: skyStopsFor(paletteFor(state.realm)).map((s) => s.color) }),
   authPrompt: () => ({ shown: authPromptShown, dismissed: authPromptDismissed,
     decision: authPromptDecision({ hasToken: !!gameToken(),
