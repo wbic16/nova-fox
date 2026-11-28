@@ -56941,11 +56941,16 @@ function starField() {
 // the dome, each with a palette-independent identity (position,
 // radius in dome units, colour, arm tightness) — the glue tints
 // them per-realm via atmosphereFor().galaxyTint.
+// F-GROK-13: three of them (the Pale Wheel, the Ember Spiral, the
+// Green Veil) now sit within ~23 degrees of the zenith with radii
+// of 46-52 dome units (a radius of ~8-9 degrees of sky each, before the glue's
+// extended glow discs), so a fox looking straight up sees more
+// than one galaxy at a size no star can match.
 const SKY_GALAXIES = [
-  { name: "the Pale Wheel", azimuth: 0.7, elevation: 0.62, radius: 34, color: 0xbfd8ff, arms: 2, spin: 0.9 },
-  { name: "the Ember Spiral", azimuth: 2.4, elevation: 0.95, radius: 26, color: 0xffc9a3, arms: 2, spin: 1.2 },
+  { name: "the Pale Wheel", azimuth: 0.7, elevation: 1.18, radius: 48, color: 0xbfd8ff, arms: 2, spin: 0.9 },
+  { name: "the Ember Spiral", azimuth: 2.4, elevation: 1.28, radius: 52, color: 0xffc9a3, arms: 2, spin: 1.2 },
   { name: "the Violet Reach", azimuth: 3.6, elevation: 0.5, radius: 42, color: 0xd6b3ff, arms: 3, spin: 0.7 },
-  { name: "the Green Veil", azimuth: 4.8, elevation: 1.1, radius: 22, color: 0xa8ffd0, arms: 2, spin: 1.4 },
+  { name: "the Green Veil", azimuth: 4.8, elevation: 1.42, radius: 46, color: 0xa8ffd0, arms: 2, spin: 1.4 },
   { name: "the Far Choir", azimuth: 5.7, elevation: 0.78, radius: 30, color: 0xfff0b3, arms: 3, spin: 1.0 },
   { name: "the Low Halo", azimuth: 1.6, elevation: -0.55, radius: 24, color: 0xa3e6ff, arms: 2, spin: 1.1 },
 ];
@@ -64482,7 +64487,7 @@ const GLOW_BLOCKS = new Set([BLOCK.EMBER, BLOCK.DEEPSTONE, BLOCK.CRYSTAL]);
 // ---------- three.js scene -------------------------------------------------
 
 let scene, camera, renderer, hemi, sun, swoosh = null;
-let skyGroup = null, skyDome = null, skyStars = null, skyGalaxies = null; // A2-SKYSSO sky
+let skyGroup = null, skyDome = null, skyStars = null, skyGalaxies = null, skyGalaxyGlows = null; // A2-SKYSSO sky
 let swordView = null; // EE 1023 (item 5): the held sword, when the hand holds it
 let lampLight = null; // the fox's lamp (v5, feedback #12)
 let introScreen = null, introScreenMesh = null; // the Arrival memory screen (v5, feedback #14)
@@ -64609,9 +64614,75 @@ function buildSky() {
   };
   skyStars = mkPoints(starField(), 1.7, () => 0xffffff);
   skyGroup.add(skyStars);
-  skyGalaxies = mkPoints(allGalaxyPoints(), 2.3, (s) => s.color);
+  skyGalaxies = mkPoints(allGalaxyPoints(), 4.2, (s) => s.color);
   skyGroup.add(skyGalaxies);
+  // F-GROK-13: points alone read as pinpricks / a dotted doodle, so
+  // each galaxy also gets an extended, structured glow disc — a
+  // canvas spiral (bright core, halo, and its own arms at its own
+  // spin) on a tangent plane at its centre, sized from its radius.
+  // The disc diameter is 2.4x the point disc's radius span, so a
+  // galaxy spans roughly twenty degrees of sky, unmistakably
+  // wider and softer than any single star point.
+  skyGalaxyGlows = new THREE.Group();
+  for (const g of SKY_GALAXIES) {
+    const c = galaxyCenter(g);
+    const d = g.radius * 2.4;
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(d, d),
+      new THREE.MeshBasicMaterial({
+        map: galaxyGlowTexture(g), transparent: true, fog: false,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      }));
+    glow.position.set(c.x, c.y, c.z);
+    glow.lookAt(0, 0, 0); // plane tangent to the dome at its centre
+    glow.renderOrder = -9;
+    glow.name = "galaxy-glow:" + g.name;
+    skyGalaxyGlows.add(glow);
+  }
+  skyGroup.add(skyGalaxyGlows);
   scene.add(skyGroup);
+}
+// F-GROK-13: one galaxy's structured glow — deterministic canvas
+// spiral in the galaxy's own colour: a soft halo, dotted spiral
+// arms (its arm count and spin), and a bright core. No randomness.
+function galaxyGlowTexture(g) {
+  const S = 256, C = S / 2;
+  const cv = document.createElement("canvas");
+  cv.width = S; cv.height = S;
+  const x = cv.getContext("2d");
+  const rgb = hexRgb(g.color);
+  const col = (a) => `rgba(${Math.round(rgb[0] * 255)},${Math.round(rgb[1] * 255)},${Math.round(rgb[2] * 255)},${a})`;
+  x.globalCompositeOperation = "lighter";
+  const halo = x.createRadialGradient(C, C, 4, C, C, C);
+  halo.addColorStop(0, col(0.34));
+  halo.addColorStop(0.45, col(0.13));
+  halo.addColorStop(1, col(0));
+  x.fillStyle = halo;
+  x.fillRect(0, 0, S, S);
+  for (let arm = 0; arm < g.arms; arm++) {
+    for (let i = 0; i <= 110; i++) {
+      const t = i / 110;
+      const ang = (arm / g.arms) * Math.PI * 2 + t * g.spin * 3.2;
+      const r = 6 + t * (C - 14);
+      const px = C + Math.cos(ang) * r, py = C + Math.sin(ang) * r;
+      const rad = 1.2 + (1 - t) * 4.2;
+      const dot = x.createRadialGradient(px, py, 0, px, py, rad * 2.2);
+      dot.addColorStop(0, col(0.5 * (1 - t) + 0.14));
+      dot.addColorStop(1, col(0));
+      x.fillStyle = dot;
+      x.beginPath(); x.arc(px, py, rad * 2.2, 0, Math.PI * 2); x.fill();
+    }
+  }
+  const core = x.createRadialGradient(C, C, 0, C, C, 30);
+  core.addColorStop(0, "rgba(255,255,255,0.95)");
+  core.addColorStop(0.35, col(0.75));
+  core.addColorStop(1, col(0));
+  x.fillStyle = core;
+  x.beginPath(); x.arc(C, C, 30, 0, Math.PI * 2); x.fill();
+  const tex = new THREE.CanvasTexture(cv);
+  tex.needsUpdate = true;
+  return tex;
 }
 function updateSkyForPalette(pal) {
   if (!skyDome || !pal) return;
@@ -64648,8 +64719,28 @@ function statusBoardTexture() {
   g.fillStyle = "#ffffff"; g.font = "700 34px sans-serif"; g.textAlign = "center";
   g.fillText("STATUS BOARD", cv.width / 2, 58);
   g.font = "24px sans-serif"; g.fillStyle = "#d6e4ff";
-  const lines = statusBoardText().split(" \u00b7 ");
-  lines.forEach((ln, i) => g.fillText(ln, cv.width / 2, 118 + i * 42));
+  // F-GROK-13: wrap each board line to the panel's inner width —
+  // the quest segment ("Quest \u2014 the Deep Stone waits in the
+  // barrow, east of Arrival.") is ~61 chars and overflowed the
+  // 512px panel at 24px, cutting off at "east of". Layout only:
+  // the authored wording is unchanged, it now wraps onto two
+  // centred lines, and every drawn line is measured to fit.
+  const maxW = cv.width - 48; // inside the 6px border, with margin
+  const wrapLine = (ln) => {
+    if (g.measureText(ln).width <= maxW) return [ln];
+    const words = ln.split(" ");
+    const out = []; let cur = "";
+    for (const w of words) {
+      const next = cur ? cur + " " + w : w;
+      if (cur && g.measureText(next).width > maxW) { out.push(cur); cur = w; }
+      else cur = next;
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
+  const lines = statusBoardText().split(" \u00b7 ").flatMap(wrapLine);
+  const step = lines.length > 3 ? 36 : 42;
+  lines.forEach((ln, i) => g.fillText(ln, cv.width / 2, 112 + i * step));
   const tex = new THREE.CanvasTexture(cv);
   tex.needsUpdate = true;
   return tex;
@@ -72465,6 +72556,8 @@ window.NOVA_FOX3 = {
   hasToken: () => !!gameToken(),
   skyInfo: () => ({ stars: starField().length, galaxies: SKY_GALAXIES.length,
     galaxyPoints: allGalaxyPoints().length, dome: !!skyDome,
+    galaxyGlows: skyGalaxyGlows ? skyGalaxyGlows.children.length : 0,
+    galaxyGlowSizes: SKY_GALAXIES.map((g) => g.radius * 2.4),
     stops: skyStopsFor(paletteFor(state.realm)).map((s) => s.color) }),
   authPrompt: () => ({ shown: authPromptShown, dismissed: authPromptDismissed,
     decision: authPromptDecision({ hasToken: !!gameToken(),

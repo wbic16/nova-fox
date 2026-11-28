@@ -3464,11 +3464,16 @@ export function starField() {
 // the dome, each with a palette-independent identity (position,
 // radius in dome units, colour, arm tightness) — the glue tints
 // them per-realm via atmosphereFor().galaxyTint.
+// F-GROK-13: three of them (the Pale Wheel, the Ember Spiral, the
+// Green Veil) now sit within ~23 degrees of the zenith with radii
+// of 46-52 dome units (a radius of ~8-9 degrees of sky each, before the glue's
+// extended glow discs), so a fox looking straight up sees more
+// than one galaxy at a size no star can match.
 export const SKY_GALAXIES = [
-  { name: "the Pale Wheel", azimuth: 0.7, elevation: 0.62, radius: 34, color: 0xbfd8ff, arms: 2, spin: 0.9 },
-  { name: "the Ember Spiral", azimuth: 2.4, elevation: 0.95, radius: 26, color: 0xffc9a3, arms: 2, spin: 1.2 },
+  { name: "the Pale Wheel", azimuth: 0.7, elevation: 1.18, radius: 48, color: 0xbfd8ff, arms: 2, spin: 0.9 },
+  { name: "the Ember Spiral", azimuth: 2.4, elevation: 1.28, radius: 52, color: 0xffc9a3, arms: 2, spin: 1.2 },
   { name: "the Violet Reach", azimuth: 3.6, elevation: 0.5, radius: 42, color: 0xd6b3ff, arms: 3, spin: 0.7 },
-  { name: "the Green Veil", azimuth: 4.8, elevation: 1.1, radius: 22, color: 0xa8ffd0, arms: 2, spin: 1.4 },
+  { name: "the Green Veil", azimuth: 4.8, elevation: 1.42, radius: 46, color: 0xa8ffd0, arms: 2, spin: 1.4 },
   { name: "the Far Choir", azimuth: 5.7, elevation: 0.78, radius: 30, color: 0xfff0b3, arms: 3, spin: 1.0 },
   { name: "the Low Halo", azimuth: 1.6, elevation: -0.55, radius: 24, color: 0xa3e6ff, arms: 2, spin: 1.1 },
 ];
