@@ -5699,12 +5699,28 @@ function buildTransitMeshes(T) {
   }));
   motes.frustumCulled = false;
   group.add(motes);
+  // F-GROK-14: the bore's own light. The lining is real geometry,
+  // but nothing lights it in there: the world's hemisphere and sun
+  // reach a carved tube only at a graze, the fox's lamp is his own
+  // to switch (and off by default), and half the kaleido checker —
+  // the whole far half's majority — is the far realm's dark stone.
+  // Shaded so, mid-bore the walls sat within a few counts of the
+  // fog colour and the passage read as empty dark with a cyan rim
+  // (the far disc). So a point light rides with the fox for the
+  // walk, stepped in stepTransitLight — dressing like the disc and
+  // the motes: present for the crossing, gone with it. It lights
+  // the carved blocks themselves; the tunnel stays geometry, only
+  // now it can be seen the whole way through.
+  const boreLamp = new THREE.PointLight(0xd6e6ff, 6, 18, 1.2);
+  group.add(boreLamp);
   scene.add(group);
   T.meshes = group;
   T.motes = motes;
   T.moteSeeds = seeds;
   T.moteEnd = end;
+  T.lamp = boreLamp;
   stepTransitMotes(T, performance.now());
+  stepTransitLight(T);
 }
 
 function stepTransitMotes(T, now) {
@@ -5727,6 +5743,15 @@ function stepTransitMotes(T, now) {
   pos.needsUpdate = true;
 }
 
+// F-GROK-14: the bore light rides at the fox's eye, so the lining
+// is lit around him wherever he stands in the passage — the near
+// rings by its full throw, the far mouth by its tail.
+function stepTransitLight(T) {
+  if (!T.lamp) return;
+  const eye = eyePos();
+  T.lamp.position.set(eye.x, eye.y, eye.z);
+}
+
 function transitStep(now, dt) {
   const T = state.transit;
   if (!T) return;
@@ -5736,6 +5761,7 @@ function transitStep(now, dt) {
   sfx.whirr(true); // A2-CARVE: the bore whirrs all through the walk
   if (r.viewOk) renderPortalView(now);
   stepTransitMotes(T, now);
+  stepTransitLight(T); // F-GROK-14: the lining stays lit the whole walk
   if (T.crossed) return;
   const tun = T.tunnel;
   if (!tun) {
@@ -5772,6 +5798,7 @@ function disposeTransitMeshes() {
     scene.remove(T.meshes);
     T.meshes = null;
     T.motes = null;
+    T.lamp = null;
   }
 }
 

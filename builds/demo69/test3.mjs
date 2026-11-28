@@ -2631,6 +2631,13 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("portal colors reach the materials: the ring is built from the palette accent and the bore lining from the two realms' blocks",
     g.includes("color: paletteFor(other.realmId).accent") &&
     w.includes("tunnelBlockFor(checker ? majority : minority)"))
+  check("F-GROK-14: the bore carries its own light — a point light built with the transit dressing, so the carved lining is lit the whole walk",
+    g.includes("new THREE.PointLight(0xd6e6ff, 6, 18, 1.2)") &&
+    g.includes("T.lamp = boreLamp") && g.includes("stepTransitLight(T)"));
+  check("F-GROK-14: the bore light rides at the fox's eye and leaves with the transit — stepped in transitStep, dropped in disposeTransitMeshes",
+    g.includes("function stepTransitLight(T)") &&
+    g.includes("T.lamp.position.set(eye.x, eye.y, eye.z)") &&
+    g.includes("T.lamp = null"))
   check("Joy is present: a visible companion, built and stepped every frame",
     g.includes("function buildJoy()") && g.includes("stepJoy(now, dt)"));
   check("powerups announce: a sound and a center-screen card",
