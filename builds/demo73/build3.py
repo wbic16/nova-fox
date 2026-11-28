@@ -147,24 +147,28 @@ EE = os.environ.get("NF_EE") or (_m.group(1) if _m else "0")
 # manifest, NOT embedded in the single file (the set would roughly
 # double it). The source set lives at the repo root under
 # audio/music/ (the narration sets' own neighbourhood). The baked
+# MW-3 port addition: each entry also carries tempoBpm/loopSeconds
+# (from the set's MANIFEST.md of record, ~/nova-fox-music) so
+# music.barGrid() can read the playing track's grid from
+# MUSIC_MANIFEST track data.
 # MUSIC_MANIFEST const is the game's asset surface: base path, and
 # per-track id / scope / bytes / sha256. A missing source set bakes
 # a null manifest and the game stays silent — never a degraded or
 # partial music set presented as the real thing.
 MUSIC_DIR = HERE.parent.parent / "audio" / "music"
 MUSIC_TRACKS = [
-    ("01-nova-prime.ogg", "01-nova-prime", "realm:nova"),
-    ("02-ashfall-haven.ogg", "02-ashfall-haven", "realm:ashfall"),
-    ("03-ni-knight.ogg", "03-ni-knight", "realm:ni-knight"),
-    ("04-logos-prime.ogg", "04-logos-prime", "realm:logos"),
-    ("05-elven-path.ogg", "05-elven-path", "realm:elven"),
-    ("06-orchid-flow.ogg", "06-orchid-flow", "realm:orchid"),
-    ("07-halycon-vector.ogg", "07-halycon-vector", "realm:halycon"),
-    ("08-delta-wood.ogg", "08-delta-wood", "realm:delta"),
-    ("09-best-willow.ogg", "09-best-willow", "realm:willow"),
-    ("10-plain-view.ogg", "10-plain-view", "realm:plain"),
-    ("11-monster-fight.ogg", "11-monster-fight", "state:fight"),
-    ("12-rift-traversal.ogg", "12-rift-traversal", "state:transit"),
+    ("01-nova-prime.ogg", "01-nova-prime", "realm:nova", 79, 48.6),
+    ("02-ashfall-haven.ogg", "02-ashfall-haven", "realm:ashfall", 97, 49.5),
+    ("03-ni-knight.ogg", "03-ni-knight", "realm:ni-knight", 85, 45.2),
+    ("04-logos-prime.ogg", "04-logos-prime", "realm:logos", 82, 46.8),
+    ("05-elven-path.ogg", "05-elven-path", "realm:elven", 76, 50.5),
+    ("06-orchid-flow.ogg", "06-orchid-flow", "realm:orchid", 67, 43.0),
+    ("07-halycon-vector.ogg", "07-halycon-vector", "realm:halycon", 64, 60.0),
+    ("08-delta-wood.ogg", "08-delta-wood", "realm:delta", 76, 63.2),
+    ("09-best-willow.ogg", "09-best-willow", "realm:willow", 82, 58.5),
+    ("10-plain-view.ogg", "10-plain-view", "realm:plain", 62, 46.5),
+    ("11-monster-fight.ogg", "11-monster-fight", "state:fight", 92, 52.2),
+    ("12-rift-traversal.ogg", "12-rift-traversal", "state:transit", 60, 32.0),
 ]
 music_files = {}
 music_manifest = None
@@ -172,11 +176,12 @@ if MUSIC_DIR.is_dir():
     _mdir = HERE / "assets" / EE / "music"
     _mdir.mkdir(parents=True, exist_ok=True)
     _entries = []
-    for _fname, _tid, _scope in MUSIC_TRACKS:
+    for _fname, _tid, _scope, _tempo, _loop in MUSIC_TRACKS:
         _data = (MUSIC_DIR / _fname).read_bytes()
         _sha = hashlib.sha256(_data).hexdigest()
         shutil.copyfile(MUSIC_DIR / _fname, _mdir / _fname)
         _entries.append({"file": _fname, "id": _tid, "scope": _scope,
+                         "tempoBpm": _tempo, "loopSeconds": _loop,
                          "bytes": len(_data), "sha256": _sha})
         music_files[_fname] = {"bytes": len(_data), "sha256": _sha}
     music_manifest = {"ee": EE, "base": f"assets/{EE}/music/",

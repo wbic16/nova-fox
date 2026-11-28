@@ -6241,10 +6241,10 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     mwGame.includes("narration.queue && narration.queue.length > 0"));
   check("MW-2: music.tick rides the frame beside battleStep",
     mwGame.includes("music.tick(); // MW-2: the music state machine rides the same frame"));
-  check("MW-2: musicState() is the probe surface, exposed on NOVA_FOX3, motif null until MW-3",
+  check("MW-2: musicState() is the probe surface, exposed on NOVA_FOX3, motif via motifInfo (MW-3 port)",
     mwGame.includes("function musicState() { return music.state(); }") &&
     mwGame.includes("musicState: () => musicState(),") &&
-    mwGame.includes("duckDb: this.duckDb, motif: null,"));
+    mwGame.includes("duckDb: this.duckDb, motif: this.motifInfo,"));
   check("MW-2: the audio panel gains the Music volume row and its wiring",
     mwPage.includes('id="aud-music"') &&
     mwGame.includes('$("aud-music").value = Math.round(SETTINGS.music * 100);') &&
@@ -6285,6 +6285,304 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     check("MW-1: tracks 11/12 ride as fight/transit state scopes",
       !!t11 && t11.scope === "state:fight" && !!t12 && t12.scope === "state:transit");
   }
+}
+
+// === MW-3 SHIFT pins (demo73): the rift-shift motif synthesizer ===
+// Behavior pins execute the REAL motif method bodies extracted
+// from game3.js against mock music/sfx state (the MW-2 idiom);
+// paletteFor and realmGenParams are the REAL world.js functions,
+// so every root and pattern below is computed from live derived
+// data, exactly as the game computes it.
+{
+  console.log("\n== MW-3: rift shift (motif synth, ramps, retarget, suppression) ==");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const shift = game.slice(game.indexOf("// ================= MUSIC SHIFT (MW-3"), game.indexOf("// ---------- narration audio"));
+  check("MW-3: the shift lives in its own section, synthesized live — no precomputed motif table",
+    shift.length > 1000 && shift.includes("paletteFor(realmId).accent") &&
+    shift.includes("realmGenParams(realmId).density") && !shift.includes("MOTIF_TABLE"));
+  check("MW-3: design constants stand (nominal -15 dB, 4 s in, 1.5 s out, retarget 0.75 s + 0.25 s gap, fifth stack, counted-prime cell)",
+    shift.includes("NOMINAL_DB: -15") && shift.includes("RAMP_IN_S: 4") &&
+    shift.includes("RAMP_OUT_S: 1.5") && shift.includes("RETARGET_OUT_S: 0.75") &&
+    shift.includes("RETARGET_GAP_S: 0.25") && shift.includes("STACK: [0, 7, 14]") &&
+    shift.includes("CELL: [2, 3, 5, 7]"));
+  check("MW-3: the synthesizer feeds MW-2's motifDest() and schedules on the host bar grid (BASE only)",
+    shift.includes("music.motifDest()") && shift.includes("connect(dest)") &&
+    shift.includes("music.barGrid()") && shift.includes('grid.state !== "BASE"') &&
+    shift.includes('osc.type = "triangle"') && shift.includes("sfx.env(g, at,"));
+  check("MW-3: lifecycle hooks bind to the link's real events (openRift landing, closeRift, beginTransit, endTransit crossed, crossThroughRift arrival)",
+    game.includes("motif.onLinkEstablished(b.realmId, state.riftLink.id);") &&
+    game.includes("motif.onLinkCleared();") &&
+    game.includes("motif.noteRetarget();") &&
+    game.includes("motif.onTransitBegin();") &&
+    game.includes("motif.onTransitEnd(!!(state.transit && state.transit.crossed));") &&
+    game.includes("motif.onArrival();"));
+
+  const bodyOf = (name) => {
+    const m = game.match(new RegExp("\\n  " + name + "\\([^)]*\\) \\{([\\s\\S]*?)\\n  \\},\\n"));
+    return m ? m[1] : null;
+  };
+  const METHODS = {
+    nowS: "", hueSatOf: "hex", rootPcFromAccent: "accentHex", rootPcFor: "realmId",
+    densityScale: "density", patternFromDensity: "density", patternFor: "realmId",
+    dbToLin: "db", gainDbAt: "ramp, now", suppressed: "", noteRetarget: "",
+    onLinkEstablished: "destRealm, linkId", onLinkCleared: "", onTransitBegin: "",
+    onTransitEnd: "crossed", onArrival: "", _foldNow: "", _newLayer: "destRealm, now, delayS",
+    _publish: "now", _applyGain: "now", _tick: "",
+  };
+  const bodies = {};
+  let allBodies = true;
+  for (const n of Object.keys(METHODS)) { bodies[n] = bodyOf(n); if (!bodies[n]) allBodies = false; }
+  check("MW-3: every motif method body extracts for execution against mocks", allBodies);
+
+  const mkMotif = (env) => {
+    const o = {
+      NOMINAL_DB: -15, SILENCE_DB: -60, RAMP_IN_S: 4, RAMP_OUT_S: 1.5,
+      RETARGET_OUT_S: 0.75, RETARGET_GAP_S: 0.25, STACK: [0, 7, 14], CELL: [2, 3, 5, 7],
+      linkId: null, linkDest: null, active: null, outgoing: null,
+      transitHold: false, arrivalHold: false, heldBySuppression: false,
+      retargetPending: false, gapUntilS: 0, gainNode: null, outGainNode: null,
+      timer: 1, scheduled: {}, _ensureAudio() {}, _ensureTimer() {}, _schedule() {},
+    };
+    for (const [name, args] of Object.entries(METHODS)) {
+      o[name] = new Function("sfx", "music", "paletteFor", "realmGenParams",
+        "return function " + name + "(" + args + ") {" + bodies[name] + "\n};")(
+        env.sfx, env.music, env.paletteFor, env.realmGenParams);
+    }
+    return o;
+  };
+  const mkEnv = () => {
+    const env = { probe: undefined, engine: "BASE", now: 0 };
+    env.sfx = { ctx: { currentTime: 0 }, muted: false };
+    env.music = {
+      setMotif: (i) => { env.probe = i; },
+      motifDest: () => null,
+      barGrid: () => null,
+    };
+    Object.defineProperty(env.music, "curState", { get: () => env.engine });
+    env.paletteFor = paletteFor;
+    env.realmGenParams = realmGenParams;
+    env.setNow = (t) => { env.now = t; env.sfx.ctx.currentTime = t; };
+    return env;
+  };
+
+  // Root derivation from the REAL derived accents, cross-checked
+  // against world.js's own hue field for every realm.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    const hslSat = (hex) => {
+      const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (d === 0) return 0;
+      const l = (mx + mn) / 2;
+      return l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    };
+    let allRoots = !!m;
+    for (const id of Object.keys(REALM_GEN)) {
+      const pal = paletteFor(id);
+      const expected = hslSat(pal.accent) < 0.2 ? 0 : Math.round(pal.hue / 30) % 12;
+      if (!m || m.rootPcFor(id) !== expected) allRoots = false;
+    }
+    check("MW-3: rootPc derives live from paletteFor accents for all 11 realms (rule 1, cross-checked vs world's hue)",
+      allRoots);
+    check("MW-3: the named live checks hold — Nova #111111 achromatic -> C (0), Ashfall #AAAA11 hue 60 -> D (2), Orchid #11AA11 hue 120 -> E (4)",
+      !!m && paletteFor("nova").accent === 0x111111 && m.rootPcFor("nova") === 0 &&
+      paletteFor("ashfall").accent === 0xaaaa11 && m.rootPcFor("ashfall") === 2 &&
+      paletteFor("orchid").accent === 0x11aa11 && m.rootPcFor("orchid") === 4);
+  }
+
+  // Pattern thinning under rule 4.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    check("MW-3: the counted-prime cell thins by REALM_GEN.density (Elven, densest, keeps 2-3-5-7 whole; Nova out-attacks Ashfall; Halycon at density 0 still sounds the cell's shape)",
+      !!m && JSON.stringify(m.patternFor("elven")) === "[2,3,5,7]" &&
+      sum(m.patternFor("nova")) > sum(m.patternFor("ashfall")) &&
+      m.patternFor("halycon").every((n) => n >= 1) &&
+      JSON.stringify(m.patternFromDensity(0)) === "[1,2,2,3]");
+  }
+
+  // Steady state + onset ramp shape.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.setNow(0);
+    m.onLinkEstablished("ashfall", 1);
+    const ramp = m.active ? m.active.ramp : null;
+    check("MW-3: onset is linear-in-dB over 4 s from the floor to the -15 dB nominal (midpoint -37.5, steady state inside [-18,-12])",
+      !!ramp && m.gainDbAt(ramp, 0) === -60 && Math.abs(m.gainDbAt(ramp, 2) - -37.5) < 1e-9 &&
+      m.gainDbAt(ramp, 4) === -15 && m.gainDbAt(ramp, 30) === -15 &&
+      m.gainDbAt(ramp, 4) >= -18 && m.gainDbAt(ramp, 4) <= -12);
+    env.setNow(5);
+    m._publish(5);
+    check("MW-3: the probe reports the live layer through setMotif (destRealm, rootPc, effective gainDb)",
+      !!env.probe && env.probe.destRealm === "ashfall" && env.probe.rootPc === 2 && env.probe.gainDb === -15);
+  }
+
+  // Close: ramp out to <= -40 dB within 1.5 s, then the probe clears.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.setNow(0);
+    m.onLinkEstablished("ashfall", 1);
+    env.setNow(10);
+    m.onLinkCleared();
+    const out = m.outgoing ? m.outgoing.ramp : null;
+    env.setNow(11.6);
+    m._tick();
+    check("MW-3: closeRift ramps out over 1.5 s to <= -40 dB (crossed by ~0.83 s, silent at 1.5 s) and the probe then reads null",
+      !!out && out.durS === 1.5 && m.gainDbAt(out, 10.9) <= -40 &&
+      m.gainDbAt(out, 11.5) <= -40 && env.probe === null && m.active === null);
+  }
+
+  // Retarget: exactly one motif root at every sampled step.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.setNow(0);
+    m.onLinkEstablished("ashfall", 1);
+    env.setNow(10);
+    m.noteRetarget();
+    m.onLinkCleared();
+    m.onLinkEstablished("orchid", 2);
+    const roots = [];
+    let gapSilent = false, settled = null;
+    for (const t of [10, 10.4, 10.8, 11.0, 11.3, 12, 14, 15.2]) {
+      env.setNow(t);
+      m._tick();
+      roots.push(env.probe ? env.probe.rootPc : null);
+      if (t === 10.4 && m.active) gapSilent = m.gainDbAt(m.active.ramp, t) === -60;
+      if (t === 15.2) settled = env.probe;
+    }
+    check("MW-3: retarget leaves exactly one motif root non-null at every sampled step (old out 0.75 s, 0.25 s plain base, new in on the 4 s ramp)",
+      roots.every((r) => r === 2 || r === 4) && roots[0] === 4 && gapSilent &&
+      !!settled && settled.destRealm === "orchid" && settled.rootPc === 4 && settled.gainDb === -15 &&
+      m.outgoing === null);
+  }
+
+  // Suppression: FIGHT silences the shift; BASE return restarts the ramp.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.setNow(0);
+    m.onLinkEstablished("ashfall", 1);
+    env.setNow(6);
+    m._tick();
+    const before = env.probe;
+    env.engine = "FIGHT";
+    env.setNow(7);
+    m._tick();
+    const during = env.probe;
+    env.engine = "BASE";
+    env.setNow(8);
+    m._tick();
+    const restarted = m.active ? m.active.ramp : null;
+    check("MW-3: suppression — with the engine forced to FIGHT the motif probe reads null, and on return to BASE with the link standing the 4 s ramp restarts fresh (F-GAME-32)",
+      !!before && before.gainDb === -15 && during === null &&
+      !!restarted && restarted.startS === 8 && m.gainDbAt(restarted, 8) === -60 &&
+      m.gainDbAt(restarted, 12) === -15 && m.linkDest === "ashfall");
+  }
+
+  // Established mid-fight: no motif until BASE, then a fresh ramp.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.engine = "FIGHT";
+    env.setNow(0);
+    m.onLinkEstablished("ashfall", 1);
+    env.setNow(1);
+    m._tick();
+    const midFight = env.probe;
+    env.engine = "BASE";
+    env.setNow(2);
+    m._tick();
+    check("MW-3: a rift established mid-fight starts no motif; when BASE resumes with the link standing it ramps in fresh",
+      midFight === null && !!m.active && m.active.ramp.startS === 2 &&
+      m.gainDbAt(m.active.ramp, 6) === -15);
+  }
+
+  // Transit: folds at entry; arrival does not resume; abort does.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.setNow(0);
+    m.onLinkEstablished("ashfall", 1);
+    env.setNow(6);
+    m.onTransitBegin();
+    const atEntry = env.probe;
+    m.onTransitEnd(true);
+    env.setNow(7);
+    m._tick();
+    const afterArrival = env.probe;
+    const env2 = mkEnv();
+    const m2 = mkMotif(env2);
+    env2.setNow(0);
+    m2.onLinkEstablished("ashfall", 1);
+    env2.setNow(6);
+    m2.onTransitBegin();
+    env2.setNow(6.5);
+    m2._tick();
+    m2.onTransitEnd(false);
+    env2.setNow(7);
+    m2._tick();
+    check("MW-3: at beginTransit the motif folds and never rides the traversal track; on arrival it does not resume as a guest, on abort the standing link's motif ramps in fresh",
+      atEntry === null && afterArrival === null && m.active === null &&
+      !!m2.active && m2.active.ramp.startS === 7);
+  }
+
+  // Trust Fall: no loop, but its palette still derives a motif.
+  {
+    const env = mkEnv();
+    const m = mkMotif(env);
+    env.setNow(0);
+    m.onLinkEstablished("trust", 9);
+    env.setNow(5);
+    m._publish(5);
+    check("MW-3: the shift works toward Trust Fall — the motif synthesizes from paletteFor(trust) regardless of its missing loop",
+      !!env.probe && env.probe.destRealm === "trust" &&
+      env.probe.rootPc === m.rootPcFor("trust") && env.probe.gainDb === -15);
+  }
+}
+
+// === MW-3 PORT additions (loop adaptations, EE 1329+) ===
+{
+  console.log("\n== MW-3 port: loop-engine adaptations ==");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const build = readFileSync(new URL("./build3.py", import.meta.url), "utf8");
+  check("MW-3 port: barGrid reads the BASE voice's recorded start + manifest tempo, null when nothing plays",
+    game.includes("this.baseStartedAt = t;") &&
+    game.includes("this.baseTempoBpm = this.tempoForFile(file);") &&
+    game.includes('if (this.curState !== "BASE" || this.baseStartedAt === null') &&
+    game.includes("return e ? (e.tempoBpm || 0) : 0;"));
+  check("MW-3 port: motifDest is a gain node created in ensure(), connected to the BASE slot gain, gain 1",
+    game.includes("this.motifGain = ctx.createGain(); this.motifGain.gain.value = 1;") &&
+    game.includes("this.motifGain.connect(this.slots.BASE.gain);") &&
+    game.includes("motifDest() {"));
+  check("MW-3 port: musicBar test hook stands beside musicState, and state() reports motifInfo",
+    game.includes("musicBar: () => music.barGrid(),") &&
+    game.includes("musicState: () => musicState(),") &&
+    game.includes("duckDb: this.duckDb, motif: this.motifInfo,"));
+  const coreAt = game.indexOf("// MUSIC-CORE-BEGIN");
+  const coreEnd = game.indexOf("// MUSIC-CORE-END");
+  const coreSrc = (coreAt >= 0 && coreEnd > coreAt) ? game.slice(coreAt, coreEnd) : "";
+  const ph = coreSrc ? new Function(coreSrc +
+    "\nreturn { musicBarPhase };")().musicBarPhase : null;
+  check("MW-3 port: bar phase math — 4 beats at 92 BPM is one 2.61 s fight bar; at 60 BPM a 4.0 s bar",
+    !!ph && Math.abs(ph(92, 0).barSeconds - 240 / 92) < 1e-9 &&
+    ph(92, 240 / 92).barIndex === 1 && Math.abs(ph(92, 240 / 92).phaseS) < 1e-9 &&
+    ph(60, 5).barSeconds === 4 && ph(60, 5).barIndex === 1 && ph(60, 5).phaseS === 1);
+  const eeM = game.match(/NF_SHIP_EE:(\d+)/);
+  let man = null;
+  try {
+    man = JSON.parse(readFileSync(new URL(`./assets/${eeM[1]}/music/manifest.json`, import.meta.url), "utf8"));
+  } catch (e) { /* named by the check */ }
+  const novaE = man && man.tracks ? man.tracks.find((x) => x.file === "01-nova-prime.ogg") : null;
+  const fightE = man && man.tracks ? man.tracks.find((x) => x.file === "11-monster-fight.ogg") : null;
+  check("MW-3 port: MUSIC_MANIFEST track data carries tempoBpm/loopSeconds from the set of record (Nova 79 BPM, fight 92 BPM)",
+    build.includes('"tempoBpm": _tempo, "loopSeconds": _loop,') &&
+    !!novaE && novaE.tempoBpm === 79 && novaE.loopSeconds === 48.6 &&
+    !!fightE && fightE.tempoBpm === 92);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
