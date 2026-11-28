@@ -456,6 +456,29 @@ export const ITEM_SPOTS = {
   ward: { realmId: "nova", bx: 52, bz: 35, y: DUNGEON.floorY + 1 },
 };
 
+// ---------- wg9: nature (F-GAME-9, WORLDGEO-DESIGN-EE1311 \u00a74/\u00a75) -------
+// REPRESENTATION DECLARATION (wg9): the starstuff muffin is carried
+// as a placed ITEM in the existing item idiom (Subspace.items, the
+// same record shape as the Lance and the charms: {id, kind, realmId,
+// bx, bz, y, taken}) \u2014 NOT as a new BLOCK id. No BLOCK id 19 exists.
+// Eating is the one proposed interaction (design \u00a74.3): walking over
+// a muffin takes it via pickupItem, restores MUFFIN_HEAL hp in the
+// view, and the taking is ALSO inscribed as an AIR override at the
+// muffin's ground cell (the existing override mechanism), so the
+// consumed muffin never reappears in that visit's generated chunks.
+export const MUFFIN_HEAL = 2;
+export const MUFFIN_DEF = {
+  kind: "muffin", name: "a starstuff muffin", weapon: false,
+  blurb: "a small piece of subspace, baked \u2014 it smells faintly of galaxies",
+  use: "Walk over it and it is eaten, restoring 2 HP, once.",
+  heal: MUFFIN_HEAL,
+};
+// Meadow-mix realms (REALM_GEN mix === "meadow"): the gummy bears'
+// only country, per design \u00a74.2's realm list.
+export const GUMMY_REALMS = ["nova", "elven", "orchid", "delta", "willow", "plain"];
+export const MUFFINS_PER_REALM = 3;
+export const GUMMIES_PER_REALM = 2;
+
 // ---------- deterministic kernels (JS fallbacks, bit-identical) --------
 
 function scramble(h) {
@@ -801,6 +824,112 @@ export function terrainFingerprint(realmId) {
   };
 }
 
+// ---------- wg9: nature generation (F-GAME-9) ------------------------------
+// Crystalline trees: in every realm whose canopy form is oak or
+// willow, a deterministic 1-in-6 fraction of generated trees (by the
+// existing tree hash in genChunk's tree pass) generate as
+// crystalline \u2014 BLOCK.CRYSTAL trunk + CRYSTAL canopy in the SAME
+// silhouette. Canopy-none and pillar realms: none.
+export function isCrystallineTree(realmId, x, z) {
+  const g = realmGenParams(realmId);
+  if (g.canopy !== "oak" && g.canopy !== "willow") return false;
+  const r = realmById(realmId);
+  return kernels.hash(`${r.seed}|tree|${x},${z}`) % 6 === 0;
+}
+// Whether genChunk's tree pass plants a tree at (x, z) \u2014 the same
+// gate the pass itself applies (density \u00d7 grove noise, slope,
+// dungeon), restated purely so muffin placement can keep clear of
+// trees exactly as generated.
+function treePlantedAt(realmId, x, z) {
+  if (realmId === DUNGEON.realm && inDungeon(x, z)) return false;
+  const g = realmGenParams(realmId);
+  if (g.canopy === "none" || g.density <= 0) return false;
+  const r = realmById(realmId);
+  const roll = kernels.hash(`${r.seed}|tree|${x},${z}`) % 1000 / 1000;
+  const grove = vnoise(`${r.seed}|grove`, x, z, groveCell(realmId));
+  if (roll >= g.density * (0.25 + grove * 1.75)) return false;
+  const h = heightAt(realmId, x, z);
+  return Math.abs(heightAt(realmId, x + 1, z) - h) <= 1;
+}
+const _muffinCache = new Map();
+// Starstuff muffins: exactly MUFFINS_PER_REALM per realm, in the
+// scrolls around Arrival \u2014 deterministically placed by realm seed:
+// every candidate column in [-16, 80) x [-16, 80) that is outside
+// the Arrival clearing, clear of items (\u00b11) and of trees (the tree
+// gate, \u00b11), outside the dungeon, and on gentle ground (slope
+// \u2264 1, against the layered heightAt) is ranked by the realm-seed
+// muffin hash; the table takes the lowest ranks greedily, at least
+// 12 blocks apart. Pure in the realm seed \u2014 same table every visit.
+export function muffinSpotsFor(realmId) {
+  if (_muffinCache.has(realmId)) return _muffinCache.get(realmId).map((s2) => ({ ...s2 }));
+  const r = realmById(realmId) || realmById("nova");
+  const id = r.id;
+  const a = ARRIVAL[id] || ARRIVAL.nova;
+  const cands = [];
+  for (let z = -16; z < 80; z++) {
+    for (let x = -16; x < 80; x++) {
+      if (Math.max(Math.abs(x - a.x), Math.abs(z - a.z)) <= 7) continue; // outside the Arrival clearing
+      if (id === DUNGEON.realm && inDungeon(x, z)) continue;
+      if (Object.values(ITEM_SPOTS).some((s2) => s2.realmId === id &&
+          Math.abs(s2.bx - x) <= 1 && Math.abs(s2.bz - z) <= 1)) continue; // clear of items
+      let nearTree = false;
+      for (let dz = -1; dz <= 1 && !nearTree; dz++)
+        for (let dx = -1; dx <= 1; dx++)
+          if (treePlantedAt(id, x + dx, z + dz)) { nearTree = true; break; }
+      if (nearTree) continue; // clear of trees
+      const h = heightAt(id, x, z);
+      if (Math.abs(heightAt(id, x + 1, z) - h) > 1) continue;
+      if (Math.abs(heightAt(id, x, z + 1) - h) > 1) continue;
+      cands.push({ bx: x, bz: z, rank: kernels.hash(`${r.seed}|muffin|${x},${z}`) });
+    }
+  }
+  cands.sort((p, q) => p.rank - q.rank);
+  const picked = [];
+  for (const c of cands) {
+    if (picked.length >= MUFFINS_PER_REALM) break;
+    if (picked.some((s2) => Math.hypot(s2.bx - c.bx, s2.bz - c.bz) < 12)) continue;
+    picked.push({ realmId: id, bx: c.bx, bz: c.bz, y: heightAt(id, c.bx, c.bz) + 1 });
+  }
+  _muffinCache.set(realmId, picked);
+  return picked.map((s2) => ({ ...s2 }));
+}
+const _gummyCache = new Map();
+// Gummy-bear home spots: GUMMIES_PER_REALM deterministic spots in
+// the first two scrolls of a meadow realm (blocks x in [0, 128),
+// z in [0, 64) \u2014 scrolls (0,0) and (1,0)), outside the Arrival
+// clearing, ranked by the realm-seed gummy hash, at least 18
+// blocks apart. Cell coords (gx, gy) ride the monster-stream idiom.
+export function gummySpotsFor(realmId) {
+  if (_gummyCache.has(realmId)) return _gummyCache.get(realmId).map((s2) => ({ ...s2 }));
+  const r = realmById(realmId) || realmById("nova");
+  const id = r.id;
+  const a = ARRIVAL[id] || ARRIVAL.nova;
+  const cands = [];
+  for (let z = 4; z < 60; z += 2) {
+    for (let x = 18; x < 120; x += 2) {
+      if (Math.max(Math.abs(x - a.x), Math.abs(z - a.z)) <= 7) continue; // clear of the Arrival pad
+      if (id === DUNGEON.realm && inDungeon(x, z)) continue;
+      cands.push({ bx: x, bz: z, rank: kernels.hash(`${r.seed}|gummy|${x},${z}`) });
+    }
+  }
+  cands.sort((p, q) => p.rank - q.rank);
+  const picked = [];
+  for (const c of cands) {
+    if (picked.length >= GUMMIES_PER_REALM) break;
+    if (picked.some((s2) => Math.hypot(s2.bx - c.bx, s2.bz - c.bz) < 18)) continue;
+    picked.push({ realmId: id, bx: c.bx, bz: c.bz,
+      gx: Math.floor(c.bx / 2), gy: Math.floor(c.bz / 2) });
+  }
+  _gummyCache.set(realmId, picked);
+  return picked.map((s2) => ({ ...s2 }));
+}
+// The wg9 forms whose home falls in one chunk \u2014 genChunk's muffin
+// ground-clearing reads this, and verifiers enumerate by it.
+export function muffinSpotsInChunk(realmId, cx, cz) {
+  return muffinSpotsFor(realmId).filter((s2) =>
+    Math.floor(s2.bx / CHUNK) === cx && Math.floor(s2.bz / CHUNK) === cz);
+}
+
 // ---------- scroll coordinates -------------------------------------------
 // Blocks -> scrolls -> Life cells, all in "global" per-realm coords.
 
@@ -837,6 +966,10 @@ export class Subspace {
     this._itemsPlaced = new Set(); // realmIds whose (0,0)-scroll items exist
     this.genesisLife = null; // total alive cells when the first scrolls opened
     this._monsterSeq = 0;
+    this.gummies = []; // wg9: gummy-bear records (creatures, NOT monsters \u2014 no hp, no fight state)
+    this._gummySeq = 0;
+    this._muffinsPlaced = new Set(); // wg9: realmIds whose muffin items exist
+    this._gummiesEnsured = new Set(); // wg9: realmIds whose gummy spots are spawned
     this.fightEvents = []; // A2-MONSTER: actions/morphs the view applies (hurt, cues)
     this._nextSpawnTick = 0; // EE 995: the random-rise clock (item 9)
     this.transitPocket = null; // EE 995: the wormhole's room (items 5+6) — set by beginTransit (restored, Attempt 2)
@@ -913,6 +1046,24 @@ export class Subspace {
         });
       }
     }
+    // wg9: starstuff muffins \u2014 placed items in the same idiom,
+    // exactly MUFFINS_PER_REALM per open realm, from the deterministic
+    // placement table (muffinSpotsFor, below).
+    if (sx === 0 && sy === 0 && !this._muffinsPlaced.has(realmId)) {
+      this._muffinsPlaced.add(realmId);
+      const r0 = realmById(realmId);
+      if (r0 && r0.open) {
+        muffinSpotsFor(realmId).forEach((spot, i) => {
+          this.items.push({
+            id: `muffin-${realmId}-${i}`, kind: "muffin", realmId,
+            bx: spot.bx, bz: spot.bz, y: null, taken: false,
+          });
+        });
+      }
+    }
+    // wg9: gummy bears \u2014 guaranteed presence in meadow realms once
+    // either of the first two scrolls (0,0) / (1,0) has opened.
+    if ((sx === 0 && sy === 0) || (sx === 1 && sy === 0)) this.ensureGummies(realmId);
     return s;
   }
 
@@ -923,7 +1074,13 @@ export class Subspace {
     const it = this.items.find((i) => i.id === id && !i.taken);
     if (!it) return null;
     it.taken = true;
-    const def = ITEM_DEFS[it.kind];
+    const def = ITEM_DEFS[it.kind] || (it.kind === "muffin" ? MUFFIN_DEF : null);
+    if (it.kind === "muffin") {
+      // wg9: consumption inscribed via the existing override
+      // mechanism \u2014 an AIR override at the muffin's ground cell,
+      // which genChunk honors on every regeneration this visit.
+      this.setOverride(it.realmId, it.bx, heightAt(it.realmId, it.bx, it.bz) + 1, it.bz, BLOCK.AIR);
+    }
     this.log("pickup", realmById(it.realmId).name,
       `${def.name} is taken up — ${def.blurb}`);
     return def;
@@ -936,6 +1093,83 @@ export class Subspace {
       }
     }
     return null;
+  }
+
+  // --- wg9: gummy bears (creatures, NOT monsters) ------------------
+  // They ride the monster stream's substrate idiom (spawn records in
+  // cell coords with a home, wander in the physics tick, the realm
+  // population bound consulted at spawn) but live in their OWN roll:
+  // this.gummies, never this.monsters. They carry no hp, no fight
+  // ticks, no engaged/aggro state \u2014 strikeMonster, _fightTick and
+  // the fightEvents stream can never see them, so no fight record
+  // of any kind can name one.
+  spawnGummyBear(realmId, gx, gy, spot = -1) {
+    const g = {
+      id: ++this._gummySeq, kind: "gummy", realmId, gx, gy,
+      hx: gx, hy: gy, spot, alive: true, gentle: true,
+    };
+    this.gummies.push(g);
+    this.log("gummy", `${realmById(realmId).name} ${gx * 2 + 1},${gy * 2 + 1}`,
+      "a gummy bear ambles into the meadow \u2014 soft, translucent, and entirely unbothered");
+    return g;
+  }
+  // Maintain the guaranteed presence: GUMMIES_PER_REALM living bears
+  // at their deterministic home spots (gummySpotsFor) in every
+  // meadow realm, subject to the realm's standing surface bound
+  // (the REALM_SURFACE_CAP idiom the monster stream consults).
+  ensureGummies(realmId) {
+    if (!GUMMY_REALMS.includes(realmId)) return [];
+    const spots = gummySpotsFor(realmId);
+    const out = [];
+    for (let i = 0; i < spots.length; i++) {
+      let g = this.gummies.find((x) => x.alive && x.realmId === realmId && x.spot === i);
+      if (!g) {
+        if (this._realmSurfaceCount(realmId) + this.gummies.filter((x) => x.alive && x.realmId === realmId).length >= REALM_SURFACE_CAP) break;
+        g = this.spawnGummyBear(realmId, spots[i].gx, spots[i].gy, i);
+      }
+      out.push(g);
+    }
+    this._gummiesEnsured.add(realmId);
+    return out;
+  }
+  _gummyStepAway(g, player) {
+    const pcx = cellOfBlock(player.bx), pcy = cellOfBlock(player.bz);
+    const dx = g.gx - pcx, dy = g.gy - pcy;
+    const axes = (dx === 0 && dy === 0) ? [[1, 0], [0, 1]]
+      : Math.abs(dx) >= Math.abs(dy)
+      ? [[Math.sign(dx), 0], [0, Math.sign(dy)]]
+      : [[0, Math.sign(dy)], [Math.sign(dx), 0]];
+    for (const [mx, my] of axes) {
+      if (!mx && !my) continue;
+      const nx = g.gx + mx, ny = g.gy + my;
+      if (this._monsterPassable(g, nx, ny)) { g.gx = nx; g.gy = ny; return true; }
+    }
+    return false;
+  }
+  // The gummy tick: wander slowly near home; when the fox comes
+  // within 2 blocks, amble away a few blocks. Nothing else \u2014 no
+  // hunt, no engagement, no fight clock.
+  _gummyTick(player) {
+    if (player) this.ensureGummies(player.realmId);
+    for (const g of this.gummies) {
+      if (!g.alive) continue;
+      if (player && player.realmId === g.realmId) {
+        const bx = g.gx * 2 + 1, bz = g.gy * 2 + 1;
+        const dist = Math.hypot(bx - player.bx, bz - player.bz);
+        if (dist <= 2) {
+          for (let s2 = 0; s2 < 2; s2++) if (!this._gummyStepAway(g, player)) break;
+          continue;
+        }
+      }
+      if ((this.tickCount + g.id) % 4 !== 0) continue; // slow wander
+      const dir = kernels.hash(`gummy|${this.tickCount}|${g.id}`) % 4;
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const nx = g.gx + dirs[dir][0], ny = g.gy + dirs[dir][1];
+      if (Math.abs(nx - g.hx) > 6 || Math.abs(ny - g.hy) > 6) continue;
+      const a = ARRIVAL[g.realmId] || ARRIVAL.nova;
+      if (Math.max(Math.abs(nx * 2 + 1 - a.x), Math.abs(ny * 2 + 1 - a.z)) <= 5) continue; // keep clear of the Arrival pad
+      if (this._monsterPassable(g, nx, ny)) { g.gx = nx; g.gy = ny; }
+    }
   }
 
   // The growth level of one global cell (0 when nothing grows there).
@@ -1131,6 +1365,7 @@ export class Subspace {
     // can finish with it, then it is gone from the roll. Neither
     // ever happens near the player: "unwatched" means the player
     // is in another realm or at least two scrolls away.
+    this._gummyTick(player); // wg9: gummy bears wander / amble away \u2014 no fight state is touched
     const speed = this.monsterSpeed();
     // EE 1034 (item 3): the fox's travel this tick, for intercepts.
     if (player) {
@@ -2972,9 +3207,10 @@ export function genChunk(sub, realmId, cx, cz) {
         put(x - x0, h + ph + 1, z - z0, BLOCK.BRICK);
         continue;
       }
+      const crystalline = isCrystallineTree(realmId, x, z); // wg9: 1-in-6 by the tree hash, canopy realms only
       const trunk = tstyle.trunk + (kernels.hash(`${r.seed}|th|${x},${z}`) % 3);
       for (let i = 1; i <= trunk; i++) {
-        put(x - x0, h + i, z - z0, BLOCK.WOOD);
+        put(x - x0, h + i, z - z0, crystalline ? BLOCK.CRYSTAL : BLOCK.WOOD);
       }
       if (tstyle.canopy === "oak" || tstyle.canopy === "willow") {
         const wil = tstyle.canopy === "willow";
@@ -2985,7 +3221,7 @@ export function genChunk(sub, realmId, cx, cz) {
               if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > (wil ? 3 : 2)) continue;
               const px = x + dx, py = h + trunk + dy, pz = z + dz;
               if (baseBlockAt(sub, realmId, px, py, pz) === BLOCK.AIR) {
-                put(px - x0, py, pz - z0, BLOCK.LEAF);
+                put(px - x0, py, pz - z0, crystalline ? BLOCK.CRYSTAL : BLOCK.LEAF);
               }
             }
       }
@@ -3049,6 +3285,17 @@ export function genChunk(sub, realmId, cx, cz) {
         put(lx, h + 4, lz, BLOCK.SANDSTONE);
       }
     }
+  }
+
+  // wg9: starstuff muffins are placed ITEMS (see MUFFIN_DEF), not
+  // blocks \u2014 genChunk's part of their placement is to keep each
+  // muffin's ground cell clear in the generated chunk, so the item
+  // form stands on open ground (layered heightAt) exactly where
+  // the placement table puts it.
+  for (const spot of muffinSpotsInChunk(realmId, cx, cz)) {
+    const h = heightAt(realmId, spot.bx, spot.bz);
+    put(spot.bx - x0, h + 1, spot.bz - z0, BLOCK.AIR);
+    put(spot.bx - x0, h + 2, spot.bz - z0, BLOCK.AIR);
   }
 
   }

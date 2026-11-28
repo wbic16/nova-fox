@@ -25,6 +25,8 @@ import {
   resolveRealmGen, realmGenAgrees, strataBand, hallPathWear, patchField,
   clusterField, realmFingerprint, realmRouteCheck,
   baseHeightAt, deltaH, terrainAmpDelta, terrainCellDelta, terrainFingerprint,
+  isCrystallineTree, muffinSpotsFor, gummySpotsFor, muffinSpotsInChunk,
+  GUMMY_REALMS, MUFFIN_DEF, MUFFIN_HEAL, MUFFINS_PER_REALM, GUMMIES_PER_REALM,
   boulderClusterGate, groveCell,
   AGGRO_TICKS, TRAVERSAL_GROWTH_FLOOR, TRAVERSAL_CELLS,
   SEARCH_TICKS, PACK_SHARE_CELLS, RISE_MIN_CELLS, REALM_SURFACE_CAP,
@@ -455,8 +457,11 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const s = new Subspace();
   s.getScroll("nova", 0, 0);
   const kinds = s.items.map((i) => i.kind).sort();
-  check("nova home scroll places sword + lance + bright + ward",
-    JSON.stringify(kinds) === JSON.stringify(["bright", "lance", "sword", "ward"]), kinds.join(","));
+  // wg9 RE-PIN (recorded): the home scroll now also places the 3
+  // starstuff muffins in the same item idiom \u2014 the exact set grows
+  // by exactly those three, nothing else moves.
+  check("nova home scroll places sword + lance + bright + ward + 3 starstuff muffins (wg9)",
+    JSON.stringify(kinds) === JSON.stringify(["bright", "lance", "muffin", "muffin", "muffin", "sword", "ward"]), kinds.join(","));
   s.getScroll("ashfall", 0, 0);
   check("ashfall home scroll places the swift charm",
     s.items.some((i) => i.kind === "swift"));
@@ -961,6 +966,150 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     REALMS.every((r) => boulderClusterGate(r.id) >= 0.38 && boulderClusterGate(r.id) <= 0.46 &&
       groveCell(r.id) >= 20 && groveCell(r.id) <= 24));
 }
+
+// --- wg9: nature (F-GAME-9) -------------------------------------------------
+{
+  const CANOPY = REALMS.filter((r) => ["oak", "willow"].includes(realmGenParams(r.id).canopy)).map((r) => r.id);
+  const NONCANOPY = REALMS.filter((r) => !["oak", "willow"].includes(realmGenParams(r.id).canopy)).map((r) => r.id);
+
+  // Crystalline trees appear only where the canopy form is oak or
+  // willow: the predicate never fires in none/pillar realms, and in
+  // a canopy realm a generated chunk really carries CRYSTAL at the
+  // trunk base of a predicate-marked tree column.
+  check("wg9-crystalline-trees-in-canopy-realms-only",
+    NONCANOPY.every((id) => {
+      for (let x = 0; x < 200; x += 3) for (let z = 0; z < 200; z += 3)
+        if (isCrystallineTree(id, x, z)) return false;
+      return true;
+    }) &&
+    (() => {
+      const sub = new Subspace(); sub.getScroll("nova", 0, 0);
+      const chunks = new Map();
+      for (let cx = 0; cx < 4; cx++) for (let cz = 0; cz < 4; cz++)
+        chunks.set(`${cx},${cz}`, genChunk(sub, "nova", cx, cz));
+      for (let x = 0; x < 64; x++) for (let z = 0; z < 64; z++) {
+        if (!isCrystallineTree("nova", x, z)) continue;
+        const cx = Math.floor(x / CHUNK), cz = Math.floor(z / CHUNK);
+        const h = heightAt("nova", x, z);
+        if (chunkBlock(chunks.get(`${cx},${cz}`), x - cx * CHUNK, h + 1, z - cz * CHUNK) === BLOCK.CRYSTAL) return true;
+      }
+      return false;
+    })(),
+    "canopy realms only, and a marked tree generates as CRYSTAL in-chunk");
+
+  // The fraction is the tree hash mod 6: over a large column sample
+  // it lands at 1-in-6 (within hash tolerance), is a pure function
+  // (same answer twice), and a chunk holding crystalline trees
+  // regenerates byte-identically.
+  check("wg9-crystalline-fraction-deterministic",
+    (() => {
+      let n = 0, total = 0;
+      for (let x = 0; x < 180; x++) for (let z = 0; z < 180; z++) {
+        total++;
+        if (isCrystallineTree("elven", x, z)) n++;
+        if (isCrystallineTree("elven", x, z) !== isCrystallineTree("elven", x, z)) return false;
+      }
+      const frac = n / total;
+      if (!(frac > 0.12 && frac < 0.22)) return false;
+      const sub = new Subspace(); sub.getScroll("nova", 0, 0);
+      return bytesEqual(genChunk(sub, "nova", 1, 1), genChunk(sub, "nova", 1, 1));
+    })(),
+    "hash fraction ~1/6, pure, chunk-stable");
+
+  // Guaranteed presence: at least 2 living gummy bears, at their
+  // deterministic spots inside the first two scrolls (cells gx in
+  // [0,64), gy in [0,32)), clear of the Arrival pad, in EVERY
+  // meadow realm \u2014 and none in a non-meadow realm.
+  check("wg9-gummy-bears-minimum-near-arrival",
+    GUMMY_REALMS.every((id) => {
+      const sub = new Subspace();
+      sub.getScroll(id, 0, 0); sub.getScroll(id, 1, 0);
+      const gs = sub.gummies.filter((g) => g.alive && g.realmId === id);
+      if (gs.length < GUMMIES_PER_REALM) return false;
+      return gs.every((g) => g.gx >= 0 && g.gx < 64 && g.gy >= 0 && g.gy < 32 &&
+        Math.max(Math.abs(g.gx * 2 + 1 - 8), Math.abs(g.gy * 2 + 1 - 8)) > 5);
+    }) &&
+    (() => { const sub = new Subspace(); sub.getScroll("ashfall", 0, 0); sub.getScroll("ashfall", 1, 0);
+      return sub.gummies.filter((g) => g.realmId === "ashfall").length === 0; })(),
+    ">=2 maintained per meadow realm, first two scrolls, clear of Arrival");
+
+  // Non-hostile, structurally: gummies live outside the monster
+  // roll, carry no hp / fight / engagement fields, produce no
+  // fight records while the fox stands on top of one for many
+  // ticks \u2014 and the one behaviour they have fires: they amble
+  // away when the fox comes within 2 blocks.
+  check("wg9-gummy-bears-nonhostile-no-fight-records",
+    (() => {
+      const sub = new Subspace();
+      sub.getScroll("nova", 0, 0);
+      const g = sub.gummies.find((x) => x.realmId === "nova");
+      if (!g) return false;
+      if ("hp" in g || "fightTicks" in g || "engaged" in g || "aggro" in g) return false;
+      if (sub.monsters.some((m) => m.kind === "gummy")) return false;
+      const gx0 = g.gx, gy0 = g.gy;
+      sub.tick({ realmId: "nova", bx: gx0 * 2 + 1, bz: gy0 * 2 + 1, pace: 0 });
+      if (g.gx === gx0 && g.gy === gy0) return false; // it ambled away
+      for (let i = 0; i < 30; i++)
+        sub.tick({ realmId: "nova", bx: g.gx * 2 + 1, bz: g.gy * 2 + 1, pace: 0 });
+      return sub.fightEvents.every((ev) => ev.kind !== "gummy") &&
+        sub.gummies.every((x) => !("hp" in x) && !("fightTicks" in x)) &&
+        sub.monsters.every((m) => m.kind !== "gummy");
+    })(),
+    "no hp, no fight fields, no fight records; amble-away fires");
+
+  // Muffins: exactly 3 per open realm, deterministic table, on the
+  // ground (layered heightAt + 1), outside the Arrival clearing,
+  // clear of item spots; placed as items; eating takes exactly
+  // once, heals 2, and inscribes the AIR override.
+  check("wg9-muffins-three-per-realm-deterministic",
+    REALMS.filter((r) => r.open).every((r) => {
+      const spots = muffinSpotsFor(r.id);
+      if (spots.length !== MUFFINS_PER_REALM) return false;
+      if (JSON.stringify(spots) !== JSON.stringify(muffinSpotsFor(r.id))) return false;
+      for (const sp of spots) {
+        if (sp.y !== heightAt(r.id, sp.bx, sp.bz) + 1) return false;
+        if (Math.max(Math.abs(sp.bx - 8), Math.abs(sp.bz - 8)) <= 7) return false;
+        if (Object.values(ITEM_SPOTS).some((it) => it.realmId === r.id &&
+            Math.abs(it.bx - sp.bx) <= 1 && Math.abs(it.bz - sp.bz) <= 1)) return false;
+        const inChunk = muffinSpotsInChunk(r.id, Math.floor(sp.bx / CHUNK), Math.floor(sp.bz / CHUNK));
+        if (!inChunk.some((q) => q.bx === sp.bx && q.bz === sp.bz)) return false;
+      }
+      return true;
+    }) &&
+    (() => {
+      const sub = new Subspace(); sub.getScroll("elven", 0, 0);
+      const ms = sub.items.filter((i) => i.kind === "muffin" && i.realmId === "elven");
+      if (ms.length !== MUFFINS_PER_REALM) return false;
+      const def = sub.pickupItem(ms[0].id);
+      return !!def && def.kind === "muffin" && def.heal === MUFFIN_HEAL && MUFFIN_DEF.heal === 2 &&
+        sub.pickupItem(ms[0].id) === null &&
+        sub.getOverride("elven", ms[0].bx, heightAt("elven", ms[0].bx, ms[0].bz) + 1, ms[0].bz) === BLOCK.AIR;
+    })(),
+    "3 per realm, deterministic, grounded, eaten once for +2 via override");
+
+  // The whole nature layer regenerates identically: two fresh
+  // subspaces with the same scrolls opened generate byte-identical
+  // chunks (crystalline trees + muffin ground-clearing included)
+  // and spawn identical gummy rolls at identical spots.
+  check("wg9-nature-regenerates-identically",
+    (() => {
+      const mk = () => {
+        const sub = new Subspace();
+        sub.getScroll("nova", 0, 0); sub.getScroll("nova", 1, 0);
+        sub.getScroll("elven", 0, 0); sub.getScroll("willow", 0, 0);
+        return sub;
+      };
+      const a = mk(), b = mk();
+      for (const [realm, cx, cz] of [["nova", 0, 0], ["nova", 2, 1], ["elven", 1, 0], ["willow", 0, 2]])
+        if (!bytesEqual(genChunk(a, realm, cx, cz), genChunk(b, realm, cx, cz))) return false;
+      const roll = (sub) => JSON.stringify(sub.gummies.map((g) => [g.realmId, g.gx, g.gy, g.spot]));
+      return roll(a) === roll(b) &&
+        JSON.stringify(muffinSpotsFor("delta")) === JSON.stringify(muffinSpotsFor("delta")) &&
+        JSON.stringify(gummySpotsFor("plain")) === JSON.stringify(gummySpotsFor("plain"));
+    })(),
+    "identical chunks and identical nature rolls across fresh subspaces");
+}
+
 
 // --- subspace geometry: portal form from the shape of CYOA ------
 // (Will, 2026-11-24 — Leg A. The realms' coordinates are derived

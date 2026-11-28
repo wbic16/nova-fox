@@ -3759,6 +3759,77 @@ function syncMonsterMeshes(dt) {
   }
 }
 
+// ---------- wg9: gummy bears in the view (creatures, NOT monsters) ----------
+// Small bear-shaped beings at roughly fox-cub scale: a soft,
+// translucent, candy-coloured body (the realm's derived accent2
+// tints the candy, via wg7's paletteFor \u2014 never a chosen table),
+// round ears, stub legs. They are rendered from sub.gummies, the
+// world's own roll \u2014 never from sub.monsters \u2014 and nothing in
+// this view layer can strike, hurt, or fight them: there is no
+// code path from a gummy mesh to any combat surface.
+const gummyMeshes = new Map(); // gummy id -> THREE.Group
+function buildGummyMesh(g) {
+  const grp = new THREE.Group();
+  const candy = new THREE.Color(0xff8fb3)
+    .lerp(new THREE.Color(paletteFor(g.realmId).accent2), 0.35);
+  const mat = new THREE.MeshLambertMaterial({
+    color: candy, emissive: candy, emissiveIntensity: 0.25,
+    transparent: true, opacity: 0.88,
+  });
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x4a2436, transparent: true, opacity: 0.9 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.62, 0.6), mat);
+  body.position.y = 0.52;
+  grp.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.46, 0.48), mat);
+  head.position.set(0.42, 0.78, 0);
+  grp.add(head);
+  for (const dz of [-0.18, 0.18]) {
+    const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.1, 10), mat);
+    ear.position.set(0.36, 1.06, dz);
+    grp.add(ear);
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.09, 0.09), darkMat);
+    eye.position.set(0.69, 0.82, dz);
+    grp.add(eye);
+  }
+  for (const [dx, dz] of [[-0.26, -0.18], [0.26, -0.18], [-0.26, 0.18], [0.26, 0.18]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.24, 0.18), darkMat);
+    leg.position.set(dx, 0.12, dz);
+    grp.add(leg);
+  }
+  grp.scale.setScalar(0.85); // roughly fox-cub scale
+  return grp;
+}
+function gummyWorldPos(g) {
+  const bx = g.gx * 2 + 1, bz = g.gy * 2 + 1;
+  return { x: bx + 0.5, y: heightAt(g.realmId, bx, bz) + 1, z: bz + 0.5 };
+}
+function syncGummyMeshes(dt) {
+  const seen = new Set();
+  const now = performance.now();
+  for (const g of sub.gummies) {
+    if (!g.alive || g.realmId !== state.realm) continue;
+    seen.add(g.id);
+    let mesh = gummyMeshes.get(g.id);
+    if (!mesh) {
+      mesh = buildGummyMesh(g);
+      gummyMeshes.set(g.id, mesh);
+      scene.add(mesh);
+      const p0 = gummyWorldPos(g);
+      mesh.position.set(p0.x, p0.y, p0.z);
+    }
+    const p = gummyWorldPos(g);
+    const target3 = new THREE.Vector3(p.x, p.y + Math.sin(now / 520 + g.id) * 0.05, p.z);
+    mesh.position.lerp(target3, 1 - Math.pow(0.001, dt));
+    // Ambling bears face their home-ward drift / away from the fox
+    // when close \u2014 the amble-away step itself lives in subspace
+    // (world.js _gummyTick); the view only turns the form.
+    mesh.rotation.y = Math.atan2(state.pos.x - p.x, state.pos.z - p.z) - Math.PI / 2;
+  }
+  for (const [id, mesh] of gummyMeshes) {
+    if (!seen.has(id)) { scene.remove(mesh); gummyMeshes.delete(id); }
+  }
+}
+
 // ---------- placed things in the view: the Lance and the charms --------------
 
 const itemMeshes = new Map(); // item id -> THREE.Group
@@ -3804,6 +3875,23 @@ function buildItemMesh(it) {
     g.add(beam);
   } else if (it.kind === "sword") {
     buildSwordInto(g, glow);
+  } else if (it.kind === "muffin") {
+    // wg9: a starstuff muffin \u2014 a small baked form: a cup, a domed
+    // top, and a faint galaxy-tinted glow in the realm's DERIVED
+    // accent2 (wg7's derivedPaletteFor via paletteFor \u2014 starstuff
+    // wears the realm's own coordinate colour, design \u00a74.3).
+    const accent2 = paletteFor(it.realmId).accent2;
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.22, 0.26, 10),
+      new THREE.MeshLambertMaterial({ color: 0x9a6a38 }));
+    cup.position.y = 0.55;
+    g.add(cup);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 8), glow(accent2));
+    dome.scale.y = 0.72;
+    dome.position.y = 0.72;
+    g.add(dome);
+    const halo = new THREE.PointLight(accent2, 0.5, 5); // faint glow, never bright
+    halo.position.y = 0.9;
+    g.add(halo);
   } else {
     const colors = { swift: 0x00e5ff, ward: 0x2979ff, bright: 0xb3f1ff };
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.34), glow(colors[it.kind] || 0xffffff));
@@ -3986,6 +4074,10 @@ function itemUseLine(def) {
 }
 
 function applyItemEffect(def) {
+  // wg9: the design's one proposed interaction \u2014 a starstuff
+  // muffin is eaten on pickup and restores 2 HP, once (pickupItem
+  // takes it exactly once and inscribes the consumption).
+  if (def.kind === "muffin") { state.hp = Math.min(state.maxHp, state.hp + (def.heal || MUFFIN_HEAL)); }
   if (def.kind === "lance") { state.ownsLance = true; state.weapon = "lance"; }
   // The Small Sword fills an empty hand; it never takes the
   // Star Lance's place (and the Lance, once held, is kept).
@@ -7088,9 +7180,17 @@ function boardData() {
 // and the Arrival stone screen both show exactly this text.
 function statusBoardText() {
   const d = boardData();
+  // wg9: the proximity line — a starstuff muffin near the fox is
+  // labelled on the status board, in the existing item idiom.
+  let near = "";
+  for (const it of sub.items) {
+    if (it.kind !== "muffin" || it.taken || it.realmId !== state.realm) continue;
+    const dist = Math.hypot(it.bx + 0.5 - state.pos.x, it.bz + 0.5 - state.pos.z);
+    if (dist <= 8) { near = " \u00b7 Near: a starstuff muffin — walk over it to eat (+2 HP)."; break; }
+  }
   return `Status — HP ${Math.max(0, state.hp)} / ${state.maxHp} \u00b7 score ${d.mine.score} pts \u00b7 ` +
     (sub.questDone ? "Quest — the Deep Stone is reached: quest done."
-                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.");
+                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near;
 }
 function renderBoard() {
   const el = document.getElementById("board");
@@ -9740,6 +9840,7 @@ function animate() {
   banterObserveTick(now);
   chunkMaintenance();
   syncMonsterMeshes(dt);
+  syncGummyMeshes(dt); // wg9: gummy bears render from their own roll
   mpStep(now, dt); // MP-1: the room, the foxes in it, the pulse
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place
@@ -10823,6 +10924,14 @@ window.NOVA_FOX3 = {
   viewState: () => ({ fog: scene && scene.fog ? scene.fog.color.getHex() : null,
     hemi: hemi ? hemi.color.getHex() : null,
     inHall: state.realm === "nova" && inDungeon(state.pos.x, state.pos.z) }),
+  natureState: () => ({ // wg9 (F-GAME-9): the three nature forms, read back live
+    gummies: sub.gummies.filter((g) => g.alive && g.realmId === state.realm)
+      .map((g) => ({ id: g.id, kind: g.kind, gx: g.gx, gy: g.gy, hasHp: "hp" in g, hasFight: "fightTicks" in g })),
+    muffins: sub.items.filter((it) => it.kind === "muffin")
+      .map((it) => ({ id: it.id, realmId: it.realmId, bx: it.bx, bz: it.bz, taken: it.taken,
+        accent2: paletteFor(it.realmId).accent2 })),
+    fightEvents: sub.fightEvents.length,
+    statusLine: statusBoardText() }),
   monstersNear: () => sub.monsters
     .filter((m) => m.alive && m.realmId === state.realm)
     .map((m) => ({ id: m.id, kind: m.kind, hp: m.hp, gx: m.gx, gy: m.gy,
