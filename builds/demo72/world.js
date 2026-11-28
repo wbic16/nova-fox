@@ -671,7 +671,7 @@ export function deltaRiver(realmId, x, z) {
   if (v <= 0.60 || v >= 0.68) return 0;
   return Math.sin(((v - 0.60) / 0.08) * Math.PI); // 0 at the banks, 1 mid-stream
 }
-export function heightAt(realmId, x, z) {
+export function baseHeightAt(realmId, x, z) {
   const r = realmById(realmId);
   const t = terrainFor(realmId);
   const n1 = vnoise(`${r.seed}|h1`, x, z, t.s1);
@@ -701,6 +701,104 @@ export function heightAt(realmId, x, z) {
     h += 7;
   }
   return h;
+}
+
+// ---------- wg8: the coordinate-keyed terrain layer (F-GAME-8) -------------
+// WORLDGEO-DESIGN-EE1311 §3: REALM_GEN and the historical height
+// formula above (now baseHeightAt) are NOT replaced — Nova's and
+// Ashfall's formulas are pinned history. wg8 adds a layer derived
+// purely from the realm's rift coordinate c = realmCoord(id), the
+// same source wg7's palettes and the EE 1286 sky read:
+//   coordSeed = "coord|" + c.join(".")
+//   ampDelta(c)  = (c0+c1+c2) mod 3            in {0,1,2} blocks
+//   cellDelta(c) = 22 + 4*((c6+c7+c8) mod 4)   in {22,26,30,34}
+//   deltaH = round(ampDelta * (2*vnoise(coordSeed, x, z, cellDelta) - 1))
+//   heightAt = baseHeightAt + deltaH
+// Subtlety bound, by construction: |deltaH| <= 2 everywhere
+// (ampDelta <= 2, |2*vnoise-1| <= 1); ampDelta is 0 for Nova,
+// Ashfall, Trust, Elven and Orchid, so those realms' ground does
+// not move at all; cellDelta >= 22 keeps the adjacent-column
+// deltaH step <= 1. heightAt stays a pure function of
+// (realmId, x, z): same state in, same blocks out.
+// Exclusion zones — deltaH = 0 identically where:
+//   (a) the Arrival pad, |x-8| <= 3 and |z-8| <= 3 (all realms);
+//   (b) the Deep Stone dungeon footprint + 2 (the barrow zone);
+//   (c) ITEM_SPOTS +-1 (the spot's own realm);
+//   (d) standing tunnel/carve footprints and the transit pocket:
+//       these are not visible to a pure (realmId, x, z) function,
+//       and by construction they never read the unlayered value —
+//       a tunnel end's floorY is recorded at craft time from the
+//       stand paths, which read heightAt (the layered value), and
+//       genChunk stamps the bore from that stored floorY; the
+//       transit pocket scroll generates as the vault corridor
+//       alone and never consults heightAt at all. So no bore
+//       mouth's anchoring can disagree with the ground under it.
+export function terrainAmpDelta(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return (c[0] + c[1] + c[2]) % 3;
+}
+export function terrainCellDelta(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return 22 + 4 * ((c[6] + c[7] + c[8]) % 4);
+}
+function deltaExcluded(realmId, x, z) {
+  const a = ARRIVAL[realmId] || ARRIVAL.nova;
+  if (Math.abs(x - a.x) <= 3 && Math.abs(z - a.z) <= 3) return true;
+  if (x >= DUNGEON.x0 - 2 && x <= DUNGEON.x1 + 2 &&
+      z >= DUNGEON.z0 - 2 && z <= DUNGEON.z1 + 2) return true;
+  for (const s of Object.values(ITEM_SPOTS)) {
+    if (s.realmId === realmId &&
+        Math.abs(s.bx - x) <= 1 && Math.abs(s.bz - z) <= 1) return true;
+  }
+  return false;
+}
+export function deltaH(realmId, x, z) {
+  const amp = terrainAmpDelta(realmId);
+  if (amp === 0 || deltaExcluded(realmId, x, z)) return 0;
+  const c = realmCoord(realmId) || realmCoord("nova");
+  const v = vnoise("coord|" + c.join("."), x, z, terrainCellDelta(realmId));
+  return Math.round(amp * (2 * v - 1));
+}
+// The layered surface height: every consumer of heightAt — chunk
+// generation, baseBlockAt's default, the stand paths, carve floor
+// anchoring, monster/item placement — reads THIS value; the
+// unlayered baseHeightAt remains only as the layer's input and
+// the re-pin reference for the historical formulas.
+export function heightAt(realmId, x, z) {
+  return baseHeightAt(realmId, x, z) + deltaH(realmId, x, z);
+}
+// Feature-parameter derivations (genChunk dressing only, §3.2):
+// the boulder cluster gate and the grove noise cell, keyed to the
+// coordinate. Density, trunk, canopy, mode, step and strataPeriod
+// stay REALM_GEN's — the named differences stay named.
+export function boulderClusterGate(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return 0.42 + 0.02 * ((c[5] % 5) - 2);
+}
+export function groveCell(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return 20 + (c[3] % 5);
+}
+// The terrain fingerprint (§3.5): heightAt sampled over the fixed
+// grid x,z in [320, 384), so an independent verifier can recompute
+// the rule and compare against the live world's sampled heights.
+export function terrainFingerprint(realmId) {
+  let min = Infinity, max = -Infinity, sum = 0;
+  const seen = new Set();
+  for (let z = 320; z < 384; z++) {
+    for (let x = 320; x < 384; x++) {
+      const h = heightAt(realmId, x, z);
+      if (h < min) min = h;
+      if (h > max) max = h;
+      sum += h;
+      seen.add(h);
+    }
+  }
+  return {
+    mode: realmGenParams(realmId).mode,
+    min, max, mean: sum / (64 * 64), distinct: seen.size,
+    ampDelta: terrainAmpDelta(realmId), cellDelta: terrainCellDelta(realmId),
+  };
 }
 
 // ---------- scroll coordinates -------------------------------------------
@@ -2863,7 +2961,7 @@ export function genChunk(sub, realmId, cx, cz) {
       if (realmId === DUNGEON.realm && inDungeon(x, z)) continue;
       const r = realmById(realmId);
       const roll = kernels.hash(`${r.seed}|tree|${x},${z}`) % 1000 / 1000;
-      const grove = vnoise(`${r.seed}|grove`, x, z, 22);
+      const grove = vnoise(`${r.seed}|grove`, x, z, groveCell(realmId)); // wg8: cell keyed to c3 (§3.2)
       if (roll >= treeP * (0.25 + grove * 1.75)) continue;
       const h = heightAt(realmId, x, z);
       // No trees on steep ground.
@@ -2916,7 +3014,7 @@ export function genChunk(sub, realmId, cx, cz) {
       // cluster field, so the rocks clump along the field's ridges
       // and clearings open between them (a uniform scatter reads
       // as noise; a clustered one reads as a place).
-      if (clusterField(realmId, x, z) <= 0.42) continue;
+      if (clusterField(realmId, x, z) <= boulderClusterGate(realmId)) continue; // wg8: gate keyed to c5 (§3.2)
       const h = heightAt(realmId, x, z);
       if (data[idx(lx, h + 1, lz)] !== BLOCK.AIR) continue;
       const rock = realmId === "ashfall" ? BLOCK.SHALE : BLOCK.STONE;

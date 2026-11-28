@@ -24,6 +24,8 @@ import {
   REALM_GEN, realmGenParams, realmGenKey, realmGenLine, parseRealmGenScroll,
   resolveRealmGen, realmGenAgrees, strataBand, hallPathWear, patchField,
   clusterField, realmFingerprint, realmRouteCheck,
+  baseHeightAt, deltaH, terrainAmpDelta, terrainCellDelta, terrainFingerprint,
+  boulderClusterGate, groveCell,
   AGGRO_TICKS, TRAVERSAL_GROWTH_FLOOR, TRAVERSAL_CELLS,
   SEARCH_TICKS, PACK_SHARE_CELLS, RISE_MIN_CELLS, REALM_SURFACE_CAP,
   guardianPhase, guardianStrikeDamage,
@@ -856,6 +858,108 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     paletteFor("ni-knight").accent === 0xaaaa22 && paletteFor("logos").accent === 0xaaaa33
       && paletteFor("ni-knight").fog === 0x1b1b05 && paletteFor("logos").fog === 0x1b1b08
       && !schemeEq(paletteFor("ni-knight"), paletteFor("logos")));
+}
+
+// --- wg8: the coordinate-keyed terrain layer (F-GAME-8) ---------------------
+// Independent recomputation of design §3.2's vnoise + deltaH,
+// written from the design (not shared with world.js code).
+{
+  const lh = (seed, x, z) => kernels.hash(`${seed}|${x},${z}`) / 4294967296;
+  const vn = (seed, x, z, cell) => {
+    const gx = Math.floor(x / cell), gz = Math.floor(z / cell);
+    const fx = x / cell - gx, fz = z / cell - gz;
+    const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+    const a = lh(seed, gx, gz), b = lh(seed, gx + 1, gz);
+    const c = lh(seed, gx, gz + 1), d = lh(seed, gx + 1, gz + 1);
+    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+  };
+  const expectedDelta = (id, x, z) => {
+    const c = realmCoord(id);
+    const amp = (c[0] + c[1] + c[2]) % 3;
+    const cell = 22 + 4 * ((c[6] + c[7] + c[8]) % 4);
+    return Math.round(amp * (2 * vn("coord|" + c.join("."), x, z, cell) - 1));
+  };
+  // Worked values, design §3.2 — the rule's parameters per realm.
+  const WORKED = { nova: [0, 34], ashfall: [0, 26], "ni-knight": [1, 26],
+    logos: [2, 26], elven: [0, 22], orchid: [0, 22], halycon: [1, 22],
+    delta: [2, 22], willow: [2, 34], plain: [2, 26], trust: [0, 34] };
+
+  check("wg8-deltaH-bounded-by-2",
+    REALMS.every((r) => terrainAmpDelta(r.id) === WORKED[r.id][0] &&
+      terrainCellDelta(r.id) === WORKED[r.id][1]) &&
+    (() => { for (const r of REALMS) for (let x = 0; x < 384; x++) for (let z = 0; z < 384; z++) {
+        if (Math.abs(deltaH(r.id, x, z)) > 2) return false;
+        if (Math.abs(heightAt(r.id, x, z) - baseHeightAt(r.id, x, z)) > 2) return false;
+      } return true; })() &&
+    // the exported deltaH IS the §3.2 rule, recomputed independently
+    // (sampled in open country, clear of the exclusion zones)
+    ["logos", "delta", "willow", "plain", "ni-knight", "halycon"].every((id) => {
+      for (let x = 300; x < 460; x += 7) for (let z = 300; z < 460; z += 7)
+        if (deltaH(id, x, z) !== expectedDelta(id, x, z)) return false;
+      return true; }));
+
+  check("wg8-nova-ashfall-heights-unchanged",
+    ["nova", "ashfall", "trust", "elven", "orchid"].every((id) => {
+      for (let x = 0; x < 400; x += 3) for (let z = 0; z < 400; z += 3)
+        if (heightAt(id, x, z) !== baseHeightAt(id, x, z) || deltaH(id, x, z) !== 0) return false;
+      return true; }));
+
+  check("wg8-arrival-dungeon-item-exclusions-zero",
+    REALMS.every((r) => {
+      const id = r.id;
+      for (let x = 5; x <= 11; x++) for (let z = 5; z <= 11; z++)
+        if (deltaH(id, x, z) !== 0) return false; // Arrival pad +-3
+      for (let x = DUNGEON.x0 - 2; x <= DUNGEON.x1 + 2; x += 2)
+        for (let z = DUNGEON.z0 - 2; z <= DUNGEON.z1 + 2; z += 2)
+          if (deltaH(id, x, z) !== 0) return false; // barrow footprint + 2
+      for (const s of Object.values(ITEM_SPOTS)) {
+        if (s.realmId !== id) continue;
+        for (let x = s.bx - 1; x <= s.bx + 1; x++) for (let z = s.bz - 1; z <= s.bz + 1; z++)
+          if (deltaH(id, x, z) !== 0) return false; // item spots +-1
+      }
+      return true; }));
+
+  // Open country only (x,z in [300,460] holds no exclusion zone):
+  // at an exclusion edge §3.4's identical-zero meets the field, and
+  // the step there is the exclusion's own, bounded by |deltaH| <= 2.
+  check("wg8-adjacent-step-grows-by-at-most-1",
+    REALMS.every((r) => {
+      const id = r.id;
+      for (let x = 300; x < 460; x++) for (let z = 300; z < 460; z++) {
+        const d = deltaH(id, x, z);
+        if (Math.abs(deltaH(id, x + 1, z) - d) > 1) return false;
+        if (Math.abs(deltaH(id, x, z + 1) - d) > 1) return false;
+        const stepB = Math.abs(baseHeightAt(id, x + 1, z) - baseHeightAt(id, x, z));
+        const stepL = Math.abs(heightAt(id, x + 1, z) - heightAt(id, x, z));
+        if (stepL > stepB + 1) return false;
+      }
+      return true; }));
+
+  check("wg8-fingerprints-differ-across-realms",
+    new Set(REALMS.map((r) => JSON.stringify(terrainFingerprint(r.id)))).size === REALMS.length &&
+    REALMS.every((r) => {
+      const f = terrainFingerprint(r.id);
+      if (f.mode !== realmGenParams(r.id).mode) return false;
+      if (f.ampDelta !== WORKED[r.id][0] || f.cellDelta !== WORKED[r.id][1]) return false;
+      // the exported fingerprint recomputes from heightAt sampling
+      let min = Infinity, max = -Infinity, sum = 0; const seen = new Set();
+      for (let z = 320; z < 384; z++) for (let x = 320; x < 384; x++) {
+        const h = heightAt(r.id, x, z);
+        min = Math.min(min, h); max = Math.max(max, h); sum += h; seen.add(h);
+      }
+      return f.min === min && f.max === max && f.distinct === seen.size &&
+        Math.abs(f.mean - sum / 4096) < 1e-12; }));
+
+  check("wg8-heightAt-pure-stable-on-recompute",
+    REALMS.every((r) => {
+      for (let x = 290; x < 470; x += 9) for (let z = 290; z < 470; z += 9)
+        if (heightAt(r.id, x, z) !== heightAt(r.id, x, z) ||
+            deltaH(r.id, x, z) !== deltaH(r.id, x, z)) return false;
+      return JSON.stringify(terrainFingerprint(r.id)) ===
+        JSON.stringify(terrainFingerprint(r.id)); }) &&
+    // dressing derivations stay inside their §3.2 ranges
+    REALMS.every((r) => boulderClusterGate(r.id) >= 0.38 && boulderClusterGate(r.id) <= 0.46 &&
+      groveCell(r.id) >= 20 && groveCell(r.id) <= 24));
 }
 
 // --- subspace geometry: portal form from the shape of CYOA ------
@@ -2543,14 +2647,26 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     REALM_TERRAIN.nova.amp === 7 && REALM_TERRAIN.nova.amp2 === 2.5 &&
     REALM_TERRAIN.ashfall.mode === "ridge" && REALM_TERRAIN.ashfall.base === 9 &&
     REALM_TERRAIN.ashfall.amp === 13);
-  check("terrain: Ni-Knight rises in terraces (heights quantized to its step)",
-    (() => { for (let x = 300; x < 400; x += 3) for (let z = 300; z < 400; z += 3)
-      if ((heightAt("ni-knight", x, z) - 12) % 3 !== 0) return false; return true; })());
-  check("terrain: Plain View is nearly flat (range <= 3 over a wide sample)",
-    (() => { let lo = 1e9, hi = -1e9;
+  // wg8 RE-PIN (F-GAME-8): the terrace quantization is a property of
+  // the historical formula, which wg8 keeps as baseHeightAt; the
+  // layered heightAt adds deltaH (ampDelta = 1 for Ni-Knight), so a
+  // layered column sits within 1 of a terrace level. Re-derived
+  // from design §3.2, not loosened: both halves are asserted.
+  check("terrain: Ni-Knight rises in terraces (base quantized to its step; layered within ampDelta)",
+    (() => { for (let x = 300; x < 400; x += 3) for (let z = 300; z < 400; z += 3) {
+      if ((baseHeightAt("ni-knight", x, z) - 12) % 3 !== 0) return false;
+      if (Math.abs(heightAt("ni-knight", x, z) - baseHeightAt("ni-knight", x, z)) > 1) return false;
+    } return true; })());
+  // wg8 RE-PIN (F-GAME-8): Plain's base stays nearly flat (range
+  // <= 3, as pinned); the wg8 layer (ampDelta = 2) can widen the
+  // layered range by at most 2*ampDelta = 4. Bound re-derived from
+  // design §3.3, both ranges measured on the same sample.
+  check("terrain: Plain View is nearly flat (base range <= 3; layered within base + 2*ampDelta)",
+    (() => { let lo = 1e9, hi = -1e9, loB = 1e9, hiB = -1e9;
       for (let x = 300; x < 420; x += 2) for (let z = 300; z < 420; z += 2) {
-        const h = heightAt("plain", x, z); lo = Math.min(lo, h); hi = Math.max(hi, h); }
-      return hi - lo <= 3; })());
+        const h = heightAt("plain", x, z); lo = Math.min(lo, h); hi = Math.max(hi, h);
+        const b = baseHeightAt("plain", x, z); loB = Math.min(loB, b); hiB = Math.max(hiB, b); }
+      return hiB - loB <= 3 && hi - lo <= (hiB - loB) + 2 * terrainAmpDelta("plain"); })());
   check("terrain: Trust Fall's ridges tower (peaks above 20)",
     (() => { let hi = -1e9;
       for (let x = 300; x < 420; x += 2) for (let z = 300; z < 420; z += 2)
@@ -3595,14 +3711,18 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   // The goldens: captured from demo46 before any P-5 edit (the
   // producer report carries the table). Heights move for NO realm;
   // full columns stand for the two played realms.
+  // wg8 RE-PIN (F-GAME-8): goldens for the six ampDelta > 0 realms
+  // (ni-knight, logos, halycon, delta, willow, plain) re-derived
+  // from the design §3.2 layer over the same grid; the five
+  // ampDelta = 0 realms keep their pre-wg8 goldens byte-exact.
   const GOLDEN_HEIGHTS = {
-    nova: "97a61ca0", ashfall: "f33fa565", "ni-knight": "61daf789",
-    logos: "027f0665", elven: "226f274d", orchid: "96ba9b0e",
-    halycon: "0105c0b2", delta: "7e7ee111", willow: "153a093c",
-    plain: "03ed7b09", trust: "79f81cf1",
+    nova: "97a61ca0", ashfall: "f33fa565", "ni-knight": "8727afdd",
+    logos: "be9bf719", elven: "226f274d", orchid: "96ba9b0e",
+    halycon: "0f5c40ae", delta: "973f98cf", willow: "44bcb91f",
+    plain: "8af8b3e1", trust: "79f81cf1",
   };
   const FP = Object.fromEntries(REALMS.map((r) => [r.id, realmFingerprint(r.id)]));
-  check("P-5: no realm's heights move — every height fingerprint is its golden",
+  check("P-5: every height fingerprint is its golden (wg8: ampDelta=0 realms unmoved; ampDelta>0 goldens re-derived from the §3.2 rule)",
     REALMS.every((r) => FP[r.id].heights === GOLDEN_HEIGHTS[r.id]),
     JSON.stringify(REALMS.map((r) => [r.id, FP[r.id].heights])));
   check("P-5: Ashfall's surface stands exactly as played",
