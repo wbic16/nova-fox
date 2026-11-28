@@ -3516,6 +3516,7 @@ function cuteMotion(m, mesh, now, dt) {
 }
 
 function syncMonsterMeshes(dt) {
+  clearOrphanPopup(); // F-GROK-9 (d): no status word outlives its creature
   const seen = new Set();
   const now = performance.now();
   for (const m of sub.monsters) {
@@ -3611,7 +3612,7 @@ function syncMonsterMeshes(dt) {
       const bob = m.kind === "wisp" ? Math.sin(now / 480) * 0.12 : 0;
       mesh.position.y += bob;
       // A2-MONSTER: the morph shows — each stage stands larger.
-      const s = (m.kind === "guardian" ? 1.7 : m.kind === "husk" ? 1.3 : 1) * (1 + Math.sin(now / 260) * 0.05) * (1 + (m.fightStage || 0) * 0.14);
+      const s = (m.kind === "guardian" ? 1.7 : m.kind === "husk" ? 1.3 : 1) * (1 + Math.sin(now / 260) * 0.05) * (1 + (m.fightStage || 0) * 0.26); // F-GROK-9 (a): 0.26/stage (was 0.14) — Kindled stands 1.26x, Unbound 1.52x: visibly larger, not a nudge
       // A2-MONSTER: the recoil shows — a struck thing flinches back
       // from the fox and squashes while subspace's recoilTicks last.
       if ((m.recoilTicks || 0) > 0) {
@@ -4230,6 +4231,24 @@ function respawnAtArrival() {
 
 // ---------- damage, death, combat ---------------------------------------------
 
+// F-GROK-9 (b): the strike tell at CONTACT range. The monster's own
+// red burn (monsterHitAt, in syncMonsterMeshes) is unreadable when
+// the thing's cubes fill the camera — the fox sees the inside of a
+// block. So a landed strike ALSO flashes this: a red ring at the
+// crosshair (#hitmark, page3.html), in flashDamage's idiom — struck
+// hard with no transition, then released to fade over ~700 ms, the
+// same readable moment the mesh burn lasts. It is on screen, not on
+// the monster, so no range can hide it.
+function flashStrikeTell() {
+  const el = $("hitmark");
+  if (!el) return;
+  el.style.transition = "none";
+  el.style.opacity = "1";
+  requestAnimationFrame(() => {
+    el.style.transition = "opacity 0.7s";
+    el.style.opacity = "0";
+  });
+}
 function flashDamage() {
   // A2-MONSTER (Play 1): "screen should flash red when the player
   // is hit" — a FULL-screen red flash (#dmg now covers the screen,
@@ -4377,20 +4396,20 @@ function updateGuardianEncounter() {
 function stepFightEvents() {
   for (const ev of sub.drainFightEvents()) {
     const m = sub.monsters.find((mm) => mm.id === ev.monsterId);
-    if (!m || ev.realmId !== state.realm) continue;
+    if (!m || !m.alive || ev.realmId !== state.realm) continue; // F-GROK-9 (d): an event whose creature is dead (or gone) speaks nothing
     const p = monsterWorldPos(m);
     if (ev.action === "morph") {
       sfx.monsterMorph(ev.kind);
-      damagePopup(`${FIGHT_STAGE_NAMES[ev.kind][ev.stage]} — it grows more dangerous`, "#ffb37f");
+      damagePopup(`${FIGHT_STAGE_NAMES[ev.kind][ev.stage]} — it grows more dangerous`, "#ffb37f", ev.monsterId);
       continue;
     }
-    if (ev.action === "roar") { sfx.monsterMorph(ev.kind); damagePopup("the Shadow roars — bolder now", "#ffb37f"); continue; }
-    if (ev.action === "guard" || ev.action === "brace") { damagePopup("it braces", "#8d99b0"); continue; }
+    if (ev.action === "roar") { sfx.monsterMorph(ev.kind); damagePopup("the Shadow roars — bolder now", "#ffb37f", ev.monsterId); continue; }
+    if (ev.action === "guard" || ev.action === "brace") { damagePopup("it braces", "#8d99b0", ev.monsterId); continue; }
     if (ev.damage > 0) {
       if (ev.action === "spit" || ev.action === "shadow-spit") sfx.noise({ peak: 0.18, decay: 0.14, freq: 1500 });
       hurtPlayer(ev.damage, p, ev.action === "lunge" ? "It lunges — and connects." : "A spit of dark catches you.");
     } else if (ev.action === "lunge") {
-      damagePopup("it lunges — wide", "#d8f4ff");
+      damagePopup("it lunges — wide", "#d8f4ff", ev.monsterId);
     }
   }
 }
@@ -4525,13 +4544,26 @@ function battleStep(now) {
 function showSwing() {
   state.swingT = 0; // the frame loop sweeps the arc (see animate)
 }
-function damagePopup(text, color = "#aee6ff") {
+let dmgPopupOwner = null; // F-GROK-9 (d): the creature a status popup belongs to, if any
+function damagePopup(text, color = "#aee6ff", ownerId = null) {
   const el = $("dmgnum");
+  dmgPopupOwner = ownerId;
   el.textContent = text;
   el.style.color = color;
   el.classList.remove("pop");
   void el.offsetWidth;
   el.classList.add("pop");
+}
+// F-GROK-9 (d): a creature-bound status word ends when its creature
+// does — or when the scene (realm) it was spoken in is left. Called
+// per frame from syncMonsterMeshes, which already walks the living.
+function clearOrphanPopup() {
+  if (dmgPopupOwner === null) return;
+  const m = sub.monsters.find((mm) => mm.id === dmgPopupOwner);
+  if (m && m.alive && m.realmId === state.realm) return;
+  dmgPopupOwner = null;
+  const el = $("dmgnum");
+  if (el) { el.classList.remove("pop"); el.textContent = ""; }
 }
 // EE 1023 (item 5): the equip action. The hand holds one weapon;
 // the equip key takes the other owned one into it, and says which.
@@ -4752,6 +4784,7 @@ function applyStrikeHit(m, landed) {
   // A2-MONSTER: recoil is set in subspace by the landed strike; the
   // hurt noise sounds only if a strike truly landed (not a glance).
   if ((m.hurtSeq || 0) > hurtBefore) sfx.monsterHurt(m.kind);
+  if ((m.hurtSeq || 0) > hurtBefore) flashStrikeTell(); // F-GROK-9 (b): the contact-range tell, on a landed strike only
   if (killed) {
     sfx.strikeKill();
     playBeat(m.kind === "guardian" ? "BEAT-guardian-kill" : "BEAT-strike-kill");
@@ -4873,6 +4906,7 @@ function tryStrike(opts = {}) {
   for (let d = 0; d < landed && !killed; d++) killed = sub.strikeMonster(best);
   monsterHitAt.set(best.id, performance.now()); // EE 1023: it turns red (syncMonsterMeshes)
   if ((best.hurtSeq || 0) > hurtBefore) sfx.monsterHurt(best.kind); // A2-MONSTER: the hurt noise, on a landed strike only
+  if ((best.hurtSeq || 0) > hurtBefore) flashStrikeTell(); // F-GROK-9 (b): the contact-range tell, on a landed strike only
   if (killed) {
     sfx.strikeKill();
     playBeat(best.kind === "guardian" ? "BEAT-guardian-kill" : "BEAT-strike-kill");
@@ -6778,7 +6812,7 @@ function syncHud() {
   $("hpnum").textContent = `HP ${Math.max(0, state.hp)} / ${state.maxHp}`;
   // A2-MONSTER (Play 1): "screen starts to go white when the player
   // is low on hp" — the white-out overlay tracks the pure curve.
-  { const lw = lowHpWhite(state.hp, state.maxHp); const el = $("lowhp"); if (el) el.style.opacity = String(lw.opacity); }
+  { const lw = lowHpWhite(state.hp, state.maxHp); const el = $("lowhp"); if (el) { el.style.transition = "none"; el.style.opacity = String(lw.opacity); } } // F-GROK-9 (c): transition killed, as flashDamage kills #dmg's — the wash renders at the computed opacity on the hit itself
   $("realmname").textContent = realmName(state.realm);
   $("realm-big").textContent = realmName(state.realm);
   $("chord").innerHTML =

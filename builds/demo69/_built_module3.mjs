@@ -53803,7 +53803,7 @@ function guardianPhase(m) {
 // summons here at all: a struck glimmer's pack already answers
 // through the strike share, and a second caller would double it.
 const FIGHT_STAGE_TICKS = {
-  surface: [10, 24], // Glimmer: Kindled at 10, Unbound at 24
+  surface: [4, 14], // F-GROK-9: Glimmer: Kindled at 4, Unbound at 14 (was 10/24 — a fought glimmer died at about tick 7, before Kindled could ever show)
   husk: [12, 28],    // Cinder Husk: Cracked at 12, Molten at 28 — slower, like its pace
   guardian: [10, 24], // Keeper: Woken at 10, Heart-Bared at 24
   wisp: [],
@@ -53902,13 +53902,13 @@ const ITEM_DEFS = {
     kind: "sword", name: "the Small Sword", weapon: true,
     range: 5.2, damage: 1,
     blurb: "a small sword, bright and ready — it reaches a little farther than your bare paw",
-    use: "A weapon. Swung, it hits for 1 at 5.2 blocks — two landed swings fell a dark thing.",
+    use: "A weapon. Swung, it hits for 1 at 5.2 blocks — three landed swings fell a glimmer.",
   },
   lance: {
     kind: "lance", name: "the Star Lance", weapon: true,
     range: 7.5, damage: 2,
     blurb: "it reaches farther and hits harder",
-    use: "A weapon. Swung, it hits for 2 at 7.5 blocks — one landed swing fells a dark thing.",
+    use: "A weapon. Swung, it hits for 2 at 7.5 blocks — two landed swings fell even a glimmer.",
   },
   swift: {
     kind: "swift", name: "the Swift Charm", weapon: false,
@@ -54847,12 +54847,15 @@ class Subspace {
       phase: 1 + (kernels.hash(`phase|${this._monsterSeq}`) % 2),
       alive: true,
       // EE 1034 (item 3): a surface thing takes TWO hits now — a
-      // fight, not a swat. The Lance (damage 2) still fells it in
-      // one; the sword and the bare paw take two landed strikes.
+      // fight, not a swat. F-GROK-9: a glimmer takes THREE now —
+      // the sword and the bare paw take three landed strikes, the
+      // Lance (damage 2) two — so a fought glimmer lives past its
+      // Kindled morph (fight tick 4) and is seen larger before it
+      // dies. The wisp keeps two; it is for learning on.
       // EE 1037 (item 3): the Shadow takes SIX true strikes now —
       // but see the gate below: most strikes are not true. The
       // number is not the difficulty; the shuttered Heart is.
-      hp: kind === "guardian" ? 6 : kind === "husk" ? 4 : 2, // Item #6: the husk is hard — four true strikes (the Lance's damage 2 fells it in two)
+      hp: kind === "guardian" ? 6 : kind === "husk" ? 4 : kind === "surface" ? 3 : 2, // Item #6: the husk is hard — four true strikes (the Lance's damage 2 fells it in two); F-GROK-9: the glimmer's 3 is above
       boss: null, // EE 1037 (item 3): the Shadow's fight state (guardians only)
       // EE 1034 (item 3): one surface thing in three is a STALKER —
       // it runs to cut the fox off; the rest are hunters.
@@ -54953,6 +54956,9 @@ class Subspace {
       return false;
     }
     m.alive = false;
+    // F-GROK-9 (d): the dead thing's queued fight events die with
+    // it — a status word ("it braces") must never outlive its creature.
+    this.fightEvents = this.fightEvents.filter((ev) => ev.monsterId !== m.id);
     m.diedAt = this.tickCount; // the reaper's clock (v5, feedback #1)
     const bx = m.gx * 2 + 1, bz = m.gy * 2 + 1;
     const by = m.kind === "guardian" ? DUNGEON.floorY + 1 : heightAt(m.realmId, bx, bz) + 1;
@@ -65273,6 +65279,7 @@ function cuteMotion(m, mesh, now, dt) {
 }
 
 function syncMonsterMeshes(dt) {
+  clearOrphanPopup(); // F-GROK-9 (d): no status word outlives its creature
   const seen = new Set();
   const now = performance.now();
   for (const m of sub.monsters) {
@@ -65368,7 +65375,7 @@ function syncMonsterMeshes(dt) {
       const bob = m.kind === "wisp" ? Math.sin(now / 480) * 0.12 : 0;
       mesh.position.y += bob;
       // A2-MONSTER: the morph shows — each stage stands larger.
-      const s = (m.kind === "guardian" ? 1.7 : m.kind === "husk" ? 1.3 : 1) * (1 + Math.sin(now / 260) * 0.05) * (1 + (m.fightStage || 0) * 0.14);
+      const s = (m.kind === "guardian" ? 1.7 : m.kind === "husk" ? 1.3 : 1) * (1 + Math.sin(now / 260) * 0.05) * (1 + (m.fightStage || 0) * 0.26); // F-GROK-9 (a): 0.26/stage (was 0.14) — Kindled stands 1.26x, Unbound 1.52x: visibly larger, not a nudge
       // A2-MONSTER: the recoil shows — a struck thing flinches back
       // from the fox and squashes while subspace's recoilTicks last.
       if ((m.recoilTicks || 0) > 0) {
@@ -65987,6 +65994,24 @@ function respawnAtArrival() {
 
 // ---------- damage, death, combat ---------------------------------------------
 
+// F-GROK-9 (b): the strike tell at CONTACT range. The monster's own
+// red burn (monsterHitAt, in syncMonsterMeshes) is unreadable when
+// the thing's cubes fill the camera — the fox sees the inside of a
+// block. So a landed strike ALSO flashes this: a red ring at the
+// crosshair (#hitmark, page3.html), in flashDamage's idiom — struck
+// hard with no transition, then released to fade over ~700 ms, the
+// same readable moment the mesh burn lasts. It is on screen, not on
+// the monster, so no range can hide it.
+function flashStrikeTell() {
+  const el = $("hitmark");
+  if (!el) return;
+  el.style.transition = "none";
+  el.style.opacity = "1";
+  requestAnimationFrame(() => {
+    el.style.transition = "opacity 0.7s";
+    el.style.opacity = "0";
+  });
+}
 function flashDamage() {
   // A2-MONSTER (Play 1): "screen should flash red when the player
   // is hit" — a FULL-screen red flash (#dmg now covers the screen,
@@ -66134,20 +66159,20 @@ function updateGuardianEncounter() {
 function stepFightEvents() {
   for (const ev of sub.drainFightEvents()) {
     const m = sub.monsters.find((mm) => mm.id === ev.monsterId);
-    if (!m || ev.realmId !== state.realm) continue;
+    if (!m || !m.alive || ev.realmId !== state.realm) continue; // F-GROK-9 (d): an event whose creature is dead (or gone) speaks nothing
     const p = monsterWorldPos(m);
     if (ev.action === "morph") {
       sfx.monsterMorph(ev.kind);
-      damagePopup(`${FIGHT_STAGE_NAMES[ev.kind][ev.stage]} — it grows more dangerous`, "#ffb37f");
+      damagePopup(`${FIGHT_STAGE_NAMES[ev.kind][ev.stage]} — it grows more dangerous`, "#ffb37f", ev.monsterId);
       continue;
     }
-    if (ev.action === "roar") { sfx.monsterMorph(ev.kind); damagePopup("the Shadow roars — bolder now", "#ffb37f"); continue; }
-    if (ev.action === "guard" || ev.action === "brace") { damagePopup("it braces", "#8d99b0"); continue; }
+    if (ev.action === "roar") { sfx.monsterMorph(ev.kind); damagePopup("the Shadow roars — bolder now", "#ffb37f", ev.monsterId); continue; }
+    if (ev.action === "guard" || ev.action === "brace") { damagePopup("it braces", "#8d99b0", ev.monsterId); continue; }
     if (ev.damage > 0) {
       if (ev.action === "spit" || ev.action === "shadow-spit") sfx.noise({ peak: 0.18, decay: 0.14, freq: 1500 });
       hurtPlayer(ev.damage, p, ev.action === "lunge" ? "It lunges — and connects." : "A spit of dark catches you.");
     } else if (ev.action === "lunge") {
-      damagePopup("it lunges — wide", "#d8f4ff");
+      damagePopup("it lunges — wide", "#d8f4ff", ev.monsterId);
     }
   }
 }
@@ -66282,13 +66307,26 @@ function battleStep(now) {
 function showSwing() {
   state.swingT = 0; // the frame loop sweeps the arc (see animate)
 }
-function damagePopup(text, color = "#aee6ff") {
+let dmgPopupOwner = null; // F-GROK-9 (d): the creature a status popup belongs to, if any
+function damagePopup(text, color = "#aee6ff", ownerId = null) {
   const el = $("dmgnum");
+  dmgPopupOwner = ownerId;
   el.textContent = text;
   el.style.color = color;
   el.classList.remove("pop");
   void el.offsetWidth;
   el.classList.add("pop");
+}
+// F-GROK-9 (d): a creature-bound status word ends when its creature
+// does — or when the scene (realm) it was spoken in is left. Called
+// per frame from syncMonsterMeshes, which already walks the living.
+function clearOrphanPopup() {
+  if (dmgPopupOwner === null) return;
+  const m = sub.monsters.find((mm) => mm.id === dmgPopupOwner);
+  if (m && m.alive && m.realmId === state.realm) return;
+  dmgPopupOwner = null;
+  const el = $("dmgnum");
+  if (el) { el.classList.remove("pop"); el.textContent = ""; }
 }
 // EE 1023 (item 5): the equip action. The hand holds one weapon;
 // the equip key takes the other owned one into it, and says which.
@@ -66509,6 +66547,7 @@ function applyStrikeHit(m, landed) {
   // A2-MONSTER: recoil is set in subspace by the landed strike; the
   // hurt noise sounds only if a strike truly landed (not a glance).
   if ((m.hurtSeq || 0) > hurtBefore) sfx.monsterHurt(m.kind);
+  if ((m.hurtSeq || 0) > hurtBefore) flashStrikeTell(); // F-GROK-9 (b): the contact-range tell, on a landed strike only
   if (killed) {
     sfx.strikeKill();
     playBeat(m.kind === "guardian" ? "BEAT-guardian-kill" : "BEAT-strike-kill");
@@ -66630,6 +66669,7 @@ function tryStrike(opts = {}) {
   for (let d = 0; d < landed && !killed; d++) killed = sub.strikeMonster(best);
   monsterHitAt.set(best.id, performance.now()); // EE 1023: it turns red (syncMonsterMeshes)
   if ((best.hurtSeq || 0) > hurtBefore) sfx.monsterHurt(best.kind); // A2-MONSTER: the hurt noise, on a landed strike only
+  if ((best.hurtSeq || 0) > hurtBefore) flashStrikeTell(); // F-GROK-9 (b): the contact-range tell, on a landed strike only
   if (killed) {
     sfx.strikeKill();
     playBeat(best.kind === "guardian" ? "BEAT-guardian-kill" : "BEAT-strike-kill");
@@ -68535,7 +68575,7 @@ function syncHud() {
   $("hpnum").textContent = `HP ${Math.max(0, state.hp)} / ${state.maxHp}`;
   // A2-MONSTER (Play 1): "screen starts to go white when the player
   // is low on hp" — the white-out overlay tracks the pure curve.
-  { const lw = lowHpWhite(state.hp, state.maxHp); const el = $("lowhp"); if (el) el.style.opacity = String(lw.opacity); }
+  { const lw = lowHpWhite(state.hp, state.maxHp); const el = $("lowhp"); if (el) { el.style.transition = "none"; el.style.opacity = String(lw.opacity); } } // F-GROK-9 (c): transition killed, as flashDamage kills #dmg's — the wash renders at the computed opacity on the hit itself
   $("realmname").textContent = realmName(state.realm);
   $("realm-big").textContent = realmName(state.realm);
   $("chord").innerHTML =

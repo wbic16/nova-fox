@@ -326,7 +326,7 @@ export function guardianPhase(m) {
 // summons here at all: a struck glimmer's pack already answers
 // through the strike share, and a second caller would double it.
 export const FIGHT_STAGE_TICKS = {
-  surface: [10, 24], // Glimmer: Kindled at 10, Unbound at 24
+  surface: [4, 14], // F-GROK-9: Glimmer: Kindled at 4, Unbound at 14 (was 10/24 — a fought glimmer died at about tick 7, before Kindled could ever show)
   husk: [12, 28],    // Cinder Husk: Cracked at 12, Molten at 28 — slower, like its pace
   guardian: [10, 24], // Keeper: Woken at 10, Heart-Bared at 24
   wisp: [],
@@ -425,13 +425,13 @@ export const ITEM_DEFS = {
     kind: "sword", name: "the Small Sword", weapon: true,
     range: 5.2, damage: 1,
     blurb: "a small sword, bright and ready — it reaches a little farther than your bare paw",
-    use: "A weapon. Swung, it hits for 1 at 5.2 blocks — two landed swings fell a dark thing.",
+    use: "A weapon. Swung, it hits for 1 at 5.2 blocks — three landed swings fell a glimmer.",
   },
   lance: {
     kind: "lance", name: "the Star Lance", weapon: true,
     range: 7.5, damage: 2,
     blurb: "it reaches farther and hits harder",
-    use: "A weapon. Swung, it hits for 2 at 7.5 blocks — one landed swing fells a dark thing.",
+    use: "A weapon. Swung, it hits for 2 at 7.5 blocks — two landed swings fell even a glimmer.",
   },
   swift: {
     kind: "swift", name: "the Swift Charm", weapon: false,
@@ -1370,12 +1370,15 @@ export class Subspace {
       phase: 1 + (kernels.hash(`phase|${this._monsterSeq}`) % 2),
       alive: true,
       // EE 1034 (item 3): a surface thing takes TWO hits now — a
-      // fight, not a swat. The Lance (damage 2) still fells it in
-      // one; the sword and the bare paw take two landed strikes.
+      // fight, not a swat. F-GROK-9: a glimmer takes THREE now —
+      // the sword and the bare paw take three landed strikes, the
+      // Lance (damage 2) two — so a fought glimmer lives past its
+      // Kindled morph (fight tick 4) and is seen larger before it
+      // dies. The wisp keeps two; it is for learning on.
       // EE 1037 (item 3): the Shadow takes SIX true strikes now —
       // but see the gate below: most strikes are not true. The
       // number is not the difficulty; the shuttered Heart is.
-      hp: kind === "guardian" ? 6 : kind === "husk" ? 4 : 2, // Item #6: the husk is hard — four true strikes (the Lance's damage 2 fells it in two)
+      hp: kind === "guardian" ? 6 : kind === "husk" ? 4 : kind === "surface" ? 3 : 2, // Item #6: the husk is hard — four true strikes (the Lance's damage 2 fells it in two); F-GROK-9: the glimmer's 3 is above
       boss: null, // EE 1037 (item 3): the Shadow's fight state (guardians only)
       // EE 1034 (item 3): one surface thing in three is a STALKER —
       // it runs to cut the fox off; the rest are hunters.
@@ -1476,6 +1479,9 @@ export class Subspace {
       return false;
     }
     m.alive = false;
+    // F-GROK-9 (d): the dead thing's queued fight events die with
+    // it — a status word ("it braces") must never outlive its creature.
+    this.fightEvents = this.fightEvents.filter((ev) => ev.monsterId !== m.id);
     m.diedAt = this.tickCount; // the reaper's clock (v5, feedback #1)
     const bx = m.gx * 2 + 1, bz = m.gy * 2 + 1;
     const by = m.kind === "guardian" ? DUNGEON.floorY + 1 : heightAt(m.realmId, bx, bz) + 1;

@@ -337,9 +337,9 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const m = s.spawnMonster("nova", 10, 10, "surface");
   const bx = 10 * 2 + 1, bz = 10 * 2 + 1;
   const by = heightAt("nova", bx, bz) + 1;
-  check("EE 1034: a surface thing holds through one strike (hp 2)",
-    s.strikeMonster(m) === false && m.alive);
-  check("the second strike edits a surface thing out", s.strikeMonster(m) === true && !m.alive);
+  check("F-GROK-9: a surface thing holds through two strikes (hp 3)",
+    s.strikeMonster(m) === false && m.alive && s.strikeMonster(m) === false && m.alive);
+  check("the third strike edits a surface thing out", s.strikeMonster(m) === true && !m.alive);
   check("scar override recorded", s.getOverride("nova", bx, by, bz) === BLOCK.SCAR);
   const chunk = genChunk(s, "nova", 1, 1);
   check("scar is in the regenerated chunk",
@@ -491,7 +491,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   s.pickupItem("lance");
   check("a pickup scores 40", totalScore(s) === 40);
   const m = s.spawnMonster("nova", 12, 12, "surface");
-  s.strikeMonster(m); s.strikeMonster(m); // EE 1034: surface hp 2
+  s.strikeMonster(m); s.strikeMonster(m); s.strikeMonster(m); // F-GROK-9: surface hp 3
   check("a scar scores 50 (90 total)", totalScore(s) === 90);
   const d = DUNGEON.deepStone;
   s.checkQuest(d.x, d.y, d.z);
@@ -536,7 +536,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   s3.getScroll("nova", 0, 0);
   s3.monsters.length = 0;
   const m3 = s3.spawnMonster("nova", 12, 12, "surface");
-  s3.strikeMonster(m3); s3.strikeMonster(m3); // EE 1034: surface hp 2
+  s3.strikeMonster(m3); s3.strikeMonster(m3); s3.strikeMonster(m3); // F-GROK-9: surface hp 3
   const bx = 12 * 2 + 1, bz = 12 * 2 + 1, by = heightAt("nova", bx, bz) + 1;
   for (let i = 0; i < 95; i++) s3.tick(near);
   check("the dead are reaped, but the scar stays written",
@@ -568,7 +568,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("the guardian keeps its hall — it cannot be carried",
     s.carryMonster(g, "ashfall", 40, 41) === false && g.realmId === "nova");
   const d = s.spawnMonster("nova", 14, 14, "surface");
-  s.strikeMonster(d); s.strikeMonster(d); // EE 1034: surface hp 2
+  s.strikeMonster(d); s.strikeMonster(d); s.strikeMonster(d); // F-GROK-9: surface hp 3
   check("the dead cannot be carried",
     s.carryMonster(d, "ashfall", 40, 41) === false && d.realmId === "nova");
 }
@@ -2879,11 +2879,12 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   s.monsters.length = 0;
   const m = s.spawnMonster("nova", 12, 12, "surface");
   const pal = s.spawnMonster("nova", 15, 12, "surface");
-  check("EE 1034: a surface thing has hp 2", m.hp === 2);
+  check("F-GROK-9: a surface thing has hp 3", m.hp === 3);
   check("the first strike wounds, wakes it, and calls the pack",
     s.strikeMonster(m) === false && m.alive && m.engaged === true &&
     pal.aggro === true);
-  check("the second strike kills", s.strikeMonster(m) === true && !m.alive);
+  check("the second strike holds (F-GROK-9: hp 3)", s.strikeMonster(m) === false && m.alive);
+  check("the third strike kills", s.strikeMonster(m) === true && !m.alive);
 
   // Roles: some surface things rise as stalkers.
   const sR = new Subspace();
@@ -2937,10 +2938,10 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
 // keep their hygiene. No stat moves — hp and damage stand as shipped.
 {
   console.log("\n== EE 1088 (P-3): monsters — edited ground, pack memory, hygiene ==");
-  check("P-3: stats stand as shipped (surface 2, wisp 2, guardian 6)",
+  check("P-3: stats stand as shipped (surface 3 per F-GROK-9, wisp 2, guardian 6)",
     (() => {
       const s = new Subspace();
-      return s.spawnMonster("nova", 5, 5, "surface").hp === 2 &&
+      return s.spawnMonster("nova", 5, 5, "surface").hp === 3 &&
         s.spawnMonster("nova", 5, 6, "wisp").hp === 2 &&
         s.spawnMonster("nova", 27, 19, "guardian").hp === 6;
     })());
@@ -3147,7 +3148,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     check(`item purpose: the ${kind} carries a use line`,
       typeof ITEM_DEFS[kind].use === "string" && ITEM_DEFS[kind].use.length > 10);
   }
-  check("the sword's use names the swing and its two-swing kill", ITEM_DEFS.sword.use.includes("Swung") && ITEM_DEFS.sword.use.includes("two landed swings"));
+  check("the sword's use names the swing and its three-swing kill (F-GROK-9)", ITEM_DEFS.sword.use.includes("Swung") && ITEM_DEFS.sword.use.includes("three landed swings"));
   const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
   const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
   check("the view composes the how from live bindings",
@@ -5197,9 +5198,9 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     MONSTER_ACTIONS.wisp.length === 0 && FIGHT_STAGE_TICKS.wisp.length === 0);
 
   // Morph stages: thresholds, names, damage and cadence scaling.
-  check("monster: glimmer morphs Kindled at 10 ticks, Unbound at 24",
-    monsterFightStage("surface", 9) === 0 && monsterFightStage("surface", 10) === 1 &&
-    monsterFightStage("surface", 24) === 2 &&
+  check("monster: glimmer morphs Kindled at 4 ticks, Unbound at 14 (F-GROK-9: was 10/24 — a fought glimmer died at ~tick 7, before Kindled)",
+    monsterFightStage("surface", 3) === 0 && monsterFightStage("surface", 4) === 1 &&
+    monsterFightStage("surface", 14) === 2 &&
     FIGHT_STAGE_NAMES.surface[1] === "Kindled" && FIGHT_STAGE_NAMES.surface[2] === "Unbound");
   check("monster: the husk morphs slower — Cracked at 12, Molten at 28",
     monsterFightStage("husk", 11) === 0 && monsterFightStage("husk", 12) === 1 &&
@@ -5220,17 +5221,19 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     const m = s.spawnMonster("nova", 10, 10, "surface");
     const fox = { realmId: "nova", bx: 21, bz: 21 }; // the fox's own cell (10,10)
     for (let i = 0; i < 4; i++) s.tick(fox);
-    check("monster: no action before its tick comes due",
-      s.drainFightEvents().length === 0 && m.fightTicks === 4, `ticks=${m.fightTicks}`);
+    const evs0 = s.drainFightEvents();
+    check("monster: no repertoire action before its tick comes due (only the Kindled morph, F-GROK-9 tick 4, has fired)",
+      evs0.length === 1 && evs0[0].action === "morph" && evs0[0].stage === 1 && m.fightTicks === 4,
+      `ticks=${m.fightTicks} evs=${JSON.stringify(evs0)}`);
     s.tick(fox); // tick 5: the first action (a lunge, on its own cell — it connects)
     const evs = s.drainFightEvents();
-    check("monster: the first action fires on its scheduled tick",
-      evs.length === 1 && evs[0].action === "lunge" && evs[0].damage === 1,
+    check("monster: the first action fires on its scheduled tick — a Kindled lunge, landing harder for the stage",
+      evs.length === 1 && evs[0].action === "lunge" && evs[0].damage === 2 && evs[0].stage === 1,
       JSON.stringify(evs));
     for (let i = 0; i < 19; i++) s.tick(fox); // to tick 24
     const evs2 = s.drainFightEvents();
     check("monster: by 24 ticks it has morphed twice and stands Unbound",
-      m.fightStage === 2 && evs2.filter((e) => e.action === "morph").length === 2 &&
+      m.fightStage === 2 && evs2.filter((e) => e.action === "morph").length === 1 &&
       evs2.some((e) => e.action === "morph" && e.stage === 2), `stage=${m.fightStage}`);
     check("monster: a morphed glimmer's spit lands harder (stage-scaled damage)",
       evs2.some((e) => e.action === "spit" && e.damage >= 2) ||
@@ -5274,7 +5277,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     const m = s.spawnMonster("nova", 12, 12, "surface");
     s.strikeMonster(m);
     check("monster: a landed strike recoils it and counts the hurt",
-      m.recoilTicks === RECOIL_TICKS && m.hurtSeq === 1 && m.hp === 1,
+      m.recoilTicks === RECOIL_TICKS && m.hurtSeq === 1 && m.hp === 2,
       `recoil=${m.recoilTicks} hurt=${m.hurtSeq} hp=${m.hp}`);
     const fox = { realmId: "nova", bx: 21, bz: 21 };
     s.tick(fox);
@@ -5302,7 +5305,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     game.includes("monsterHurt(kind)") && game.includes("sfx.monsterHurt(m.kind)") &&
     game.includes("sfx.monsterHurt(best.kind)") && game.includes("(m.hurtSeq || 0) > hurtBefore"));
   check("view: the mesh flinches on recoilTicks and grows with the morph stage",
-    game.includes("m.recoilTicks / RECOIL_TICKS") && game.includes("(m.fightStage || 0) * 0.14"));
+    game.includes("m.recoilTicks / RECOIL_TICKS") && game.includes("(m.fightStage || 0) * 0.26"));
   check("view: fight events drain in the physics tick and land as hurt",
     game.includes("stepFightEvents()") && game.includes("sub.drainFightEvents()") &&
     game.includes("if (!presented) stepFightEvents();"));
@@ -5314,6 +5317,33 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("view: the low-HP white-out overlay stands and syncHud drives it from the pure curve",
     page.includes('id="lowhp"') && game.includes("lowHpWhite(state.hp, state.maxHp)") &&
     page.includes("rgba(255,255,255,0.92)"));
+
+  // F-GROK-9: the four fight-feel fixes.
+  const worldSrc = readFileSync(new URL("./world.js", import.meta.url), "utf8");
+  {
+    const s = new Subspace();
+    s.getScroll("nova", 0, 0);
+    s.monsters.length = 0;
+    const m = s.spawnMonster("nova", 10, 10, "surface");
+    const fox = { realmId: "nova", bx: 21, bz: 21 };
+    s.strikeMonster(m); // first landed strike: hp 3 -> 2, and it aggroes
+    for (let i = 0; i < 4; i++) s.tick(fox);
+    check("F-GROK-9 (a): a struck glimmer reaches Kindled (stage 1) still alive, with strikes still to go",
+      m.alive && m.fightStage === 1 && m.hp === 2,
+      `alive=${m.alive} stage=${m.fightStage} hp=${m.hp} ticks=${m.fightTicks}`);
+    check("F-GROK-9 (d): a dead creature's queued fight events are purged in subspace",
+      worldSrc.includes("this.fightEvents = this.fightEvents.filter((ev) => ev.monsterId !== m.id)"));
+  }
+  check("F-GROK-9 (b): the contact-range strike tell stands in the page and flashes on landed strikes",
+    page.includes('id="hitmark"') && game.includes("function flashStrikeTell()") &&
+    game.includes("flashStrikeTell(); // F-GROK-9 (b)"));
+  check("F-GROK-9 (c): the low-HP wash carries no transition lag — neither in the page nor in syncHud",
+    !/#lowhp\s*\{[^}]*transition:\s*opacity/.test(page) &&
+    game.includes('el.style.transition = "none"; el.style.opacity = String(lw.opacity)'));
+  check("F-GROK-9 (d): fight events from a dead creature speak nothing, and its status word is owner-bound",
+    game.includes("if (!m || !m.alive || ev.realmId !== state.realm) continue;") &&
+    game.includes('damagePopup("it braces", "#8d99b0", ev.monsterId)') &&
+    game.includes("function clearOrphanPopup()") && game.includes("clearOrphanPopup();"));
 }
 
 

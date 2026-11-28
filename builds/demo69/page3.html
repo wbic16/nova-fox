@@ -26,6 +26,16 @@
     color: rgba(255,255,255,0.85); font-size: 18px; pointer-events: none;
     text-shadow: 0 0 4px #000;
   }
+  #hitmark {
+    /* F-GROK-9 (b): the contact-range strike tell — a red ring at
+       the crosshair, flashed by flashStrikeTell for ~700 ms on a
+       landed strike. On screen, not on the monster, so it stays
+       readable when the monster's cubes fill the camera. */
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 52px; height: 52px; border: 3px solid rgba(255,36,24,0.95);
+    border-radius: 50%; box-shadow: 0 0 12px rgba(255,36,24,0.8), inset 0 0 12px rgba(255,36,24,0.55);
+    opacity: 0; pointer-events: none; z-index: 9;
+  }
   #dmg {
     inset: 0; pointer-events: none; opacity: 0; z-index: 8;
     /* A2-MONSTER (Play 1): the hit flash is FULL-screen red — a flat
@@ -37,7 +47,13 @@
     /* A2-MONSTER (Play 1): the low-HP white-out — white closes in
        from the edges as HP falls below a quarter (lowHpWhite). */
     background: radial-gradient(ellipse at center, rgba(255,255,255,0.25) 30%, rgba(255,255,255,0.92) 100%);
-    transition: opacity 0.35s;
+    /* F-GROK-9 (c): NO transition here. The old 0.35s transition left
+       the RENDERED opacity at 0 on the very hit that dropped HP —
+       lowHpWhite computed 0.352 for HP 3/20 and the inline style
+       carried it, but the rendered (computed) opacity was still 0
+       when the moment was read, while #dmg — whose flashDamage
+       kills its transition — rendered at once. syncHud now also
+       sets transition:none inline, belt and braces. */
   }
   #flash {
     inset: 0; pointer-events: none; opacity: 0; z-index: 8;
@@ -742,6 +758,7 @@
 <div id="nf-progress" hidden><div id="nf-progress-track"><div id="nf-progress-bar"></div></div><div id="nf-progress-note"></div></div>
 <div id="stage"></div>
 <div class="overlay" id="crosshair">+</div>
+<div class="overlay" id="hitmark"></div>
 <div class="overlay" id="dmg"></div>
 <div class="overlay" id="lowhp"></div>
 <div class="overlay" id="flash"></div>
