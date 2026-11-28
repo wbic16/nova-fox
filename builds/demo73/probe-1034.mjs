@@ -211,9 +211,10 @@ try {
   await key("h", "KeyH");
   await sleep(400);
   const lockedComms = await evalJs("document.getElementById('comms').textContent");
-  check("flight: a free fox is refused, in words that name both unlock paths",
+  check("flight: a free fox is refused, in words that name purchase alone (EE 1338)",
     (await evalJs("NOVA_FOX3.flightState().flying")) === false &&
-    /Flight is not yours yet/.test(lockedComms) && /kills the dragon/.test(lockedComms),
+    /Flight is not yours yet/.test(lockedComms) && /bought the game/.test(lockedComms) &&
+    !/kills the dragon/.test(lockedComms),
     lockedComms.slice(0, 120));
 
   // --- Item 1: the tunnel — craft on open, walk the bore, cross ----------------------

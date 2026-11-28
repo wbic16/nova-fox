@@ -3474,15 +3474,47 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   }
 }
 
-// --- EE 1034: the flight gate ------------------------------------------------
+// --- EE 1034: the flight gate, RE-RULED EE 1338: purchase unlocks flight -----
+// Will (EE 1338, verbatim): "purchase unlocks flight". The dragon
+// path is replaced: a dragon kill alone no longer opens flight.
+// The pins below execute the real gate (economy.js flightUnlocked)
+// and the real purchase-record parser (parsePurchaseBoard).
 {
   const free = newEconomyState();
   const paid = newEconomyState();
   paid.entitlement.status = "paid";
-  check("flight: a free fox is refused", flightUnlocked(free, false).ok === false);
+  check("flight: a free fox is refused (no purchase)", flightUnlocked(free, false).ok === false);
   check("flight: a paid fox flies, via paid", flightUnlocked(paid, false).via === "paid");
-  check("flight: a dragon-slayer flies, via dragon", flightUnlocked(free, true).via === "dragon");
-  check("flight: paid names it when both are true", flightUnlocked(paid, true).via === "paid");
+  check("flight: the session's paid word flies, via paid", flightUnlocked(free, true).via === "paid");
+  check("flight: a dragon kill alone no longer unlocks flight (EE 1338 replaces the dragon path)",
+    flightUnlocked(free, false, [], "fox-dragon").ok === false &&
+    flightUnlocked(free, false, [], "fox-dragon").via === null);
+  // The written purchase record (name|source|ts lines, as read back
+  // from the purchase scroll): a gumroad-sale row unlocks.
+  const saleRows = parsePurchaseBoard("fox-a|gumroad|100\nfox-b|gift|200");
+  check("flight: a gumroad-sale record unlocks its fox, via paid",
+    flightUnlocked(free, false, saleRows, "fox-a").ok === true &&
+    flightUnlocked(free, false, saleRows, "fox-a").via === "paid");
+  check("flight: a gift record on the purchase record unlocks too, via paid",
+    flightUnlocked(free, false, saleRows, "fox-b").via === "paid");
+  check("flight: another fox's purchase record does not unlock this fox",
+    flightUnlocked(free, false, saleRows, "fox-z").ok === false);
+  // A grant-typed record is a license (EE 1338 reading, flagged in
+  // the MR for Will's correction if wrong).
+  const grantRows = parsePurchaseBoard("fox-g|x-factor-grant|300");
+  check("flight: the purchase record carries an x-factor-grant row as a row",
+    grantRows.length === 1 && grantRows[0].source === "x-factor-grant");
+  check("flight: an x-factor-grant record unlocks its fox, via grant",
+    flightUnlocked(free, false, grantRows, "fox-g").ok === true &&
+    flightUnlocked(free, false, grantRows, "fox-g").via === "grant");
+  check("flight: an x-factor-grant record does not unlock another fox",
+    flightUnlocked(free, false, grantRows, "fox-a").ok === false);
+  // The refusal surfaces, in the game's own words: purchase only,
+  // no dragon path promised, no tech talk.
+  const gameSrcF = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  check("flight: the refusal toast surfaces, naming purchase alone",
+    gameSrcF.includes('toast("Flight is not yours yet — it belongs to those who have bought the game.", 4200)') &&
+    !gameSrcF.includes("Flight is not yours yet — it belongs to those who have bought the game, and to whoever kills the dragon."));
   const s = new Subspace();
   check("the dragon flag starts unraised", s.dragonKilled === false);
   s.setDragonKilled(true);
@@ -4134,8 +4166,8 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
 
   const ecoFree = newEconomyState();
   check("W-3: flight takes the session word as paid",
-    flightUnlocked(ecoFree, false, true).ok === true && flightUnlocked(ecoFree, false, true).via === "paid" &&
-    flightUnlocked(ecoFree, false, false).ok === false && flightUnlocked(ecoFree, false).ok === false);
+    flightUnlocked(ecoFree, true).ok === true && flightUnlocked(ecoFree, true).via === "paid" &&
+    flightUnlocked(ecoFree, false).ok === false && flightUnlocked(ecoFree).ok === false);
 
   const g3 = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
   check("W-3 glue: the game presents its key to the license-session door",
@@ -4143,7 +4175,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   check("W-3 glue: the boot chain presents after the flush",
     g3.includes("backendFlush()).then(() => presentLicenseKey())"));
   check("W-3 glue: flight and the dial consume the session word",
-    g3.includes("flightUnlocked(eco, sub.dragonKilled, BACKEND.sessionPaid)") &&
+    g3.includes("flightUnlocked(eco, BACKEND.sessionPaid, BACKEND.purchaseRows, playerName)") &&
     g3.includes("isGenerator(eco) || BACKEND.sessionPaid"));
   check("W-3 glue: a validated pending gift queues its redeemed line",
     g3.includes("wasPendingGift") && g3.includes("giftRedeemedLine(giftKeyHash(key), playerName, Date.now())"));
@@ -4338,7 +4370,8 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
 // Will: the dial is a microcosm of subspace. Morse chooses the next
 // coordinate. S.O.S brings you home. Full range (magnitude and
 // frequency, and no once-a-day cap) opens for a paid license or the
-// dragon — the flight gate's rule. Joy teaches all 36 marks by
+// dragon — the dial's own rule (EE 1338 took the dragon off
+// flight's gate only; the dial keeps it). Joy teaches all 36 marks by
 // spaced repetition, on this machine, as the fox explores.
 {
   check("dial: the alphabet and the digits are 36 symbols",
@@ -4425,13 +4458,13 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   const paidEco = newEconomyState();
   paidEco.entitlement.status = "paid";
   const cases = [[false, false], [true, false], [false, true], [true, true]];
-  check("dial: the range gate matches the flight gate on every case",
+  check("dial: the range gate keeps its own rule and diverges from flight on the dragon (EE 1338)",
     cases.every(([paid, dragon]) => {
       const eco = paid ? paidEco : freeEco;
-      const f = flightUnlocked(eco, dragon);
       const d = dialRangeUnlocked(isGenerator(eco), dragon);
-      return f.ok === d.ok && f.via === d.via;
-    }));
+      return d.ok === (paid || dragon) && d.via === (paid ? "paid" : dragon ? "dragon" : null);
+    }) &&
+    flightUnlocked(freeEco, false).ok === false && dialRangeUnlocked(false, true).ok === true);
   check("dial: a free fox is refused off Standard and off Still",
     proposeDial(4, 4, false).reason === "locked" &&
     proposeDial(2, 1, false).reason === "locked" &&
@@ -4622,7 +4655,7 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     page.includes("S.O.S"));
   check("play: the dial has a key S.O.S button",
     page.includes('id="gdial-sos"'));
-  check("dial: the game judges the range with the flight gate's own inputs",
+  check("dial: the game judges the range with its own inputs (the paid word or the dragon flag)",
     game.includes("dialRangeUnlocked(isGenerator(eco) || BACKEND.sessionPaid, !!sub.dragonKilled)") &&
     game.includes("MORSE_LS_KEY") && game.includes("gravityCoord") &&
     game.includes('id="gdial"') === false);

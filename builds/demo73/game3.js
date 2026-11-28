@@ -113,7 +113,7 @@ const state = {
   guideDone: false,
   transit: null, // the rift crossing in progress, or null (EE 1034: a tunnel walk, in the world itself)
   // v3 state
-  flying: false, // EE 1034 (item 5): flight — gated by flightUnlocked (paid, or the dragon)
+  flying: false, // EE 1034 (item 5), re-ruled EE 1338: flight — gated by flightUnlocked (purchase unlocks flight)
   dialMag: 2, dialFreq: 0, // the gravity dial: Standard + Still until a reading says otherwise
   dialOpen: false, dialPattern: "", dialTapAt: 0, dialDownAt: 0, dialWalkMark: 0,
   weapon: null, // null = bare strike; "lance" = the Star Lance
@@ -5481,13 +5481,16 @@ function equipWeapon() {
     : "You take the Star Lance in hand.", 1800);
 }
 
-// EE 1034 (item 5): flight, gated exactly as Will ruled
-// (2026-11-27 00:53 CST): "flight is gated on being a paid
-// member or having killed the dragon". The predicate is
-// economy.js flightUnlocked; the dragon flag is the world's
-// (sub.dragonKilled — Beat 2 sets it in play; nothing does
-// yet, and that is correct). A locked fox who asks is told
-// plainly what flight belongs to.
+// EE 1034 (item 5), RE-RULED EE 1338 (Will, verbatim):
+// "purchase unlocks flight". The predicate is economy.js
+// flightUnlocked, bound to the entitlement surfaces that
+// already exist: the paid entitlement, the gateway's
+// license-session word (BACKEND.sessionPaid), and the written
+// purchase record read back at BACKEND.purchaseCoord
+// (BACKEND.purchaseRows — a gumroad-sale row, or a grant-typed
+// "x-factor-grant" row, which is a license too). The dragon
+// flag no longer stands on this gate. A locked fox who asks
+// is told plainly what flight belongs to.
 function toggleFlight() {
   if (state.dead || state.transit) return;
   if (state.flying) {
@@ -5495,15 +5498,15 @@ function toggleFlight() {
     toast("You settle back to the ground's word.", 1600);
     return;
   }
-  const gate = flightUnlocked(eco, sub.dragonKilled, BACKEND.sessionPaid);
+  const gate = flightUnlocked(eco, BACKEND.sessionPaid, BACKEND.purchaseRows, playerName);
   if (!gate.ok) {
     sfx.tone(120, { type: "sine", peak: 0.12, decay: 0.3, slide: -40 });
-    toast("Flight is not yours yet — it belongs to those who have bought the game, and to whoever kills the dragon.", 4200);
+    toast("Flight is not yours yet — it belongs to those who have bought the game.", 4200);
     return;
   }
   state.flying = true;
-  toast(gate.via === "dragon"
-    ? "The dragon is dead, and the sky is yours. Hold jump to rise; release to hover."
+  toast(gate.via === "grant"
+    ? "Your name stands on the record — the sky is yours. Hold jump to rise; release to hover."
     : "Your key bought the sky too. Hold jump to rise; release to hover.", 3200);
 }
 
@@ -11587,7 +11590,7 @@ window.NOVA_FOX3 = {
   foxPos: () => ({ x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }),
   equipState: () => ({ weapon: state.weapon, ownsSword: state.ownsSword, ownsLance: state.ownsLance }),
   // EE 1034 handles: flight, battle, tunnels, the dragon flag.
-  flightState: () => ({ flying: state.flying, gate: flightUnlocked(eco, sub.dragonKilled, BACKEND.sessionPaid), dragonKilled: sub.dragonKilled }),
+  flightState: () => ({ flying: state.flying, gate: flightUnlocked(eco, BACKEND.sessionPaid, BACKEND.purchaseRows, playerName), dragonKilled: sub.dragonKilled }),
   setDragonKilled: (v) => { sub.setDragonKilled(!!v); return sub.dragonKilled; },
   // EE 1037 handles: the Heart's art, the Shadow's fight, the skills.
   heartArt: () => heartArtProfile(),

@@ -237,16 +237,30 @@ export function loadEconomyState(raw) {
 }
 export function isGenerator(eco) { return eco.entitlement.status === "paid"; }
 
-// EE 1034 item 5 — flight, gated exactly as Will ruled (2026-11-27
-// 00:53 CST): "flight is gated on being a paid member or having
-// killed the dragon". Paid = a redeemed key / paid entitlement
-// (isGenerator). The dragon path reads the world's dragonKilled
-// flag; the dragon is Beat 2 (Christmas), so nothing in normal
-// play sets it yet — that is correct, not a gap.
-export function flightUnlocked(eco, dragonKilled, sessionPaid) {
+// EE 1034 item 5, RE-RULED EE 1338 (Will, verbatim): "purchase
+// unlocks flight". Until EE 1338 the gate was paid OR dragonKill
+// (the 2026-11-27 ruling); the dragon path is now REPLACED as
+// flight's unlock condition — a dragon kill no longer opens
+// flight (the dragon flag keeps its other meanings, e.g. the
+// dial's range gate in gdial.js, untouched). Flight opens on a
+// valid purchase / license, through the surfaces that already
+// carry it, and no parallel one:
+//   - the local paid entitlement (isGenerator: a redeemed
+//     Gumroad or gift key), or
+//   - the gateway's license-session word (sessionPaid, W-3: the
+//     Gumroad sale validated on connect), or
+//   - the written purchase record itself (purchaseRows, read
+//     back from the purchase scroll at BACKEND.purchaseCoord
+//     1.1.1/1.1.3/1.1.1): a row standing in the player's name.
+// A row typed "x-factor-grant" IS a license (EE 1338 reading: a
+// grant-typed record in the purchase record unlocks, via
+// "grant") — flagged in the MR for Will's correction if wrong.
+export function flightUnlocked(eco, sessionPaid, purchaseRows, playerName) {
   if (eco && isGenerator(eco)) return { ok: true, via: "paid" };
   if (sessionPaid) return { ok: true, via: "paid" }; // the global server's word, W-3
-  if (dragonKilled) return { ok: true, via: "dragon" };
+  const row = Array.isArray(purchaseRows) && playerName
+    ? purchaseRows.find((r) => r && r.name === playerName) : null;
+  if (row) return { ok: true, via: row.source === "x-factor-grant" ? "grant" : "paid" };
   return { ok: false, via: null };
 }
 
@@ -510,7 +524,10 @@ export function parsePurchaseBoard(text) {
   for (const ln of String(text || "").split("\n")) {
     const [name, source, ts] = ln.split("|");
     if (!name || seen.has(name)) continue;
-    if (source !== "gumroad" && source !== "gift") continue;
+    // EE 1338: a grant-typed record ("x-factor-grant") stands on
+    // the purchase record as a license in its own right (see
+    // flightUnlocked); gumroad = a Gumroad sale, gift = a gift key.
+    if (source !== "gumroad" && source !== "gift" && source !== "x-factor-grant") continue;
     seen.add(name);
     rows.push({ name, source, ts: +ts || 0, number: rows.length + 1 });
   }

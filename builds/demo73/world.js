@@ -976,7 +976,7 @@ export class Subspace {
     this.riftLinks = new Map(); // EE 1023: standing rift links, registered by the view (item 1)
     this.tunnels = new Map(); // EE 1034: standing wormholes, key -> record (the chart's resolved set)
     this.geo = new Map(); // P-1: resolved shared geometry, realmId -> Map("x,y,z" -> block) (the chart's record, replayed)
-    this.dragonKilled = false; // EE 1034: flight's second gate (Beat 2 sets it; nothing here does yet)
+    this.dragonKilled = false; // EE 1034: the dragon flag (Beat 2 sets it; nothing here does yet) — EE 1338: no longer a flight gate
     this.log("genesis", "the chart", "the world is loaded; the dark is counted, not empty");
   }
 
@@ -2053,14 +2053,16 @@ export class Subspace {
   }
 
   // EE 1034 (item 5): the dragon flag. Beat 2's dragon, when it
-  // dies, sets this — and flight's gate opens for the slayer.
-  // Nothing in this build calls it in normal play; that absence is
-  // correct (the dragon is Christmas), and the setter is wal-logged
-  // like every world fact.
+  // dies, sets this. EE 1338: flight's gate no longer reads it —
+  // purchase unlocks flight; the flag keeps its other meanings
+  // (the dial's range gate still reads it). Nothing in this
+  // build calls it in normal play; that absence is correct (the
+  // dragon is Christmas), and the setter is wal-logged like
+  // every world fact.
   setDragonKilled(v) {
     this.dragonKilled = !!v;
     if (v) this.log("dragon", "the chart",
-      "the dragon is dead — flight's second gate stands open");
+      "the dragon is dead");
   }
 
   // EE 1034 (item 1): adopt the chart's resolved standing wormholes.
