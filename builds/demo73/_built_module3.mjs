@@ -63973,10 +63973,13 @@ function banterSay(line) {
   if (!line) return;
   const el = $("banter-line");
   if (el) {
-    el.textContent = line.text;
+    const txt = $("banter-text");
+    if (txt) txt.textContent = line.text; else el.textContent = line.text;
+    const bp = $("banter-portrait");
+    if (bp) { bp.style.display = "inline-block"; drawPortraitFor("joy", bp, joyPortraitOpts()); }
     el.style.opacity = "1";
     clearTimeout(banterLineTimer);
-    banterLineTimer = setTimeout(() => { el.style.opacity = "0"; },
+    banterLineTimer = setTimeout(() => { el.style.opacity = "0"; if (bp) bp.style.display = "none"; },
       Math.max(4200, line.text.length * 95));
   }
   narration.play(line.id); // the audio hook: attaches by ID when a take exists
@@ -66470,6 +66473,8 @@ function startIntro(kind) {
   const card = $("introcard");
   $("intro-name").textContent = intro.name;
   $("intro-epithet").textContent = intro.epithet;
+  const ic = $("intro-portrait");
+  if (ic) drawPortraitFor(introKindKey(kind), ic, { heartOpacity: 0.16 });
   card.style.display = "block";
   card.classList.remove("show");
   void card.offsetWidth;
@@ -66969,6 +66974,7 @@ function stepJoy(now, dt) {
   u.core.material.color.setHex(speaking ? 0xffffff : 0xfff3c4)
     .lerp(JOY_GOLD, u.flare * 0.8);
   u.ring.material.color.setHex(0x00d9ff).lerp(JOY_TEAL, u.flare);
+  refreshJoyPortraits(false);
 }
 
 function syncItemMeshes(now) {
@@ -69839,6 +69845,7 @@ function renderGuide() {
     syncHud();
   }
   panel.style.display = "block";
+  refreshJoyPortraits(true);
   // F-1: while the opening exchange runs, the way out of it is
   // not a ghost — the dismiss stands lit until the handover.
   {
@@ -69945,9 +69952,65 @@ function updateObjective() {
 
 // ---------- HUD -------------------------------------------------------------------
 
-function drawPortrait() {
-  const cv = $("portrait");
-  const g = cv.getContext("2d");
+// PORTRAITS-G12-BEGIN
+// G-12 portraits (EE 1338 ruling; PORTRAITS-DESIGN.md): one renderer,
+// drawPortraitFor(who, canvas, opts), every portrait authored in the
+// 72x72 logical box, code-drawn only (no image assets). Character
+// shapes use character-fixed colors (never paletteFor); the only
+// realm-derived elements on the NEW surfaces are the background
+// plate (paletteFor(currentRealm).fog) and the 2px frame (.accent).
+// The fox keeps its shipped surfaces: HUD plate #000a18 is the canvas
+// CSS, the worn-form plate stays #0d1526. Monster fronts are the eye
+// side (+x) of buildMonsterMesh() -- the design page's named
+// transcription choice (its section 7, flag 3).
+function _portraitHex(n) { return "#" + (n >>> 0).toString(16).padStart(6, "0"); }
+function _portraitPlate(g, opts) {
+  let fog = "#000a18", acc = "#00d9ff";
+  try {
+    const realm = (opts && opts.realm) ||
+      (typeof state !== "undefined" && state && state.realm) || "nova";
+    const pal = paletteFor(realm);
+    if (pal) {
+      if (typeof pal.fog === "number") fog = _portraitHex(pal.fog);
+      else if (pal.fog) fog = pal.fog;
+      if (typeof pal.accent === "number") acc = _portraitHex(pal.accent);
+      else if (pal.accent) acc = pal.accent;
+    }
+  } catch (e) { /* plate falls back to the shipped HUD tones */ }
+  g.fillStyle = fog; g.fillRect(0, 0, 72, 72);
+  g.strokeStyle = acc; g.lineWidth = 2; g.strokeRect(1, 1, 70, 70);
+}
+function _portraitRR(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r);
+  g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r);
+  g.lineTo(x + r, y + h); g.arcTo(x, y + h, x, y + h - r, r);
+  g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r);
+  g.closePath();
+}
+function _portraitBody(g, x, y, w, h, fill, stroke) {
+  _portraitRR(g, x, y, w, h, 5);
+  g.fillStyle = fill; g.fill();
+  if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1.5; g.stroke(); }
+}
+function _portraitPoly(g, pts, fill) {
+  g.fillStyle = fill; g.beginPath();
+  g.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+  g.closePath(); g.fill();
+}
+function _portraitEllipse(g, x, y, rx, ry, fill) {
+  g.fillStyle = fill; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 7); g.fill();
+}
+function _portraitStuds(g, list, fill, stroke) {
+  for (const [x, y, r] of list) {
+    g.beginPath(); g.ellipse(x, y, r, r, 0, 0, 7);
+    g.fillStyle = fill; g.fill();
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1.5; g.stroke(); }
+  }
+}
+function _drawFoxPortrait(g) {
   g.clearRect(0, 0, 72, 72);
   // A worn form IS the fox's face while it lasts (demo6): the
   // current animation frame, fitted into the portrait, standing
@@ -69983,6 +70046,96 @@ function drawPortrait() {
     g.fillRect(22, 16, 28, 5); // band
   }
 }
+function _drawJoyPortrait(g, opts) {
+  const speaking = !!(opts && opts.speaking);
+  const guardian = !!(opts && (opts.fight === "guardian" || opts.guardianEncounter));
+  const fight = guardian || !!(opts && opts.fight);
+  let core = "#fff3c4", ring = "#00d9ff";
+  if (fight) { core = "#f9dd74"; if (guardian) ring = "#2fae94"; }
+  if (speaking) core = "#ffffff";
+  g.strokeStyle = ring; g.lineWidth = 4;
+  g.beginPath(); g.ellipse(36, 36, speaking ? 28 : 26, speaking ? 15 : 11, 0, 0, 7); g.stroke();
+  _portraitPoly(g, [[36, 16], [49, 36], [36, 56], [23, 36]], core);
+  if (speaking) _portraitPoly(g, [[36, 16], [49, 36], [36, 56], [23, 36]], "#ffffff");
+  else _portraitPoly(g, [[36, 27], [42, 36], [36, 45], [30, 36]], "#ffffff");
+}
+function drawPortraitFor(who, canvas, opts) {
+  opts = opts || {};
+  if (!canvas || typeof canvas.getContext !== "function") return false;
+  const g = canvas.getContext("2d");
+  if (!g) return false;
+  if (who === "fox") { _drawFoxPortrait(g); return true; }
+  if (who === "joy") { _portraitPlate(g, opts); _drawJoyPortrait(g, opts); return true; }
+  if (who === "wisp") {
+    _portraitPlate(g, opts);
+    _portraitBody(g, 14, 22, 44, 40, "#d6ecff", null);
+    _portraitStuds(g, [[25, 17, 4.5], [47, 17, 4.5], [25, 24, 3.5], [47, 24, 3.5]], "#f2faff", null);
+    _portraitEllipse(g, 29, 42, 3, 4.5, "#bfe8ff");
+    _portraitEllipse(g, 43, 42, 3, 4.5, "#bfe8ff");
+    return true;
+  }
+  if (who === "surface") {
+    _portraitPlate(g, opts);
+    _portraitBody(g, 14, 22, 44, 40, "#0a1230", "#0033aa");
+    _portraitStuds(g, [[25, 17, 4.5], [47, 17, 4.5], [25, 24, 3.5], [47, 24, 3.5]], "#101c44", "#0044cc");
+    _portraitEllipse(g, 29, 42, 3, 4.5, "#ff7a00");
+    _portraitEllipse(g, 43, 42, 3, 4.5, "#ff7a00");
+    return true;
+  }
+  if (who === "guardian") {
+    _portraitPlate(g, opts);
+    _portraitBody(g, 10, 16, 52, 48, "#0a1230", "#0033aa");
+    _portraitStuds(g, [[23, 13, 5], [49, 13, 5], [23, 21, 4], [49, 21, 4]], "#101c44", "#0044cc");
+    _portraitEllipse(g, 27, 38, 3.5, 5, "#ff9500");
+    _portraitEllipse(g, 45, 38, 3.5, 5, "#ff9500");
+    try {
+      const hc = heartCanvas();
+      if (hc) {
+        g.save();
+        g.globalAlpha = typeof opts.heartOpacity === "number" ? opts.heartOpacity : 0.16;
+        g.drawImage(hc, 26, 43, 20, 20);
+        g.restore();
+      }
+    } catch (e) { /* the Heart canvas is the game's own; if it is unavailable the body still reads */ }
+    return true;
+  }
+  if (who === "husk") {
+    _portraitPlate(g, opts);
+    _portraitBody(g, 12, 19, 48, 44, "#0b0908", "#7a2800");
+    _portraitStuds(g, [[24, 15, 4.5], [48, 15, 4.5], [24, 22, 3.5], [48, 22, 3.5]], "#2a1408", "#ff6a00");
+    g.fillStyle = "#ff5500";
+    g.fillRect(50, 30, 3, 16); g.fillRect(44, 42, 3, 10); g.fillRect(52, 48, 3, 7);
+    _portraitEllipse(g, 29, 40, 3, 4.5, "#ff5a00");
+    _portraitEllipse(g, 43, 40, 3, 4.5, "#ff5a00");
+    return true;
+  }
+  return false;
+}
+function joyPortraitOpts() {
+  const speaking = !!(typeof narration !== "undefined" && narration && narration.speakingId);
+  let fight = false;
+  try {
+    if (typeof state !== "undefined" && state && state.guardianEncounter) fight = "guardian";
+    else if (typeof battleOn !== "undefined" && battleOn) fight = true;
+  } catch (e) { /* no fight signal readable: the quiet portrait */ }
+  return { speaking, fight };
+}
+let _joyPortraitKey = "";
+function refreshJoyPortraits(force) {
+  const o = joyPortraitOpts();
+  const key = o.speaking + "|" + o.fight;
+  if (!force && key === _joyPortraitKey) return;
+  _joyPortraitKey = key;
+  if (typeof document === "undefined" || !document.getElementById) return;
+  const gc = document.getElementById("joy-portrait");
+  if (gc) drawPortraitFor("joy", gc, o);
+  const bc = document.getElementById("banter-portrait");
+  if (bc) drawPortraitFor("joy", bc, o);
+}
+function drawPortrait() {
+  drawPortraitFor("fox", $("portrait"));
+}
+// PORTRAITS-G12-END
 // EE 1034 (item 4): purse pulse memory — module-level so the
 // 5-second sync and the event syncs agree on what "changed" is.
 let pursePulseKey = "";

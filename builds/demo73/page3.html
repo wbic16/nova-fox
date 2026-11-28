@@ -226,6 +226,10 @@
     margin: 0 0 8px; font-family: Georgia, serif; font-size: 16.5px; line-height: 1.5; color: #e8f6ff;
   }
   #guide-hint { color: #7fd8ff; font-size: 13.5px; min-height: 18px; }
+  #guide-main { display: flex; gap: 12px; align-items: flex-start; }
+  #joy-portrait { width: 56px; height: 56px; border-radius: 8px; flex: 0 0 auto; }
+  #banter-portrait { width: 28px; height: 28px; border-radius: 6px; display: none; vertical-align: middle; margin-right: 8px; }
+  #intro-portrait { width: 96px; height: 96px; }
   /* F-1 (EE 1129): during the opening exchange the way out stands
      lit — a first-time player should not have to find a ghost. */
   #guide-dismiss.skip-on { color: #ffd98a; border: 1px solid #ffd98a; opacity: 1; }
@@ -771,6 +775,7 @@
 <div class="overlay" id="striker"><div id="striker-cap"></div><div id="striker-word">strike</div></div>
 <div class="overlay" id="introcard">
   <div class="rule"></div>
+  <canvas id="intro-portrait" width="72" height="72"></canvas>
   <div id="intro-name"></div>
   <div id="intro-epithet"></div>
   <div class="rule"></div>
@@ -841,11 +846,16 @@
 
 <div class="overlay" id="bottombar">
   <div id="comms"></div>
-  <div id="banter-line"></div>
+  <div id="banter-line"><canvas id="banter-portrait" width="72" height="72"></canvas><span id="banter-text"></span></div>
   <section id="guide">
-    <div class="who">Joy — your aperture shift</div>
-    <div id="guide-lines"></div>
-    <div id="guide-hint"></div>
+    <div id="guide-main">
+      <canvas id="joy-portrait" width="72" height="72"></canvas>
+      <div>
+        <div class="who">Joy — your aperture shift</div>
+        <div id="guide-lines"></div>
+        <div id="guide-hint"></div>
+      </div>
+    </div>
     <div class="btnrow">
       <button class="act" id="guide-btn">And then?</button>
       <button class="ghost" id="guide-dismiss">let me explore on my own</button>

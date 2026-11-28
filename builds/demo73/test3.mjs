@@ -7008,5 +7008,133 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   }
 }
 
+
+// === G-12 portraits (EE 1338 ruling; PORTRAITS-DESIGN.md) ===
+{
+  const g12Game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const g12Page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const secAt = g12Game.indexOf("// PORTRAITS-G12-BEGIN");
+  const secEnd = g12Game.indexOf("// PORTRAITS-G12-END");
+  const sec = (secAt >= 0 && secEnd > secAt) ? g12Game.slice(secAt, secEnd) : "";
+  check("G-12: the portrait block extracts (PORTRAITS-G12 markers present)", sec.includes("function drawPortraitFor"));
+  class MockCtx {
+    constructor() { this.ops = []; this.fillStyle = ""; this.strokeStyle = ""; this.lineWidth = 1; this.globalAlpha = 1; }
+    rec(n, a) { this.ops.push([n, ...a, this.fillStyle, this.strokeStyle, this.globalAlpha]); }
+    clearRect(...a) { this.rec("clearRect", a); } fillRect(...a) { this.rec("fillRect", a); }
+    strokeRect(...a) { this.rec("strokeRect", a); } beginPath() { this.rec("beginPath", []); }
+    moveTo(...a) { this.rec("moveTo", a); } lineTo(...a) { this.rec("lineTo", a); }
+    arcTo(...a) { this.rec("arcTo", a); } closePath() { this.rec("closePath", []); }
+    ellipse(...a) { this.rec("ellipse", a); } fill() { this.rec("fill", []); }
+    stroke() { this.rec("stroke", []); } save() { this.rec("save", []); }
+    restore() { this.rec("restore", []); } drawImage(...a) { this.rec("drawImage", a.map((x) => typeof x === "object" ? "IMG" : x)); }
+  }
+  const mkCanvas = () => { const ctx = new MockCtx(); return { width: 72, height: 72, style: {}, _ctx: ctx, getContext: () => ctx }; };
+  const hud = mkCanvas();
+  const env = {
+    formState: { text: null }, formFrameIdx: 0, formCanvases: () => null,
+    sub: { hatGranted: false }, narration: { speakingId: null },
+    state: { realm: "nova", guardianEncounter: false }, battleOn: false,
+  };
+  const api = sec ? new Function("$", "document", "paletteFor", "heartCanvas",
+    "formState", "formFrameIdx", "formCanvases", "sub", "narration", "state", "battleOn",
+    sec + "\nreturn { drawPortrait, drawPortraitFor, joyPortraitOpts, refreshJoyPortraits };")(
+    (id) => (id === "portrait" ? hud : null), { getElementById: () => null },
+    () => ({ fog: 0x112233, accent: 0xaabbcc }),
+    () => ({ width: 128, height: 128 }),
+    env.formState, 0, env.formCanvases, env.sub, env.narration, env.state, env.battleOn) : null;
+  check("G-12: the portrait block evaluates with a mock canvas environment", !!api);
+  if (api) {
+    const render = (who, opts) => { const cv = mkCanvas(); const ok = api.drawPortraitFor(who, cv, opts); return { ok, ops: cv._ctx.ops }; };
+    const hasFill = (ops, color) => ops.some((o) => (o[0] === "fill" || o[0] === "fillRect") && o[o.length - 3] === color);
+    const hasEllipse = (ops, x, y, rx, ry, color) => ops.some((o) => o[0] === "ellipse" && o[1] === x && o[2] === y && o[3] === rx && o[4] === ry)
+      && ops.some((o) => o[0] === "fill" && o[o.length - 3] === color);
+    for (const who of ["fox", "joy", "wisp", "surface", "guardian", "husk"]) {
+      const r = render(who);
+      check(`G-12: drawPortraitFor renders "${who}" without error and draws shapes`, r.ok === true && r.ops.length > 5);
+    }
+    check("G-12: an unknown who is refused (no dragon, no invented roster)", api.drawPortraitFor("dragon", mkCanvas()) === false);
+    // Fox: default face, hat off / on, and drawPortrait() equivalence.
+    const foxNoHat = render("fox");
+    check("G-12: fox face keeps the shipped geometry and colors (blue fur, ice muzzle, dark eyes)",
+      hasEllipse(foxNoHat.ops, 36, 42, 22, 19, "#2f7fe0") && hasEllipse(foxNoHat.ops, 36, 52, 12, 9, "#d8f1ff")
+      && hasEllipse(foxNoHat.ops, 27, 40, 3, 4, "#04101e") && !hasFill(foxNoHat.ops, "#00a3ff"));
+    env.sub.hatGranted = true;
+    const foxHat = render("fox");
+    check("G-12: fox hat renders iff hatGranted (brim, crown, band)",
+      foxHat.ops.some((o) => o[0] === "fillRect" && o[1] === 12 && o[2] === 20 && o[3] === 48 && o[4] === 6 && o[o.length - 3] === "#00a3ff")
+      && foxHat.ops.some((o) => o[0] === "fillRect" && o[1] === 22 && o[2] === 16 && o[o.length - 3] === "#005f8f"));
+    env.sub.hatGranted = false;
+    hud._ctx.ops = []; api.drawPortrait();
+    const viaWrapper = JSON.stringify(hud._ctx.ops);
+    check("G-12: drawPortrait() draws exactly what drawPortraitFor('fox') draws (byte-behavior identical)",
+      viaWrapper === JSON.stringify(render("fox").ops));
+    // Fox worn form: plate #0d1526, form frame fitted, no fox shapes.
+    env.formState.text = "form"; 
+    const wornApi = new Function("$", "document", "paletteFor", "heartCanvas",
+      "formState", "formFrameIdx", "formCanvases", "sub", "narration", "state", "battleOn",
+      sec + "\nreturn { drawPortraitFor };")(
+      () => null, { getElementById: () => null }, () => ({ fog: 0x112233, accent: 0xaabbcc }),
+      () => ({ width: 128, height: 128 }), env.formState, 0,
+      () => ({ frames: [{ width: 36, height: 18 }] }), env.sub, env.narration, env.state, env.battleOn);
+    { const cv = mkCanvas(); wornApi.drawPortraitFor("fox", cv); const ops = cv._ctx.ops;
+      check("G-12: worn-form fox shows the form frame on the #0d1526 plate and no fox shapes",
+        hasFill(ops, "#0d1526") && ops.some((o) => o[0] === "drawImage") && !hasFill(ops, "#2f7fe0")); }
+    env.formState.text = null;
+    // Joy states.
+    const joyQ = render("joy");
+    check("G-12: Joy quiet — #fff3c4 diamond core in a #00d9ff elliptical ring (rx26 ry11)",
+      joyQ.ops.some((o) => o[0] === "ellipse" && o[1] === 36 && o[2] === 36 && o[3] === 26 && o[4] === 11 && o[o.length - 2] === "#00d9ff")
+      && hasFill(joyQ.ops, "#fff3c4") && hasFill(joyQ.ops, "#ffffff"));
+    const joyS = render("joy", { speaking: true });
+    check("G-12: Joy speaking — ring opens (rx28 ry15) and the core goes white",
+      joyS.ops.some((o) => o[0] === "ellipse" && o[3] === 28 && o[4] === 15) && hasFill(joyS.ops, "#ffffff") && !hasFill(joyS.ops, "#f9dd74"));
+    const joyB = render("joy", { fight: true });
+    check("G-12: Joy fight-flare (lesser fight) — core gold #f9dd74, ring stays cyan",
+      hasFill(joyB.ops, "#f9dd74") && joyB.ops.some((o) => o[0] === "ellipse" && o[o.length - 2] === "#00d9ff"));
+    const joyG = render("joy", { fight: "guardian" });
+    check("G-12: Joy fight-flare (guardian) — core gold, ring deepens to teal #2fae94",
+      hasFill(joyG.ops, "#f9dd74") && joyG.ops.some((o) => o[0] === "ellipse" && o[o.length - 2] === "#2fae94"));
+    check("G-12: joyPortraitOpts reads the game's own signals (speakingId, guardianEncounter, battleOn)",
+      (() => { const a = api.joyPortraitOpts(); return a.speaking === false && a.fight === false; })());
+    // Monsters.
+    const wisp = render("wisp");
+    check("G-12: Training Wisp — pale body #d6ecff, four pale studs, cyan eyes #bfe8ff, no warm color",
+      hasFill(wisp.ops, "#d6ecff") && wisp.ops.filter((o) => o[0] === "ellipse" && o[3] === o[4]).length >= 4
+      && hasEllipse(wisp.ops, 29, 42, 3, 4.5, "#bfe8ff") && !hasFill(wisp.ops, "#ff7a00"));
+    const glim = render("surface");
+    check("G-12: Glimmer — dark body #0a1230 stroked #0033aa, Tron-orange eyes #ff7a00",
+      hasFill(glim.ops, "#0a1230") && glim.ops.some((o) => o[0] === "stroke" && o[o.length - 2] === "#0033aa")
+      && hasEllipse(glim.ops, 43, 42, 3, 4.5, "#ff7a00"));
+    const keep = render("guardian");
+    const keepExposed = render("guardian", { heartOpacity: 1.0 });
+    check("G-12: Keeper — largest body, amber eyes #ff9500, Heart drawn from heartCanvas() at shuttered 0.16",
+      hasEllipse(keep.ops, 27, 38, 3.5, 5, "#ff9500")
+      && keep.ops.some((o) => o[0] === "drawImage" && o[o.length - 1] === 0.16));
+    check("G-12: Keeper Heart exposed state draws at opacity 1.0 (no third state)",
+      keepExposed.ops.some((o) => o[0] === "drawImage" && o[o.length - 1] === 1));
+    const husk = render("husk");
+    check("G-12: Cinder Husk — blackened body #0b0908, ember seams #ff5500, banked eyes #ff5a00",
+      hasFill(husk.ops, "#0b0908") && husk.ops.some((o) => o[0] === "fillRect" && o[1] === 50 && o[2] === 30 && o[o.length - 3] === "#ff5500")
+      && hasEllipse(husk.ops, 29, 40, 3, 4.5, "#ff5a00"));
+    // Palette discipline: plate + frame come from paletteFor (mock fog/accent), character colors fixed.
+    check("G-12: new-surface plate is paletteFor fog and the 2px frame its accent (realm-derived backdrop only)",
+      joyQ.ops.some((o) => o[0] === "fillRect" && o[1] === 0 && o[2] === 0 && o[o.length - 3] === "#112233")
+      && joyQ.ops.some((o) => o[0] === "strokeRect" && o[o.length - 2] === "#aabbcc"));
+  }
+  // Surfaces + wiring.
+  check("G-12: surfaces exist at the design sizes (fox HUD 72, Joy guide 56, banter mini 28, intro 96)",
+    g12Page.includes('id="joy-portrait" width="72" height="72"') && g12Page.includes("#joy-portrait { width: 56px; height: 56px;")
+    && g12Page.includes('id="banter-portrait" width="72" height="72"') && g12Page.includes("#banter-portrait { width: 28px; height: 28px;")
+    && g12Page.includes('id="intro-portrait" width="72" height="72"') && g12Page.includes("#intro-portrait { width: 96px; height: 96px;"));
+  check("G-12: wiring — renderGuide refreshes Joy, banterSay shows the mini, startIntro draws the monster, stepJoy refreshes on state change",
+    g12Game.includes("refreshJoyPortraits(true);") && g12Game.includes('drawPortraitFor("joy", bp, joyPortraitOpts())')
+    && g12Game.includes('drawPortraitFor(introKindKey(kind), ic, { heartOpacity: 0.16 })')
+    && g12Game.includes("refreshJoyPortraits(false);"));
+  check("G-12: no new image assets for portraits (code-drawn only; the 288 PNG stays unwired)",
+    !g12Game.includes("portrait-fox-288") && !g12Page.includes("portrait-fox-288")
+    && !existsSync(new URL("./portrait-fox-288.png", import.meta.url))
+    && readdirSync(new URL("./", import.meta.url)).filter((f) => /portrait/i.test(f) && /\.(png|jpe?g|gif|webp)$/i.test(f)).length === 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
