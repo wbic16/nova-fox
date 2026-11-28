@@ -63951,6 +63951,12 @@ const music = {
   curState: "BASE", curTrackId: null, curRealm: null, baseRealm: null,
   basePending: null, transitFromRealm: null, duckDb: 0, preloaded: false,
   motifInfo: null, motifGain: null, baseStartedAt: null, baseTempoBpm: 0,
+  // MW-4 port: per-slot voice start records (the MW-3 barGrid
+  // machinery, extended from BASE to TRANSIT/FIGHT so their bar
+  // grids exist too) + the pending whole-bar swap.
+  slotStartedAt: { BASE: null, TRANSIT: null, FIGHT: null },
+  slotTempoBpm: { BASE: 0, TRANSIT: 0, FIGHT: 0 },
+  audibleState: "BASE", pendingSwap: null,
   manifest() {
     return (typeof MUSIC_MANIFEST !== "undefined") ? MUSIC_MANIFEST : null;
   },
@@ -64044,6 +64050,16 @@ const music = {
         this.baseTempoBpm = this.tempoForFile(file);
       } else { this.baseStartedAt = null; this.baseTempoBpm = 0; }
     }
+    // MW-4 port: the same start-time recording for every slot, so
+    // TRANSIT/FIGHT grids exist for the swap executor (gridForSlot).
+    for (const nm of ["BASE", "TRANSIT", "FIGHT"]) {
+      if (this.slots[nm] === slot) {
+        if (buf) {
+          this.slotStartedAt[nm] = t;
+          this.slotTempoBpm[nm] = this.tempoForFile(file);
+        } else { this.slotStartedAt[nm] = null; this.slotTempoBpm[nm] = 0; }
+      }
+    }
   },
   setSlotLevel(name, level, fadeS) {
     const slot = this.slots[name];
@@ -64100,24 +64116,92 @@ const music = {
       this.curTrackId = buf ? musicStem(file) : null;
     });
   },
-  transition(want) {
-    const prev = this.curState;
+  // MW-4 port (§3): the whole-bar swap executor, inside the loop's
+  // poll-driven transition(). curState is the resolved state (set
+  // at once — the probe and motif suppression read it); audibleState
+  // is what is actually sounding. A transition involving FIGHT in
+  // either direction defers to the outgoing (audible) state's next
+  // bar line: the incoming track enters on its bar 1 and the
+  // crossfade lasts one fight bar (4 beats at 92 BPM = 2.61 s). At
+  // the bar line _executeSwap recomputes the wanted state from the
+  // live battleOn / state.transit, so a FIGHT exit lands on TRANSIT
+  // or BASE as matters then stand, never on a remembered target.
+  // Non-FIGHT transitions keep the loop's plain fades (1.2 s
+  // transit entry/abort, 2.5 s arrival-to-new-realm, in
+  // transition() below). _cancelSwap is the executor's internal /
+  // test surface: a swap reversed before its bar line is
+  // cancelled, never executed.
+  fightBarSeconds() {
+    const bpm = this.tempoForFile(MUSIC_FIGHT_FILE) || 92;
+    return (4 * 60) / bpm;
+  },
+  gridForSlot(name) {
+    const started = this.slotStartedAt[name];
+    const tempo = this.slotTempoBpm[name];
+    if (started === null || started === undefined || !tempo || !sfx.ctx) return null;
+    const now = sfx.ctx.currentTime;
+    const b = musicBarPhase(tempo, now - started);
+    return {
+      state: name, trackId: this.slots[name] ? musicStem(this.slots[name].file) : null,
+      tempoBpm: tempo, barSeconds: b.barSeconds, barIndex: b.barIndex,
+      phaseS: b.phaseS, nextBarInS: b.nextBarInS, nextBarAt: now + b.nextBarInS,
+      startedAt: started,
+    };
+  },
+  planBarSwap(grid, fadeS, nowS) {
+    if (!grid) return { executeAt: nowS, delayS: 0, fadeS };
+    return { executeAt: grid.nextBarAt, delayS: Math.max(0, grid.nextBarAt - nowS), fadeS };
+  },
+  _cancelSwap() {
+    this.pendingSwap = null;
+  },
+  _executeSwap() {
+    const pend = this.pendingSwap;
+    if (!pend) return;
+    this.pendingSwap = null;
+    const want = musicResolveState(battleOn, !!state.transit);
     this.curState = want;
-    let fade = MUSIC_TRANSIT_XFADE_S;
-    if (prev === "TRANSIT" && want === "BASE" &&
-        this.transitFromRealm !== state.realm) {
-      fade = MUSIC_XFADE_S; // §2.5: arrival exits by the realm crossfade
-    }
+    if (want === this.audibleState) return;
+    this._doAudible(want, pend.fadeS);
+  },
+  _doAudible(want, fade) {
+    const prev = this.audibleState;
+    this.audibleState = want;
     if (prev !== want) this.setSlotLevel(prev, 0, fade);
     if (want === "BASE") this.playBase(state.realm, fade);
     else if (want === "TRANSIT") {
       this.transitFromRealm = state.realm;
       this.playSlot("TRANSIT", MUSIC_TRANSIT_FILE, fade);
     } else if (want === "FIGHT") {
-      // Skeleton only: MW-4 replaces this plain crossfade with
-      // track 11's whole-bar swap executor (§3 contract).
       this.playSlot("FIGHT", MUSIC_FIGHT_FILE, fade);
     }
+  },
+  transition(want) {
+    const prev = this.curState;
+    this.curState = want;
+    if (this.pendingSwap) {
+      if (want === this.pendingSwap.toState) return;
+      this._cancelSwap();
+      if (want === this.audibleState) return;
+    }
+    if (want === this.audibleState) return;
+    let fade = MUSIC_TRANSIT_XFADE_S;
+    if (prev === "TRANSIT" && want === "BASE" &&
+        this.transitFromRealm !== state.realm) {
+      fade = MUSIC_XFADE_S; // §2.5: arrival exits by the realm crossfade
+    }
+    if (want !== "FIGHT" && this.audibleState !== "FIGHT") {
+      this._doAudible(want, fade);
+      return;
+    }
+    const grid = this.gridForSlot(this.audibleState);
+    const plan = this.planBarSwap(grid, this.fightBarSeconds(),
+      sfx.ctx ? sfx.ctx.currentTime : 0);
+    if (plan.delayS <= 0) { this._doAudible(want, plan.fadeS); return; }
+    this.pendingSwap = {
+      fromState: this.audibleState, toState: want,
+      executeAt: plan.executeAt, fadeS: plan.fadeS, delayS: plan.delayS,
+    };
   },
   // Per frame (from animate, beside battleStep): realm tracking,
   // the state machine, and the narration duck (§1.3 — the duck is a
@@ -64133,11 +64217,13 @@ const music = {
     }
     if (state.realm !== this.curRealm) {
       this.curRealm = state.realm;
-      if (this.curState === "BASE") this.playBase(state.realm);
+      if (this.curState === "BASE" && !this.pendingSwap) this.playBase(state.realm);
       else this.baseRealm = state.realm;
     }
     const want = musicResolveState(battleOn, !!state.transit);
     if (want !== this.curState) this.transition(want);
+    else if (this.pendingSwap && sfx.ctx &&
+        sfx.ctx.currentTime >= this.pendingSwap.executeAt) this._executeSwap();
     const active = (typeof narration !== "undefined") && !!narration &&
       (!!narration.speakingId ||
         (narration.queue && narration.queue.length > 0));
@@ -64184,6 +64270,10 @@ const music = {
       state: this.curState, trackId: this.curTrackId,
       busGain: Math.round(musicBusGainFor(SETTINGS.music) * 10000) / 10000,
       duckDb: this.duckDb, motif: this.motifInfo,
+      pendingSwap: this.pendingSwap ? {
+        fromState: this.pendingSwap.fromState, toState: this.pendingSwap.toState,
+        executeAt: this.pendingSwap.executeAt, fadeS: this.pendingSwap.fadeS,
+      } : null,
     };
   },
 };
@@ -64472,6 +64562,17 @@ const motif = {
   },
 };
 function applyMusicVolume() { music.applyVolume(); }
+
+// ================= MUSIC STATES (MW-4 port, EE 1329+) =================
+// The transit/fight state executors, adapted to the loop engine
+// per the EE 1328 collision resolution: there is no stateEdges
+// object and no request/release edge API on this line — the loop
+// is poll-driven, music.tick() derives the wanted state from
+// battleOn / state.transit, music.transition() carries the
+// transit fades, and its FIGHT path is the whole-bar swap
+// executor (fightBarSeconds / gridForSlot / planBarSwap /
+// _executeSwap, with _cancelSwap as its internal/test surface).
+// While a bar swap waits, musicState().pendingSwap states it.
 
 // ---------- narration audio (feedback #3) ---------------------------------
 // Joy's recorded voice, one MP3 per beat ID from NARRATION.md,

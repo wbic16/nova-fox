@@ -6585,5 +6585,303 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     !!fightE && fightE.tempoBpm === 92);
 }
 
+
+// === MW-4 STATES pins (demo73, PORT onto the loop engine, EE 1329+) ===
+// Chat MW-4 (9d58ec3, +12 pins) + the formerly-orphaned pin
+// (ecc7306, +1) re-driven through the LOOP mechanism per the
+// EE 1328 resolution: no stateEdges, no request/release edge API —
+// the harness drives battleOn / state.transit through
+// musicResolveState + transition()/tick() exactly as music.tick()
+// does, and reads barGrid/playSlot start records + pendingSwap.
+// Assertion strength is unchanged; adaptations are named per pin
+// in the MR entry.
+{
+  console.log("\n== MW-4 port: states on the loop engine (bar-line fight executor, pendingSwap) ==");
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const builtMod = readFileSync(new URL("./_built_module3.mjs", import.meta.url), "utf8");
+  const mAt = builtMod.indexOf("const MUSIC_MANIFEST = ");
+  let MANIFEST = null;
+  try {
+    MANIFEST = JSON.parse(builtMod.slice(mAt + "const MUSIC_MANIFEST = ".length, builtMod.indexOf("};", mAt) + 1));
+  } catch { MANIFEST = null; }
+  const coreAt = game.indexOf("// MUSIC-CORE-BEGIN");
+  const coreEnd = game.indexOf("// MUSIC-CORE-END");
+  const core = (coreAt >= 0 && coreEnd > coreAt) ? new Function(
+    game.slice(coreAt, coreEnd) +
+    "\nreturn { musicResolveState, musicBarPhase, musicStem, musicTrackForRealm, musicBusGainFor, MUSIC_FIGHT_FILE, MUSIC_TRANSIT_FILE, MUSIC_TRANSIT_XFADE_S, MUSIC_XFADE_S };")() : null;
+  const musicSec = game.slice(game.indexOf("const music = {"), game.indexOf("function musicState()"));
+  const bodyOf = (name, args) => {
+    const m = musicSec.match(new RegExp("\\n  " + name + "\\(" + args.replace(/[$]/g, "") + "\\) \\{([\\s\\S]*?)\\n  \\},\\n"));
+    return m ? m[1] : null;
+  };
+
+  check("MW-4 port: the loop's poll drive replaces the chat edges — no stateEdges hooks, no request/release/requestFade API; tick derives TRANSIT/FIGHT from battleOn/state.transit and transitions, and executes a due swap",
+    !!core && !game.includes("stateEdges.on") && !game.includes("music.request(") &&
+    !game.includes("music.release(") && !game.includes("requestFade(kind") &&
+    game.includes("const want = musicResolveState(battleOn, !!state.transit);") &&
+    game.includes("if (want !== this.curState) this.transition(want);") &&
+    game.includes("sfx.ctx.currentTime >= this.pendingSwap.executeAt) this._executeSwap();"));
+
+  const M_METHODS = {
+    fightBarSeconds: "", gridForSlot: "name", planBarSwap: "grid, fadeS, nowS",
+    _cancelSwap: "", _executeSwap: "", _doAudible: "want, fade", transition: "want",
+    tempoForFile: "file", state: "",
+  };
+  const mBodies = {};
+  let mAll = true;
+  for (const n of Object.keys(M_METHODS)) {
+    mBodies[n] = bodyOf(n, M_METHODS[n].split(", ").join(",\\s*"));
+    if (!mBodies[n]) mAll = false;
+  }
+  check("MW-4 port: every music executor method body extracts for execution against mocks",
+    mAll && !!MANIFEST && !!core);
+
+  const mkEnv = () => {
+    const env = { battleOn: false, now: 0 };
+    env.sfx = { ctx: { currentTime: 0 }, master: {}, muted: false };
+    env.state = { realm: "nova", transit: null };
+    env.setNow = (t) => { env.now = t; env.sfx.ctx.currentTime = t; };
+    return env;
+  };
+  const bindMethods = (o, env) => {
+    for (const [name, args] of Object.entries(M_METHODS)) {
+      o[name] = new Function("sfx", "state", "battleOn", "musicResolveState", "musicBarPhase",
+        "musicStem", "MUSIC_FIGHT_FILE", "MUSIC_TRANSIT_FILE", "MUSIC_TRANSIT_XFADE_S",
+        "MUSIC_XFADE_S", "SETTINGS", "musicBusGainFor",
+        "return function " + name + "(" + args + ") {" + mBodies[name] + "\n};")(
+        env.sfx, env.state, env.battleOn, core.musicResolveState, core.musicBarPhase,
+        core.musicStem, core.MUSIC_FIGHT_FILE, core.MUSIC_TRANSIT_FILE,
+        core.MUSIC_TRANSIT_XFADE_S, core.MUSIC_XFADE_S, { music: 1 }, core.musicBusGainFor);
+    }
+  };
+  const mkMusic = (env) => {
+    const o = {
+      curState: "BASE", audibleState: "BASE", pendingSwap: null,
+      slotStartedAt: { BASE: 0, TRANSIT: null, FIGHT: null },
+      slotTempoBpm: { BASE: 79, TRANSIT: 60, FIGHT: 92 },
+      slots: { BASE: { file: "01-nova-prime.ogg", voices: [{}] },
+               TRANSIT: { file: null, voices: [] }, FIGHT: { file: null, voices: [] } },
+      transitFromRealm: null, baseRealm: "nova", curTrackId: "01-nova-prime",
+      duckDb: 0, motifInfo: null, played: [], levels: [],
+      manifest: () => MANIFEST,
+      setSlotLevel(name, level, fadeS) { o.levels.push([name, level, fadeS]); },
+      playSlot(name, file, fadeS) {
+        o.levels.push([name, 1, fadeS]); o.played.push([name, file, fadeS]);
+        o.slots[name].file = file; o.slots[name].voices = [{}];
+        o.slotStartedAt[name] = env.sfx.ctx.currentTime;
+        o.slotTempoBpm[name] = name === "FIGHT" ? 92 : name === "TRANSIT" ? 60 : 79;
+        o.curTrackId = core.musicStem(file);
+      },
+      playBase(realm, fadeS) {
+        o.levels.push(["BASE", 1, fadeS]); o.played.push(["BASE", realm, fadeS]);
+        o.baseRealm = realm;
+        const f = core.musicTrackForRealm(realm);
+        o.slots.BASE.file = f; o.slots.BASE.voices = f ? [{}] : [];
+        o.slotStartedAt.BASE = f ? env.sfx.ctx.currentTime : null;
+        o.slotTempoBpm.BASE = 79;
+        o.curTrackId = f ? core.musicStem(f) : null;
+      },
+    };
+    bindMethods(o, env);
+    return o;
+  };
+  // The tick() drive, as the loop runs it (rebinding _executeSwap's
+  // battleOn snapshot each pass, as a fresh frame would read it).
+  const drive = (env, m) => {
+    bindMethods(m, env);
+    const want = core.musicResolveState(env.battleOn, !!env.state.transit);
+    if (want !== m.curState) m.transition(want);
+    else if (m.pendingSwap && env.sfx.ctx.currentTime >= m.pendingSwap.executeAt) m._executeSwap();
+  };
+  const setAudible = (m, name, startedAt, tempo) => {
+    m.curState = name; m.audibleState = name;
+    m.slotStartedAt[name] = startedAt; m.slotTempoBpm[name] = tempo;
+    m.slots[name].file = name === "FIGHT" ? "11-monster-fight.ogg" : name === "TRANSIT" ? "12-rift-traversal.ogg" : "01-nova-prime.ogg";
+    m.slots[name].voices = [{}];
+    m.curTrackId = core.musicStem(m.slots[name].file);
+  };
+
+  check("MW-4 port: fight bar is track 11's bar (4 beats at 92 BPM = 2.61 s); the loop's transit fades stand at 1.2 s entry/abort and 2.5 s arrival",
+    (() => { const env = mkEnv(); const m = mkMusic(env);
+      return Math.abs(m.fightBarSeconds() - 240 / 92) < 1e-9 &&
+        core.MUSIC_TRANSIT_XFADE_S === 1.2 && core.MUSIC_XFADE_S === 2.5; })());
+
+  check("MW-4 port: planBarSwap waits for the outgoing bar line (delay = nextBarAt - now, executeAt = nextBarAt); no grid means execute now",
+    (() => { const env = mkEnv(); const m = mkMusic(env);
+      const plan = m.planBarSwap({ nextBarAt: 10, nextBarInS: 1.75 }, 2.61, 8.25);
+      const noGrid = m.planBarSwap(null, 2.61, 8.25);
+      return plan.executeAt === 10 && Math.abs(plan.delayS - 1.75) < 1e-9 && plan.fadeS === 2.61 &&
+        noGrid.delayS === 0 && noGrid.executeAt === 8.25; })());
+
+  // Transit through the loop transition(): entry 1.2 s; exit abort
+  // 1.2 s (realm unchanged), arrival 2.5 s (realm changed).
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    env.state.transit = {};
+    drive(env, m);
+    const entry = m.played.some(([n, f, d]) => n === "TRANSIT" && f === "12-rift-traversal.ogg" && d === 1.2) &&
+      m.audibleState === "TRANSIT" && m.transitFromRealm === "nova";
+    env.state.transit = null;
+    drive(env, m);
+    const abort = m.played.some(([n, r, d]) => n === "BASE" && r === "nova" && d === 1.2) && m.audibleState === "BASE";
+    env.state.transit = {};
+    drive(env, m);
+    env.state.realm = "ashfall"; env.state.transit = null;
+    drive(env, m);
+    const arrival = m.played.some(([n, r, d]) => n === "BASE" && r === "ashfall" && d === 2.5) && m.audibleState === "BASE";
+    check("MW-4 port: transit on the loop — TRANSIT enters at the 1.2 s fade; exit is 1.2 s on abort (realm unchanged vs transitFromRealm) and 2.5 s on arrival (realm changed)",
+      entry && abort && arrival);
+  }
+
+  // Priority through the poll drive: FIGHT > TRANSIT > BASE in
+  // curState as battleOn / state.transit change.
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    const seq = [];
+    env.state.transit = {}; drive(env, m); seq.push(m.curState);
+    env.battleOn = true; drive(env, m); seq.push(m.curState);
+    env.battleOn = false; drive(env, m); seq.push(m.curState);
+    env.state.transit = null; drive(env, m); seq.push(m.curState);
+    check("MW-4 port: the poll drive recomputes priority FIGHT > TRANSIT > BASE from battleOn/state.transit on every pass (the loop's fight/transit request surface)",
+      JSON.stringify(seq) === JSON.stringify(["TRANSIT", "FIGHT", "TRANSIT", "BASE"]));
+  }
+
+  // Fight entry at the outgoing bar line; fight starts at bar 1.
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    env.setNow(1.0);
+    const grid = m.gridForSlot("BASE");
+    env.battleOn = true;
+    drive(env, m);
+    const pend = m.pendingSwap;
+    const notYet = m.audibleState === "BASE" && !m.played.some(([n]) => n === "FIGHT") &&
+      m.slotStartedAt.FIGHT === null;
+    const surface = m.state();
+    env.setNow(pend ? pend.executeAt : 0);
+    drive(env, m);
+    check("MW-4 port: fight entry executes at the outgoing state's next bar line — not before — and the fight track starts at its bar 1 at that moment",
+      !!grid && !!pend && pend.fromState === "BASE" && pend.toState === "FIGHT" &&
+      Math.abs(pend.executeAt - grid.nextBarAt) < 1e-9 && notYet &&
+      m.audibleState === "FIGHT" && m.slotStartedAt.FIGHT === pend.executeAt &&
+      m.levels.some(([n, l, d]) => n === "FIGHT" && l === 1 && Math.abs(d - 240 / 92) < 1e-9) &&
+      m.levels.some(([n, l]) => n === "BASE" && l === 0));
+    check("MW-4 port: entry latency bound is one remaining outgoing bar + one fight bar (2.61 s), and musicState() states the pending swap truthfully while it waits (trackId = the outgoing track, per loop state() semantics)",
+      !!pend && (pend.delayS + pend.fadeS) <= grid.barSeconds + 240 / 92 + 1e-9 &&
+      Math.abs(pend.fadeS - 240 / 92) < 1e-9 && m.state().pendingSwap === null &&
+      m.state().trackId === "11-monster-fight" &&
+      surface.state === "FIGHT" && surface.trackId === "01-nova-prime" &&
+      !!surface.pendingSwap && surface.pendingSwap.fromState === "BASE" &&
+      surface.pendingSwap.toState === "FIGHT" && surface.pendingSwap.executeAt > 1.0);
+  }
+  // Fight during transit: TRANSIT grid (60 BPM bar = 4 s); exit -> TRANSIT.
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    setAudible(m, "TRANSIT", 0, 60);
+    env.state.transit = {};
+    env.setNow(1.0);
+    env.battleOn = true;
+    drive(env, m);
+    const pendIn = m.pendingSwap;
+    env.setNow(pendIn ? pendIn.executeAt : 0);
+    drive(env, m);
+    const inFight = m.audibleState === "FIGHT" && !!pendIn && pendIn.fromState === "TRANSIT" &&
+      Math.abs(pendIn.executeAt - 4) < 1e-9;
+    env.setNow(5.0);
+    env.battleOn = false;
+    drive(env, m);
+    const pendOut = m.pendingSwap;
+    env.setNow(pendOut ? pendOut.executeAt : 0);
+    drive(env, m);
+    check("MW-4 port: a fight starting during transit swaps from the traversal track at its bar line (60 BPM bar = 4 s), and its exit — recomputed at swap time — restores TRANSIT, not BASE",
+      inFight && !!pendOut && pendOut.toState === "TRANSIT" && m.audibleState === "TRANSIT" &&
+      !!env.state.transit && m.levels.some(([n, l]) => n === "TRANSIT" && l === 1));
+  }
+
+  // Mid-fight transit: registers in the resolved state inputs, the
+  // traversal track does not start under FIGHT; TRANSIT surfaces
+  // through the fight-exit bar swap.
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    setAudible(m, "FIGHT", 0, 92);
+    env.battleOn = true;
+    env.state.transit = {};
+    drive(env, m);
+    const suppressed = m.curState === "FIGHT" && m.audibleState === "FIGHT" &&
+      !m.played.some(([n]) => n === "TRANSIT");
+    env.setNow(0.5);
+    env.battleOn = false;
+    drive(env, m);
+    const pend = m.pendingSwap;
+    env.setNow(pend ? pend.executeAt : 0);
+    drive(env, m);
+    check("MW-4 port: stepping into transit mid-fight leaves the audible state FIGHT (traversal never starts) until combat ends — then TRANSIT surfaces through the fight-exit bar swap at the fight bar line",
+      suppressed && !!pend && pend.fromState === "FIGHT" && pend.toState === "TRANSIT" &&
+      Math.abs(pend.executeAt - 240 / 92) < 1e-9 && m.audibleState === "TRANSIT");
+  }
+
+  // Fight exit to BASE over the one-fight-bar crossfade.
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    setAudible(m, "FIGHT", 0, 92);
+    env.setNow(1.0);
+    drive(env, m); // battleOn false, no transit: schedules the exit
+    const pend = m.pendingSwap;
+    env.setNow(pend ? pend.executeAt : 0);
+    drive(env, m);
+    check("MW-4 port: fight exit restores BASE when transit does not stand — at the fight bar line, FIGHT slot lowered over the one-fight-bar crossfade and BASE played at that fade",
+      !!pend && pend.toState === "BASE" && m.audibleState === "BASE" &&
+      m.levels.some(([n, l, d]) => n === "FIGHT" && l === 0 && Math.abs(d - 240 / 92) < 1e-9) &&
+      m.played.some(([n, r, d]) => n === "BASE" && r === "nova" && Math.abs(d - 240 / 92) < 1e-9));
+  }
+
+  // A swap reversed before its bar line is cancelled, never executed.
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    env.setNow(0.25);
+    env.battleOn = true;
+    drive(env, m);
+    const scheduled = !!m.pendingSwap;
+    env.battleOn = false;
+    drive(env, m);
+    env.setNow(10);
+    drive(env, m);
+    check("MW-4 port: a swap reversed before its bar line is cancelled via _cancelSwap in transition() — pendingSwap clears and the fight track never sounds",
+      scheduled && m.pendingSwap === null && m.audibleState === "BASE" &&
+      !m.played.some(([n]) => n === "FIGHT"));
+  }
+
+  // Formerly-orphaned pin (ecc7306): motif suppression under the
+  // MW-4 states. The REAL motif suppressed() body is extracted
+  // section-sliced up to the MUSIC STATES marker; its `music`
+  // reads curState from the mock engine, which this harness sets
+  // from the loop mock's resolved curState after each drive
+  // (the MW-3 port's mock-engine idiom).
+  {
+    const env = mkEnv(); const m = mkMusic(env);
+    const motifSec = game.slice(game.indexOf("const motif = {"), game.indexOf("// ================= MUSIC STATES (MW-4"));
+    const sm = motifSec.match(/\n  suppressed\(\) \{([\s\S]*?)\n  \},\n/);
+    const engine = { engine: "BASE" };
+    const layerMusic = {};
+    Object.defineProperty(layerMusic, "curState", { get: () => engine.engine });
+    const layer = { transitHold: false };
+    if (sm) layer.suppressed = new Function("music", "return function suppressed() {" + sm[1] + "\n};")(layerMusic);
+    const sync = () => { engine.engine = m.curState; };
+    sync();
+    const baseFree = !!sm && layer.suppressed() === false;
+    env.state.transit = {}; drive(env, m); sync();
+    const inTransit = layer.suppressed() === true;
+    env.battleOn = true; drive(env, m); sync();
+    const inFight = layer.suppressed() === true;
+    env.battleOn = false; drive(env, m); sync();
+    const backToTransit = layer.suppressed() === true;
+    env.state.transit = null; drive(env, m); sync();
+    const backToBase = layer.suppressed() === false;
+    layer.transitHold = true;
+    const held = layer.suppressed() === true;
+    check("MW-4 port: motif suppression preserved under the ported states (formerly-orphaned ecc7306 pin) — the layer is silent during TRANSIT and during FIGHT (fight-during-transit included), free only on BASE, and the transit hold suppresses it on its own",
+      baseFree && inTransit && inFight && backToTransit && backToBase && held);
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
