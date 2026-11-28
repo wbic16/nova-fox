@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script async src="https://www.googletagmanager.com/gtm.js?id=GTM-WKWHLW6B"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova Fox (EE1319)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #000000; color: #dbe4f5; overflow: hidden;
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; }
+  .overlay { position: fixed; z-index: 5; }
+  #crosshair {
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.85); font-size: 18px; pointer-events: none;
+    text-shadow: 0 0 4px #000;
+  }
+  #hitmark {
+    /* F-GROK-9 (b): the contact-range strike tell — a red ring at
+       the crosshair, flashed by flashStrikeTell for ~700 ms on a
+       landed strike. On screen, not on the monster, so it stays
+       readable when the monster's cubes fill the camera. */
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 52px; height: 52px; border: 3px solid rgba(255,36,24,0.95);
+    border-radius: 50%; box-shadow: 0 0 12px rgba(255,36,24,0.8), inset 0 0 12px rgba(255,36,24,0.55);
+    opacity: 0; pointer-events: none; z-index: 9;
+  }
+  #dmg {
+    inset: 0; pointer-events: none; opacity: 0; z-index: 8;
+    /* A2-MONSTER (Play 1): the hit flash is FULL-screen red — a flat
+       red wash under a stronger rim, not a vignette alone. */
+    background: radial-gradient(ellipse at center, rgba(220,30,40,0.38) 0%, rgba(200,20,30,0.62) 100%), rgba(205,22,32,0.5);
+  }
+  #lowhp {
+    inset: 0; pointer-events: none; opacity: 0; z-index: 8;
+    /* A2-MONSTER (Play 1): the low-HP white-out — white closes in
+       from the edges as HP falls below a quarter (lowHpWhite). */
+    background: radial-gradient(ellipse at center, rgba(255,255,255,0.25) 30%, rgba(255,255,255,0.92) 100%);
+    /* F-GROK-9 (c): NO transition here. The old 0.35s transition left
+       the RENDERED opacity at 0 on the very hit that dropped HP —
+       lowHpWhite computed 0.352 for HP 3/20 and the inline style
+       carried it, but the rendered (computed) opacity was still 0
+       when the moment was read, while #dmg — whose flashDamage
+       kills its transition — rendered at once. syncHud now also
+       sets transition:none inline, belt and braces. */
+  }
+  #flash {
+    inset: 0; pointer-events: none; opacity: 0; z-index: 8;
+    background: radial-gradient(ellipse at center, rgba(190,240,255,0.95), rgba(0,150,255,0.55));
+  }
+  #degauss {
+    inset: 0; pointer-events: none; opacity: 0; z-index: 9;
+    mix-blend-mode: screen;
+    background: linear-gradient(115deg,
+      rgba(255,0,80,0.55), rgba(255,180,0,0.55), rgba(0,255,140,0.55),
+      rgba(0,120,255,0.55), rgba(180,0,255,0.55), rgba(255,0,80,0.55));
+  }
+  #hatbrim {
+    left: 50%; top: -14px; transform: translateX(-50%);
+    width: min(560px, 70vw); height: 34px; display: none; z-index: 6;
+    background: linear-gradient(#19b5ff, #0077cc);
+    border-radius: 0 0 50% 50% / 0 0 100% 100%;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+    pointer-events: none;
+  }
+  .hudpanel {
+    background: rgba(0, 8, 20, 0.82); border: 1px solid rgba(0, 140, 255, 0.55);
+    border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(3px);
+  }
+  /* A2-SKYSSO fixture fix (F-GAME-5): the card is docked to the
+     top-left corner (inline left:14px;top:14px on #authprompt).
+     The old centered placement (left:50%;top:18%;translateX(-50%))
+     sat over the centered splash panel, and its SSO button / login
+     code field intersected the splash panel's own begin and
+     Controls buttons at 2560x1600 and 1280x800. In the corner the
+     card's rect and all four of its controls clear every splash
+     and load-surface control at both sizes (measured, zero
+     intersections), and the worldPoint probe fractions
+     (x >= 0.36 of the canvas) stay right of the card. */
+  #authprompt { pointer-events: none; }
+  #authprompt button, #authprompt input { pointer-events: auto; }
+  #gdial {
+    left: 14px; top: 92px; width: min(440px, calc(100vw - 28px));
+    display: none; z-index: 7; max-height: calc(100vh - 130px); overflow: auto;
+  }
+  #gdial h2 { margin: 0 0 4px; font-size: 16px; color: #e8f6ff; font-family: Georgia, "Times New Roman", serif; font-weight: 500; }
+  #gdial .sub { color: #7fd8ff; font-size: 12px; margin: 2px 0 6px; }
+  #gdial-spectrum { height: 8px; border-radius: 6px; margin: 6px 0 8px; background: hsl(188, 85%, 62%); }
+  #gdial-read { font-size: 13px; color: #fff; margin-bottom: 6px; }
+  #gdial-pattern { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18px; letter-spacing: 0.14em; color: #fff; min-height: 1.3em; }
+  #gdial-decoded { font-size: 13px; color: #d6ecff; margin: 4px 0; }
+  #gdial-joy { font-size: 12.5px; font-style: italic; color: #c7e6ff; margin: 6px 0; }
+  #gdial .stops { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
+  #gdial .stops button.on { border-color: #e8f6ff; color: #fff; }
+  #gdial .stops button.locked { opacity: 0.42; }
+  #gdial-ref { display: none; margin-top: 8px; grid-template-columns: repeat(6, 1fr); gap: 3px 6px; }
+  #gdial-ref.on { display: grid; }
+  #gdial-ref span { font-size: 10px; color: #9fc4e8; line-height: 1.3; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  #gdial-ref b { color: #fff; font-family: Georgia, "Times New Roman", serif; }
+  #topleft { left: 14px; top: 14px; display: flex; gap: 12px; align-items: center; }
+  #portrait { border-radius: 8px; background: #000a18; }
+  #hearts { font-size: 19px; letter-spacing: 1px; line-height: 1; }
+  .heart.full { color: #00d9ff; }
+  .heart.half { color: #00d9ff; opacity: 0.45; }
+  .heart.empty { color: #14406e; }
+  #hpnum { font-size: 15px; font-weight: 700; color: #fff; margin-top: 3px; }
+  #realmname { font-size: 13px; color: #7fd8ff; letter-spacing: 0.08em; margin-top: 2px; }
+  #topcenter {
+    left: 50%; top: 14px; transform: translateX(-50%); text-align: center;
+    pointer-events: none;
+  }
+  #realm-big {
+    font-family: Georgia, "Times New Roman", serif; font-size: 26px; color: #fff;
+    text-shadow: 0 2px 8px #000; letter-spacing: 0.06em; pointer-events: auto;
+  }
+  /* The ship stamp, as hover text (2026-11-26): the version is the
+     epoch this build shipped within, spoken in full while the
+     standing title is hovered — or toggled by a tap on touch. The
+     hudpanel's dress, the title's own serif, the comms line's fade;
+     the second line rides in the guide-hint blue, italic like the
+     comms text. The number itself also stands on screen at all
+     times in #ee-line below (Will, 2026-11-26 14:56 CST: "always
+     show the EE number — it'll help with play testing"). */
+  #vertip {
+    position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+    background: rgba(0, 8, 20, 0.82); border: 1px solid rgba(0, 140, 255, 0.55);
+    border-radius: 10px; padding: 8px 14px; backdrop-filter: blur(3px);
+    font-family: Georgia, "Times New Roman", serif; text-align: center;
+    white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #topcenter.ver-on #vertip { opacity: 1; }
+  #ver-line1 { font-size: 16px; color: #e8f6ff; letter-spacing: 0.04em; }
+  .ver-line2 { font-size: 12.5px; font-style: italic; color: #7fd8ff; margin-top: 2px; }
+  /* The title row: the standing realm title and the EE readout
+     share one line, so the readout adds no vertical stack to the
+     cluster — however tall the title and objective grow (narrow
+     screens wrap the objective), the EE number's height is already
+     inside the title's line, well clear of the ward line fixed at
+     74px. The row itself is not .opt; only the title inside it is. */
+  #titlerow {
+    display: flex; align-items: baseline; justify-content: center; gap: 10px;
+  }
+  /* The EE number, standing (2026-11-26): always on screen, on the
+     title's own line — a readout, not a headline. It keeps the
+     hover tip's dress (the hudpanel's ground and border, the
+     title's serif, the tip's ink) at a smaller size, and it is
+     NOT .opt: the extras toggle never tucks it away. With the
+     extras off the title steps aside and the number holds the
+     row alone. */
+  #ee-line {
+    background: rgba(0, 8, 20, 0.82); border: 1px solid rgba(0, 140, 255, 0.55);
+    border-radius: 8px; padding: 1px 9px; backdrop-filter: blur(3px);
+    font-family: Georgia, "Times New Roman", serif; font-size: 11.5px;
+    line-height: 1.2; color: #e8f6ff; letter-spacing: 0.05em;
+    white-space: nowrap; pointer-events: none;
+  }
+  #objective { color: #7fd8ff; font-size: 14px; text-shadow: 0 1px 5px #000; margin-top: 2px; }
+  /* The race clock (demo16): the hover-text dress — the hudpanel's
+     ground and border, the title's serif — standing under the
+     objective only while a run is armed, live, or just finished. */
+  #runtimer {
+    display: none; margin: 6px auto 0; width: fit-content;
+    background: rgba(0, 8, 20, 0.82); border: 1px solid rgba(0, 140, 255, 0.55);
+    border-radius: 8px; padding: 2px 14px; backdrop-filter: blur(3px);
+    font-family: Georgia, "Times New Roman", serif; font-size: 21px;
+    color: #e8f6ff; letter-spacing: 0.06em; white-space: nowrap;
+  }
+  #sr-url { width: 230px; }
+  #topright { right: 14px; top: 14px; text-align: right; }
+  #chord { font-family: Georgia, serif; font-size: 30px; color: #fff; }
+  .chordnote {
+    display: inline-block; min-width: 34px; text-align: center;
+    border-bottom: 3px solid rgba(127,216,255,0.25); margin: 0 2px;
+  }
+  .chordnote.on { color: #7fd8ff; border-bottom-color: #00d9ff; }
+  #questline { font-size: 12.5px; color: #a9bcdc; margin-top: 6px; max-width: 260px; }
+  #bottombar {
+    left: 50%; bottom: 12px; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(880px, 96vw);
+  }
+  #comms {
+    color: #c9efff; font-size: 15px; font-style: italic; text-align: center;
+    font-family: Georgia, serif; text-shadow: 0 1px 6px #000;
+    opacity: 0; transition: opacity 0.6s; pointer-events: none; max-width: 720px;
+  }
+  /* Joy's banter line: the narration line surface for her ambient
+     speech — the guide panel's own dress (serif, pale on dark), no
+     box of its own, so a line reads as a voice, not a panel. */
+  #banter-line {
+    color: #e8f6ff; font-size: 16.5px; text-align: center;
+    font-family: Georgia, serif; text-shadow: 0 1px 6px #000;
+    opacity: 0; transition: opacity 0.8s; pointer-events: none; max-width: 720px;
+    min-height: 24px;
+  }
+  #instrument { display: grid; grid-template-columns: repeat(11, 1fr); gap: 4px; width: min(620px, 92vw); }
+  .notepad {
+    background: rgba(0, 20, 44, 0.88); color: #cfe0ff; border: 1px solid #005f9e;
+    border-radius: 6px; padding: 5px 0 4px; cursor: pointer; text-align: center; user-select: none;
+  }
+  .notepad .num { font-size: 16px; font-weight: 700; display: block; line-height: 1.1; }
+  .notepad .key { font-size: 9.5px; color: #7e93bd; display: block; }
+  .notepad:hover { background: #003a66; }
+  .notepad.held { background: #00c8ff; color: #03121f; border-color: #00e5ff; }
+  .notepad.held .key { color: #045a7a; }
+  #guide {
+    width: min(680px, 94vw); background: rgba(12, 16, 28, 0.92);
+    border: 1px solid #0077b6; border-radius: 12px; padding: 14px 18px 12px;
+  }
+  #guide .who {
+    font-size: 11px; letter-spacing: 0.22em; color: #19b5ff; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #guide-lines p {
+    margin: 0 0 8px; font-family: Georgia, serif; font-size: 16.5px; line-height: 1.5; color: #e8f6ff;
+  }
+  #guide-hint { color: #7fd8ff; font-size: 13.5px; min-height: 18px; }
+  /* F-1 (EE 1129): during the opening exchange the way out stands
+     lit — a first-time player should not have to find a ghost. */
+  #guide-dismiss.skip-on { color: #ffd98a; border: 1px solid #ffd98a; opacity: 1; }
+  .btnrow { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  button.act {
+    background: #00a3ff; color: #eaf7ff; border: 1px solid #00c8ff; font-weight: 700;
+    border-radius: 6px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+  }
+  button.act:hover { background: #19b5ff; }
+  button.ghost {
+    background: transparent; color: #93a7cc; border: 1px solid #005f9e;
+    border-radius: 6px; padding: 7px 10px; font-size: 12.5px; cursor: pointer;
+  }
+  button.ghost:hover { color: #dbe4f5; }
+  /* A2-MOVE (Play 1, item 2): the bar wraps inside its own zone --
+     the screen right of the centered #bottombar -- instead of one
+     unwrapped ~990px row that ran under the bottom bar at
+     2560x1600 (and wider overlaps on narrower screens). */
+  #bottomright { right: 14px; bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(50vw - 468px); }
+  #readout {
+    right: 14px; top: 120px; width: 348px; max-height: 52vh; overflow-y: auto;
+    font-size: 11.5px; color: #9fb2d8; line-height: 1.55;
+  }
+  #readout h2 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #93a7cc; }
+  #readout .warn { color: #ffb84d; }
+  #ro-wal { word-break: break-word; }
+  #realms {
+    left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9;
+    width: min(520px, 94vw); display: none;
+  }
+  #realms h2 {
+    margin: 0 0 4px; font-family: Georgia, serif; font-weight: normal;
+    font-size: 22px; color: #fff;
+  }
+  #realms .sub { color: #93a7cc; font-size: 13px; margin-bottom: 10px; }
+  .realmrow {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 7px 4px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
+  }
+  .realmrow .realmname2 { font-size: 15.5px; color: #e8eefc; }
+  .realmrow .realmstatus { font-size: 12.5px; color: #93a7cc; text-align: right; }
+  .realmrow.here .realmname2 { color: #7fd8ff; }
+  .realmrow .realmchip {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    margin-right: 9px; box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
+  }
+  /* W-4: gear tier markers — the shape channel beside the color one,
+     drawn only by economy.js's tier helper (class tiermark). */
+  .tiermark { vertical-align: -1px; margin-right: 3px; }
+  .realmrow[data-portal] { cursor: pointer; }
+  .realmrow[data-portal]:hover .realmname2 { color: #7fd8ff; }
+  .realmrow.shut .realmname2 { color: #7186ab; }
+  #help {
+    left: 14px; bottom: 12px; font-size: 11.5px; color: #7e93bd; line-height: 1.6;
+    pointer-events: none; text-shadow: 0 1px 4px #000;
+    max-width: calc(50vw - 468px); /* A2-MOVE item 2: the left zone, mirroring #bottomright */
+  }
+  /* A2-MOVE item 2: narrow screens stack the bars instead of
+     squeezing their side zones to nothing -- the button bar sits
+     centered at the bottom and the bottom bar rides above it. */
+  @media (max-width: 1100px) {
+    #bottomright { left: 50%; right: auto; transform: translateX(-50%); max-width: min(560px, calc(100vw - 28px)); }
+    #bottombar { bottom: 128px; }
+    #help { max-width: calc(100vw - 28px); }
+  }
+  #help b { color: #c8d6f2; }
+  #scoreline { font-size: 13px; color: #7fd8ff; margin-top: 4px; }
+  #invline { font-size: 12px; color: #5fe8d8; margin-top: 2px; max-width: 260px; }
+  /* EE 1034 (item 4): the purse — coins on their own line, always visible. */
+  #purse { margin-top: 6px; max-width: 260px; cursor: pointer; font-size: 13px; color: #ffd97a; }
+  #purse .pursechip { display: block; font-size: 11px; color: #9fe8ff; margin-top: 1px; }
+  #purse .pursetrack { display: block; height: 3px; background: rgba(255,217,122,.18); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  #purse .pursefill { display: block; height: 100%; background: #ffd97a; border-radius: 2px; transition: width .6s ease; }
+  #together { display: none; margin-top: 4px; font-size: 12.5px; color: #ffc2d1; }
+  #pulsecd { display: none; margin-top: 4px; max-width: 120px; height: 3px; background: rgba(255,194,209,.18); border-radius: 2px; overflow: hidden; }
+  #pulsefill { display: block; height: 100%; width: 100%; background: #ffc2d1; border-radius: 2px; }
+  #purse .pursehnt { display: block; font-size: 10px; color: #5f7194; margin-top: 2px; }
+  #purse.pulse { animation: pursepulse .7s ease; }
+  /* EE 1037 (item 4): the fight skills' line, under the purse —
+     parchment gold on the dark, the plaques' register. */
+  #skills { margin-top: 3px; max-width: 320px; font-size: 12px; color: #cbb27f; }
+  @keyframes pursepulse { 0% { transform: scale(1); } 30% { transform: scale(1.06); } 100% { transform: scale(1); } }
+  #coinfloat { position: relative; max-width: 260px; }
+  .coinfloat { position: absolute; right: 0; top: 0; font-size: 13px; color: #ffd97a; pointer-events: none; animation: coinrise 2s ease-out forwards; }
+  @keyframes coinrise { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
+  #syncline { font-size: 11.5px; color: #7e93bd; margin-top: 6px; max-width: 260px; }
+  #wardline {
+    left: 50%; top: 74px; transform: translateX(-50%); display: none;
+    color: #aef4ff; font-size: 14px; text-shadow: 0 1px 5px #000; pointer-events: none;
+  }
+  #dmgnum {
+    left: 50%; top: 42%; transform: translate(-50%, -50%);
+    font-family: Georgia, serif; font-size: 26px; font-weight: 700; color: #aee6ff;
+    text-shadow: 0 2px 8px #000; opacity: 0; pointer-events: none; z-index: 9;
+  }
+  /* The strike hint (2026-11-26): while the encounter with the
+     Shadow lasts, the strike binding stands at the lower right —
+     clear of the fox, the foe, and the crosshair — in the HUD's
+     own dress, swollen and swelling. It fades when the encounter
+     ends; there is nothing to dismiss. The cap ships empty: the
+     glyph is lettered from the binding as assigned, by the game. */
+  #striker {
+    right: 16px; bottom: 58px; z-index: 7; text-align: center;
+    pointer-events: none; display: none; opacity: 0;
+    transition: opacity 0.45s ease;
+  }
+  #striker.on { opacity: 1; }
+  #striker-cap {
+    display: inline-block; min-width: 62px; padding: 9px 13px;
+    background: rgba(0, 20, 44, 0.88); color: #eaf7ff;
+    border: 2px solid #00c8ff; border-radius: 10px;
+    font-size: 29px; font-weight: 700; line-height: 1.05;
+    box-shadow: 0 0 18px rgba(0, 200, 255, 0.45), inset 0 -4px 0 rgba(0, 0, 0, 0.35);
+    animation: strikerbulge 0.92s ease-in-out infinite;
+  }
+  @keyframes strikerbulge {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.17); }
+  }
+  #striker-word {
+    margin-top: 7px; font-size: 11px; letter-spacing: 0.28em;
+    text-transform: uppercase; color: #7fd8ff; text-shadow: 0 1px 4px #000;
+  }
+  #dmgnum.pop { animation: dmgpop 0.9s ease-out forwards; }
+  @keyframes dmgpop {
+    0% { opacity: 0; transform: translate(-50%, -30%) scale(0.8); }
+    18% { opacity: 1; transform: translate(-50%, -55%) scale(1.12); }
+    100% { opacity: 0; transform: translate(-50%, -110%) scale(1); }
+  }
+  #introcard {
+    left: 50%; top: 26%; transform: translateX(-50%); display: none; z-index: 10;
+    text-align: center; pointer-events: none; width: min(720px, 94vw);
+  }
+  #introcard .rule { height: 2px; background: linear-gradient(90deg, transparent, #cc964d, transparent); margin: 10px 0; }
+  #intro-name {
+    font-family: Georgia, serif; font-size: 40px; letter-spacing: 0.18em; color: #fdf6dd;
+    text-shadow: 0 3px 14px #000;
+  }
+  #intro-epithet { font-family: Georgia, serif; font-style: italic; font-size: 16.5px; color: #aee6ff; text-shadow: 0 1px 6px #000; }
+  #introcard.show { animation: introin 2.1s ease-out forwards; }
+  @keyframes introin {
+    0% { opacity: 0; transform: translateX(-50%) scale(0.96); }
+    10% { opacity: 1; transform: translateX(-50%) scale(1); }
+    82% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) scale(1.01); }
+  }
+  /* Warp text (demo18): the intro card's announcement method at
+     scale — the same centered serif name between cyan rules, the
+     name at 3x the card's 40px (fluidly capped so the line never
+     clips on a narrow screen), and the card itself warped: swung
+     through perspective with a skew that rings down and settles,
+     the name counter-skewing inside it. */
+  #warpcard {
+    left: 50%; top: 32%; transform: translateX(-50%); display: none; z-index: 11;
+    text-align: center; pointer-events: none; width: min(1180px, 96vw);
+  }
+  #warpcard .rule { height: 3px; background: linear-gradient(90deg, transparent, #00d9ff, transparent); margin: 14px 0; }
+  #warp-name {
+    font-family: Georgia, serif; font-weight: 700; font-size: min(120px, 8.5vw); letter-spacing: 0.02em; color: #fff;
+    text-shadow: 0 4px 22px #000, 0 0 38px rgba(0, 217, 255, 0.55); white-space: nowrap;
+  }
+  #warpcard.show { animation: warpin 2.6s ease-out forwards; }
+  #warpcard.show #warp-name { animation: warpname 2.6s ease-out forwards; }
+  @keyframes warpin {
+    0% { opacity: 0; transform: translateX(-50%) perspective(620px) rotateX(42deg) skewX(-8deg) scale(0.84); }
+    9% { opacity: 1; transform: translateX(-50%) perspective(620px) rotateX(-10deg) skewX(3.5deg) scale(1.07); }
+    19% { transform: translateX(-50%) perspective(620px) rotateX(5deg) skewX(-2deg) scale(0.99); }
+    30% { transform: translateX(-50%) perspective(620px) rotateX(-2deg) skewX(0.8deg) scale(1.01); }
+    42% { transform: translateX(-50%) perspective(620px) rotateX(0deg) skewX(0deg) scale(1); }
+    82% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) perspective(620px) rotateX(0deg) skewX(0deg) scale(1.02); }
+  }
+  @keyframes warpname {
+    0% { transform: skewX(-14deg) scaleX(1.12); }
+    12% { transform: skewX(7deg) scaleX(0.97); }
+    24% { transform: skewX(-3.5deg) scaleX(1.01); }
+    38% { transform: skewX(1deg) scaleX(1); }
+    100% { transform: skewX(0deg) scaleX(1); }
+  }
+  /* EE 995 (item 10): a found powerup is announced center-screen —
+     the gravity-warp card's method in a golden register. */
+  #powercard {
+    left: 50%; top: 32%; transform: translateX(-50%);
+    text-align: center; pointer-events: none; display: none; z-index: 9;
+  }
+  #powercard .kick {
+    font-size: 12px; letter-spacing: 0.34em; color: #f9dd74;
+    text-transform: uppercase; text-shadow: 0 1px 6px #000;
+  }
+  #powercard .rule {
+    height: 2px; width: min(430px, 74vw); margin: 10px auto;
+    background: linear-gradient(90deg, transparent, #cc964d, transparent);
+  }
+  #power-name {
+    font-family: Georgia, serif; font-size: clamp(26px, 5.2vw, 46px);
+    letter-spacing: 0.12em; color: #f9dd74; text-transform: uppercase;
+    white-space: nowrap;
+    text-shadow: 0 0 22px rgba(255, 190, 60, 0.75), 0 2px 10px #000;
+  }
+  #powercard.show { animation: powercard 2.6s ease-out both; }
+  #powercard.show #power-name { animation: warpname 0.9s ease-out both; }
+  /* EE 1023 (item 6): the Hall waypoint diamond. */
+  #waypoint {
+    position: absolute; z-index: 6; pointer-events: none;
+    transform: translate(-50%, -50%);
+    color: #ffd76a; font: 700 15px/1 ui-monospace, monospace;
+    text-shadow: 0 0 8px rgba(255, 190, 60, .8), 0 1px 2px #000;
+    display: none; white-space: nowrap;
+  }
+  #waypoint.edge { opacity: .85; }
+  @keyframes powercard {
+    0% { opacity: 0; transform: translateX(-50%) scale(0.92); }
+    10% { opacity: 1; transform: translateX(-50%) scale(1); }
+    82% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) scale(1.02); }
+  }
+  #board, #speedrun {
+    left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9;
+    width: min(560px, 94vw); display: none; max-height: 84vh; overflow-y: auto;
+  }
+  /* #board's fixed-percentage size is set in the A2-LOAD item 3 block below. */
+  #board h2, #speedrun h2 { margin: 0 0 4px; font-family: Georgia, serif; font-weight: normal; font-size: 22px; color: #fff; }
+  #board h3, #speedrun h3 { margin: 14px 0 2px; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: #19b5ff; }
+  #board .sub, #speedrun .sub { color: #93a7cc; font-size: 13px; margin-bottom: 6px; }
+  #board-note { color: #7e93bd; font-size: 12px; margin-top: 10px; }
+  /* A2-LOAD item 3: the status/quest board, plainly legible — solid
+     ground, white/bright ink, larger type, generous line height. */
+  #board {
+    width: 72vw; height: 76vh; max-height: 76vh;
+    background: #020a16; color: #ffffff; font-size: 16px; line-height: 1.6;
+  }
+  #board h2 { font-size: 28px; color: #ffffff; }
+  #board h3 { font-size: 15px; color: #7fd8ff; }
+  #board .sub { color: #d6e4ff; font-size: 15.5px; line-height: 1.6; }
+  #board-note { color: #d6e4ff; font-size: 14px; }
+  #board .realmrow { font-size: 16px; padding: 10px 6px; }
+  #board .realmname2 { color: #ffffff; font-size: 16px; }
+  #board .realmstatus { color: #d6e4ff; font-size: 15px; }
+  #board-status {
+    background: #0d2a4a; border: 1px solid #7fd8ff; border-radius: 8px;
+    color: #ffffff; font-size: 17px; font-weight: 700; line-height: 1.55;
+    padding: 10px 12px; margin: 8px 0 4px;
+  }
+  #questline { font-size: 15px; color: #e8f6ff; max-width: 320px; line-height: 1.5; }
+  /* The Esc menu and its sub-panels (2026-11-26): the realms
+     panel's dress — centered hudpanels, the board's headings. The
+     menu's rows are full-width buttons; the .sel row is the
+     keyboard's place in the list. */
+  #menu, #bindings-panel, #video-panel, #audio-panel {
+    left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 11;
+    /* A2-LOAD item 2: fixed percentage of the window, internal scroll. */
+    width: 56vw; height: 72vh; display: none; overflow-y: auto;
+  }
+  #menu h2, #bindings-panel h2, #video-panel h2, #audio-panel h2 {
+    margin: 0 0 10px; font-family: Georgia, serif; font-weight: normal;
+    font-size: 22px; color: #fff;
+  }
+  #bindings-panel .sub, #video-panel .sub, #audio-panel .sub {
+    color: #93a7cc; font-size: 13px; margin-bottom: 10px;
+  }
+  .menuitem {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    width: 100%; background: transparent; border: none; cursor: pointer;
+    border-bottom: 1px solid rgba(60, 84, 128, 0.4);
+    padding: 10px 6px; font-size: 16px; color: #e8eefc; text-align: left;
+    font-family: inherit;
+  }
+  .menuitem:hover { background: rgba(0, 163, 255, 0.10); }
+  .menuitem .st { font-size: 12.5px; color: #93a7cc; text-align: right; }
+  .menuitem.sel, .setrow .sel {
+    background: rgba(0, 163, 255, 0.20); color: #fff;
+    outline: 1px solid rgba(0, 200, 255, 0.7); outline-offset: -1px;
+  }
+  #menu-confirm { display: none; margin-top: 12px; border-top: 1px solid rgba(60, 84, 128, 0.4); padding-top: 10px; }
+  #menu-confirm-text { color: #ffb84d; font-size: 13.5px; line-height: 1.5; }
+  #menu-note, #bindings-note { color: #7e93bd; font-size: 12.5px; margin-top: 10px; min-height: 16px; line-height: 1.5; }
+  .setrow {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 7px 4px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
+    font-size: 15px; color: #e8eefc;
+  }
+  .setrow input[type="range"] { width: 180px; accent-color: #00a3ff; }
+  #board input[type="text"], #board input[type="number"], #speedrun input[type="text"] {
+    background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px; margin: 2px 4px 2px 0;
+  }
+  #eco-key { width: 230px; }
+  #hand-name { width: 130px; }
+  #hand-amt { width: 70px; }
+  #eco-note { color: #7e93bd; font-size: 12px; margin-top: 8px; }
+  #gift-out { color: #ffd97a; font-size: 14px; letter-spacing: 0.06em; margin-top: 6px; word-break: break-all; }
+  /* The form editor (demo6): a surface inside the board, in the
+     board's own dress. The preview stage is the leeway stage —
+     the ruled box drawn solid inside it, the leeway's edge
+     dashed — so a player sees the lines they are inside of. */
+  #form-text {
+    width: 100%; min-height: 190px; resize: vertical;
+    background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 8px; font-size: 12px; line-height: 1.5;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  #form-meter { font-size: 12px; color: #7e93bd; margin-top: 4px; }
+  #form-meter.warn, #form-status.warn { color: #ffb84d; }
+  #form-meter.over, #form-status.over { color: #ff7a6b; }
+  #form-status { font-size: 12.5px; color: #a9bcdc; margin-top: 4px; line-height: 1.5; }
+  #form-note { color: #7e93bd; font-size: 12px; margin-top: 8px; }
+  .form-pages { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+  .form-pagebtn.sel { background: #00c8ff; color: #03121f; border-color: #00e5ff; }
+  #form-preview {
+    background: #050b16; border: 1px solid #2b3d5f; border-radius: 8px;
+    width: 150px; height: 450px; display: block;
+  }
+  .form-flex { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .form-side { flex: 1; min-width: 250px; }
+  #form-grid { display: grid; gap: 1px; margin-top: 8px; }
+  #form-grid .cell { width: 15px; height: 15px; border: 1px solid rgba(60,84,128,0.5); cursor: pointer; padding: 0; }
+  .form-pal { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+  .form-pal .swatch { width: 22px; height: 22px; border-radius: 5px; border: 1px solid #2b3d5f; cursor: pointer; padding: 0; }
+  .form-pal .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px #00c8ff; }
+  #form-type {
+    background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  /* The telling door's panel (demo8): the board panel's own
+     dress — a hudpanel overlay, centered, its fields in the
+     board's input style, its telling in the form editor's. */
+  #ideas {
+    left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10;
+    width: min(560px, 94vw); display: none; max-height: 84vh; overflow-y: auto;
+  }
+  #ideas h2 { margin: 0 0 4px; font-family: Georgia, serif; font-weight: normal; font-size: 22px; color: #fff; }
+  #ideas h3 { margin: 14px 0 2px; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: #19b5ff; }
+  #ideas .sub { color: #93a7cc; font-size: 13px; margin-bottom: 6px; }
+  #idea-title {
+    width: 100%; background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 6px 8px; font-size: 13px; margin: 2px 0;
+  }
+  #idea-body {
+    width: 100%; min-height: 110px; resize: vertical;
+    background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 8px; font-size: 13px; line-height: 1.5;
+  }
+  #idea-count { font-size: 12px; color: #7e93bd; margin-top: 4px; }
+  #idea-count.over { color: #ff7a6b; }
+  #idea-note { color: #7e93bd; font-size: 12px; margin-top: 8px; }
+  #idea-signin { color: #7e93bd; font-size: 12.5px; margin-top: 8px; }
+  /* The door's hover line: the ward line's place and dress. */
+  #doorline {
+    left: 50%; top: 104px; transform: translateX(-50%); display: none;
+    color: #ffe1a8; font-size: 14px; text-shadow: 0 1px 5px #000; pointer-events: none;
+  }
+
+  #splash {
+    position: fixed; inset: 0; z-index: 40; background: #000000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .splash-panel {
+    /* A2-LOAD item 2: fixed percentage of the window; content never
+       resizes the opening menu — its detail scrolls inside it. */
+    width: 72vw; height: 76vh; overflow-y: auto;
+    text-align: center; border: 1px solid rgba(0, 140, 255, 0.55);
+    border-radius: 14px; padding: 36px 56px; background: rgba(0, 8, 20, 0.92);
+  }
+  .splash-word {
+    font-family: Georgia, "Times New Roman", serif; font-size: 46px;
+    letter-spacing: 0.34em; color: #ffffff; margin-top: 16px; padding-left: 0.34em;
+  }
+  .splash-sub { color: #7fd8ff; letter-spacing: 0.32em; font-size: 13px; margin: 8px 0 22px; padding-left: 0.32em; }
+  .splash-hint { color: #5f7194; font-size: 12px; margin-top: 14px; }
+  #trail-line {
+    color: #41618c; font-size: 11px; font-style: italic; letter-spacing: 0.1em;
+    font-family: Georgia, "Times New Roman", serif; margin-top: 10px;
+    min-height: 14px; white-space: nowrap; overflow: hidden;
+    transition: opacity 0.6s ease;
+  }
+  /* The ship log (W-5): recent builds, lettered on the start panel
+     under the trail line, in the splash's own dress. The rows box
+     scrolls in place, so the whole headline is one scroll away. */
+  #shiplog { margin: 16px auto 0; max-width: 460px; text-align: left; }
+  .shiplog-head {
+    color: #7fd8ff; letter-spacing: 0.32em; font-size: 11px;
+    text-transform: uppercase; text-align: center; margin-bottom: 4px;
+  }
+  #shiplog-rows { max-height: 172px; overflow-y: auto; }
+  .shiplog-row {
+    padding: 5px 2px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
+    font-size: 12.5px; color: #c8d6f2; line-height: 1.45;
+  }
+  /* Lite (demo30): the honest progress element that rides with the
+     trail — its width is real fetched bytes of the guide-voice
+     prefetch set, counted by the narration seam in game3.js. */
+  #nf-progress { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); width: min(420px, 80vw); z-index: 60; /* A2-LOAD item 1: above the opening menu (#splash z-index 40), never hidden behind it */ pointer-events: auto; text-align: center; }
+  #nf-progress-track { height: 4px; background: rgba(87,215,255,0.18); border-radius: 2px; overflow: hidden; }
+  #nf-progress-bar { height: 100%; width: 0%; background: #57d7ff; border-radius: 2px; transition: width 0.2s ease; }
+  #nf-progress-note {
+    color: #7fa8d8; font-size: 11px; font-style: italic; letter-spacing: 0.08em;
+    font-family: Georgia, "Times New Roman", serif; margin-top: 5px; min-height: 14px;
+  }
+  #intro-viewer {
+    left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 12;
+    width: min(680px, 94vw); display: none;
+  }
+  #intro-viewer h2 { margin: 0 0 4px; font-family: Georgia, serif; font-weight: normal; font-size: 22px; color: #fff; }
+  #intro-viewer .sub { color: #93a7cc; font-size: 13px; margin-bottom: 10px; }
+  #intro-board { background: #0d2a4a; border: 1px solid #7fd8ff; border-radius: 8px; color: #ffffff; font-size: 17px; font-weight: 700; line-height: 1.55; padding: 12px 14px; }
+  /* The test console (2026-11-26): the game's own e2e checks,
+     moved into the client — Will: "build the e2e testing into
+     the game itself, give me a console I can work with." The
+     hudpanel dress; a monospace output pane because what it
+     prints is measurements, not fiction. Not in-fiction, like
+     the readout above. */
+  #nfconsole {
+    left: 14px; top: 110px; z-index: 11;
+    width: min(620px, 94vw); display: none;
+  }
+  #nfconsole h2 { margin: 0 0 2px; font-family: Georgia, serif; font-weight: normal; font-size: 17px; color: #fff; }
+  #nfconsole .sub { color: #93a7cc; font-size: 12px; margin-bottom: 8px; }
+  #nfconsole-out {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.55; color: #c9d8f2;
+    max-height: 38vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    border-top: 1px solid rgba(60, 84, 128, 0.4); padding-top: 6px;
+  }
+  #nfconsole-out .pass { color: #5fe8d8; }
+  #nfconsole-out .fail { color: #ff8f8f; }
+  #nfconsole-out .dim { color: #7e93bd; }
+  #nfconsole-out .cmd { color: #ffd97a; }
+  #nfconsole-row { display: flex; gap: 6px; margin-top: 8px; }
+  #nfconsole-input {
+    flex: 1; background: #0d1526; border: 1px solid #2b3d5f; color: #dce8ff;
+    border-radius: 6px; padding: 7px 9px; font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  /* Optional components (2026-11-26): the default view keeps only
+     what play requires. Everything secondary — the key wall, the
+     standing realm title, the quest/score/sync
+     lines — is an optional component: tucked away until the
+     extras toggle (bottom right) asks for it. Nothing is deleted;
+     it all lives behind the one toggle. */
+  body:not(.extras) .opt { display: none !important; }
+  /* Touch controls (2026-11-26): a way to play without keys. The
+     layer exists only for touch — a coarse pointer, or once a
+     real touch has been felt (body.touch) — and never shows on a
+     desktop. The stick walks, the drag on the world looks, the
+     round buttons carry the verbs. */
+  #touchui { display: none; position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  @media (pointer: coarse) { #touchui { display: block; } }
+  body.touch #touchui { display: block; }
+  #stage { touch-action: none; }
+  #stage canvas { touch-action: none; display: block; }
+  #stick {
+    position: absolute; left: 16px; top: 52%; transform: translateY(-50%);
+    width: 118px; height: 118px; border-radius: 50%;
+    border: 1px solid rgba(0, 140, 255, 0.55); background: rgba(0, 8, 20, 0.45);
+    pointer-events: auto; touch-action: none;
+  }
+  #stick-knob {
+    position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
+    border-radius: 50%; background: rgba(0, 163, 255, 0.5);
+    border: 1px solid rgba(0, 200, 255, 0.8); transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  #touchbtns {
+    position: absolute; right: 12px; top: 52%; transform: translateY(-50%);
+    display: grid; grid-template-columns: repeat(3, 56px); gap: 7px;
+    pointer-events: none;
+  }
+  .tbtn {
+    width: 56px; height: 56px; border-radius: 50%; pointer-events: auto;
+    background: rgba(0, 20, 44, 0.78); color: #cfe0ff; border: 1px solid #005f9e;
+    font-size: 10.5px; font-weight: 700; cursor: pointer;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent; padding: 0;
+  }
+  .tbtn.on { background: #00c8ff; color: #03121f; border-color: #00e5ff; }
+  /* Small screens (2026-11-26 phone fix): the desktop geometry
+     stacks every panel onto the same strips of a portrait phone —
+     the top three panels collide, the help wall buries the note
+     pads, and the bottom-right button row runs wider than the
+     screen, over the pads. Below 680px the console becomes a top
+     sheet that clears everything while it is open (and closes
+     reliably — #nfconsole is in TOUCH_UI now), the right top
+     panel stacks under the left one, the help wall is capped and
+     scrolls in place, and the button row wraps clear of the
+     instrument. Desktop geometry is untouched. */
+  @media (max-width: 680px) {
+    #nfconsole { left: 6px; right: 6px; width: auto; top: 6px; z-index: 40; }
+    #nfconsole-out { max-height: 30vh; }
+    #topright { top: 118px; right: 6px; max-width: 62vw; }
+    #topcenter { max-width: 44vw; }
+    #help { left: 6px; right: 6px; bottom: 128px; max-height: 24vh; overflow-y: auto; }
+    #bottomright { right: 6px; bottom: 64px; max-width: 58vw; flex-wrap: wrap; justify-content: flex-end; }
+    #readout { left: 6px; right: 6px; width: auto; top: 6px; max-height: 44vh; z-index: 39; }
+  }
+</style>
+</head>
+<body>
+<div id="splash">
+  <div class="splash-panel">
+    <svg width="92" height="92" viewBox="0 0 92 92" fill="none" aria-label="phext logo">
+      <rect x="27" y="27" width="38" height="38" transform="rotate(45 46 46)" stroke="#00d9ff" stroke-width="2"/>
+      <rect x="34.5" y="34.5" width="23" height="23" transform="rotate(45 46 46)" stroke="#2979ff" stroke-width="2"/>
+      <circle cx="46" cy="46" r="4" fill="#00d9ff"/>
+      <circle cx="46" cy="9" r="2.5" fill="#7fd8ff"/><circle cx="46" cy="83" r="2.5" fill="#7fd8ff"/>
+      <circle cx="9" cy="46" r="2.5" fill="#7fd8ff"/><circle cx="83" cy="46" r="2.5" fill="#7fd8ff"/>
+    </svg>
+    <div class="splash-word">phext</div>
+    <div class="splash-sub">NOVA FOX</div>
+    <button class="act" id="splash-btn">begin</button>
+    <div style="margin-top:12px"><button class="ghost" id="btn-scheme-splash">Controls: WASD</button></div>
+    <div class="splash-hint">or click anywhere, or press any key — the panel steps aside</div>
+    <div id="trail-line"></div>
+    <div id="shiplog">
+      <div class="shiplog-head">Recent builds</div>
+      <div id="shiplog-rows"></div>
+    </div>
+  </div>
+</div>
+<div class="overlay hudpanel" id="authprompt" style="display:none;left:14px;top:14px;width:min(430px,92vw);z-index:60;text-align:left">
+  <div style="font-weight:700;margin-bottom:6px">sign in to Nova Fox</div>
+  <div class="sub">Sign in with phext.tech, or enter a login code — a Gumroad license key, or a gift key (NFG-…). Signing in saves your marks to the shared map and lets the gateway confirm your key for this session. Playing free is whole too: dismiss this and play.</div>
+  <div class="btnrow" style="margin-top:8px"><button class="act" id="btn-auth-sso">sign in with phext.tech (SSO)</button></div>
+  <div class="btnrow" style="margin-top:8px">
+    <input type="text" id="auth-code" placeholder="a login code — Gumroad key or gift key (NFG-…)" autocomplete="off" spellcheck="false" style="flex:1">
+    <button class="act" id="btn-auth-code">use this code</button>
+  </div>
+  <div id="auth-note" class="sub" style="margin-top:6px"></div>
+  <div class="btnrow" style="margin-top:8px"><button class="ghost" id="btn-auth-dismiss">play free — dismiss</button></div>
+</div>
+<div id="nf-progress" hidden><div id="nf-progress-track"><div id="nf-progress-bar"></div></div><div id="nf-progress-note"></div></div>
+<div id="stage"></div>
+<div class="overlay" id="crosshair">+</div>
+<div class="overlay" id="hitmark"></div>
+<div class="overlay" id="dmg"></div>
+<div class="overlay" id="lowhp"></div>
+<div class="overlay" id="flash"></div>
+<div class="overlay" id="degauss"></div>
+<div class="overlay" id="hatbrim"></div>
+<div class="overlay" id="wardline"></div>
+<div class="overlay" id="doorline"></div>
+<div class="overlay" id="dmgnum"></div>
+<div id="waypoint"></div>
+<div class="overlay" id="striker"><div id="striker-cap"></div><div id="striker-word">strike</div></div>
+<div class="overlay" id="introcard">
+  <div class="rule"></div>
+  <div id="intro-name"></div>
+  <div id="intro-epithet"></div>
+  <div class="rule"></div>
+</div>
+<div class="overlay" id="warpcard">
+  <div class="rule"></div>
+  <div id="warp-name">GRAVITY INVERSION!!</div>
+  <div class="rule"></div>
+</div>
+
+<div class="overlay" id="powercard">
+  <div class="kick">Powerup found</div>
+  <div class="rule"></div>
+  <div id="power-name"></div>
+  <div class="rule"></div>
+</div>
+
+<div class="overlay hudpanel" id="topleft">
+  <!-- F-GROK-12: the HUD portrait is NOT an optional component --
+       it carries no .opt class, so the extras toggle never hides
+       it and a default boot (extras off) shows it. drawPortrait()
+       in game3.js already draws it on every HUD sync; only its
+       visibility was gated. The fox art itself is unchanged. -->
+  <canvas id="portrait" width="72" height="72"></canvas>
+  <div>
+    <div id="hearts"></div>
+    <div id="hpnum">HP 20 / 20</div>
+    <div id="realmname">Nova Prime</div>
+  </div>
+</div>
+
+<div class="overlay" id="topcenter">
+  <div id="titlerow"><div id="realm-big" class="opt">Nova Prime</div><div id="ee-line"></div></div>
+  <div id="objective">Objective: listen to Joy</div>
+  <div id="runtimer"></div>
+  <div id="vertip"><div id="ver-line1"></div><div class="ver-line2">version = the epoch this build shipped within</div></div>
+</div>
+
+<div class="overlay hudpanel" id="topright">
+  <div id="chord"></div>
+  <div id="questline" class="opt">The Deep Stone waits in the barrow, east of Arrival.</div>
+  <div id="scoreline" class="opt">score 0</div>
+  <div id="invline"></div>
+  <div id="purse" title="your purse — click for the board and the ladder shop"></div>
+  <div id="together" title="strength in numbers — the foxes near you lift your strike"></div>
+  <div id="pulsecd" title="your echolocation pulse — it finds your friends, and heals them"><span id="pulsefill"></span></div>
+  <div id="skills"></div>
+  <div id="coinfloat"></div>
+  <div id="syncline" class="opt"></div>
+</div>
+
+<div class="overlay hudpanel" id="readout" style="display:none">
+  <h2>Demo readout — for Will <span class="warn">(not in-fiction)</span></h2>
+  <div>kernel: <span id="ro-kernel">…</span></div>
+  <div>where: <span id="ro-where">…</span></div>
+  <div>physics: <span id="ro-phys">…</span></div>
+  <div>inscription log — <span id="ro-walcount">0</span> segments:</div>
+  <div id="ro-wal"></div>
+</div>
+
+<div class="overlay opt" id="help">
+  <b>W A S D</b> walk (or <b>A W E F</b> — the keys button, bottom right) · <b>mouse</b> look (click the world first) · <b>Space</b> jump · <b>Shift</b> run<br>
+  <b>1–9 0 −</b> and <b>Q W E R T Y U I O P [</b> the eleven notes — three together travel, repeats and all<br>
+  <b>hold right mouse + draw</b> a triangle (bridge), circle (home), or diamond (far-off place) · <b>Shift + drag</b> the spectral flute<br>
+  <b>G</b> flip down · <b>dial</b> Morse (short tap a dot, long hold a dash; S.O.S brings you home) · <b>H</b> fly (the bought, and dragon-slayers) · <b>click / F</b> strike · <b>click / C</b> chisel (shape the world) · <b>, .</b> brush size · <b>V</b> lamp · <b>N</b> fox vision in the Hall · <b>B</b> the board · <b>I</b> the telling door · <b>M</b> the map of realms · <b>L</b> your log · <b>`</b> the test console<br>
+  <span style="color:#5f7194">your marks can save to a map all foxes share — sign in from the board (B) to save there, or save a copy on this machine from the same panel; offline, your marks wait here</span>
+</div>
+
+<div class="overlay" id="bottombar">
+  <div id="comms"></div>
+  <div id="banter-line"></div>
+  <section id="guide">
+    <div class="who">Joy — your aperture shift</div>
+    <div id="guide-lines"></div>
+    <div id="guide-hint"></div>
+    <div class="btnrow">
+      <button class="act" id="guide-btn">And then?</button>
+      <button class="ghost" id="guide-dismiss">let me explore on my own</button>
+    </div>
+  </section>
+  <div id="instrument"></div>
+</div>
+
+<div class="overlay" id="bottomright">
+  <button class="ghost" id="btn-menu">menu (Esc)</button>
+  <button class="ghost" id="btn-board">board (B)</button>
+  <button class="ghost" id="btn-realms">realms (M)</button>
+  <button class="ghost" id="btn-guide">Joy</button>
+  <button class="ghost" id="btn-dial">dial</button>
+  <button class="ghost" id="btn-keys">Controls: WASD</button>
+  <button class="ghost" id="btn-sound">sound: on</button>
+  <button class="ghost" id="btn-extras">extras: off</button>
+  <button class="ghost" id="btn-log">log (L)</button>
+  <button class="ghost" id="btn-console">console (`)</button>
+  <button class="ghost" id="btn-speedrun">speedrun</button>
+</div>
+
+<div id="touchui">
+  <div id="stick"><div id="stick-knob"></div></div>
+  <div id="touchbtns">
+    <button class="tbtn" id="t-jump">jump</button>
+    <button class="tbtn" id="t-strike">strike</button>
+    <button class="tbtn" id="t-chisel">chisel</button>
+    <button class="tbtn" id="t-place">place</button>
+    <button class="tbtn" id="t-flip">flip</button>
+    <button class="tbtn" id="t-dial">dial</button>
+    <button class="tbtn" id="t-run">run</button>
+    <button class="tbtn" id="t-lamp">lamp</button>
+    <button class="tbtn" id="t-vision">vision</button>
+    <button class="tbtn" id="t-draw">draw</button>
+    <button class="tbtn" id="t-flute">flute</button>
+    <button class="tbtn" id="t-brushdn">brush −</button>
+    <button class="tbtn" id="t-brushup">brush +</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="intro-viewer">
+  <h2>The status board</h2>
+  <div class="sub">The stone screen at Arrival shows the status board — your health, your score, and the quest. Close it whenever you like.</div>
+  <div id="intro-board">…</div>
+  <div class="btnrow">
+    <button class="act" id="intro-close">back to the world</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="board">
+  <h2>The board of foxes</h2>
+  <div id="board-status">…</div>
+  <div class="sub">Ranked by what's on the record: crossings, strikes, marks, the place of the day, and the Deep Stone.</div>
+  <h3>All time</h3>
+  <div id="board-alltime"></div>
+  <h3>Place of the day</h3>
+  <div id="board-daily"></div>
+  <div id="board-note"></div>
+  <h3>The road ahead</h3>
+  <div id="board-roadmap"></div>
+  <h3>The written record — generators, in purchase order</h3>
+  <div class="sub">Every fox who unlocked the game stands here, numbered by the order their key reached the shared map. The number never changes and never moves.</div>
+  <div id="board-purchases"></div>
+  <h3>Your purse</h3>
+  <div class="sub" id="eco-status">…</div>
+  <div class="sub" id="eco-balances"></div>
+  <div class="btnrow">
+    <input type="text" id="eco-key" placeholder="an unlock key — Gumroad or a gift" autocomplete="off" spellcheck="false">
+    <button class="act" id="btn-redeem">redeem key</button>
+  </div>
+  <div class="btnrow">
+    <button class="ghost" id="btn-buy-gift">gift the game — 100 credits</button>
+    <button class="ghost" id="btn-convert">turn 50 flux into 1 credit</button>
+  </div>
+  <div id="gift-out"></div>
+  <div class="btnrow">
+    <input type="text" id="hand-name" placeholder="a friend's fox name" autocomplete="off" spellcheck="false">
+    <input type="number" id="hand-amt" min="1" placeholder="credits">
+    <button class="ghost" id="btn-handdown">hand credits down</button>
+  </div>
+  <div id="eco-note"></div>
+  <h3>The solver — earn credits by contributing</h3>
+  <div class="sub">Lend this machine's spare strength to work the world needs — checking the living lattice, in small verified pieces — and the world pays you in credits. The solver never takes more than 30% of your machine; the meter below is the same measurement that holds it there. An honest hour of contributing earns about 2.45 credits — so a 100-credit gift for a friend is about 41 hours of your machine's spare time. It runs only while you ask it to. The stop button stops it now; machines sleep, laptops close, and nothing is owed for work left unfinished.</div>
+  <div class="sub" id="solver-status">the solver is resting.</div>
+  <div style="position:relative;height:14px;background:#101820;border:1px solid #2b3f4d;border-radius:4px;margin:6px 0;">
+    <div id="solver-load-fill" style="position:absolute;left:0;top:0;bottom:0;width:0%;background:#7fd4a8;border-radius:4px;"></div>
+    <div style="position:absolute;left:30%;top:-2px;bottom:-2px;width:2px;background:#e8c97a;"></div>
+  </div>
+  <div class="sub" id="solver-facts"></div>
+  <div class="btnrow"><button class="act" id="btn-solver">start contributing</button></div>
+  <div id="solver-note"></div>
+  <h3>The ladder — power-ups for credits</h3>
+  <div class="sub">Dozens of rungs toward a legend, bought once each and yours for good. This season's shelf is the white, grey, and green gear; the red and blue stand below, priced in the open, and come at Christmas with the dragon. Nothing here is the only way to do anything — every rung widens a verb you already have.</div>
+  <h3>The field guide — what things are for</h3>
+  <div class="sub">Every thing you can hold, what it does, and how you use it — the weapons and charms out in the world, and the ladder's rungs below.</div>
+  <div id="board-guide"></div>
+  <h3>The gravity dial — Morse, and how hard down pulls</h3>
+  <div class="sub">The dial is a small subspace. Key Morse on it to choose your next coordinate. S.O.S (... --- ...) brings you home. Joy teaches the marks as you walk — S and O first, then the rest of the alphabet and the digits. The flip stays free, once a realm each day. The full sweep of magnitude and frequency belongs to a bought key, or to whoever kills the dragon.</div>
+  <div id="board-morse"></div>
+  <div id="board-shop"></div>
+  <h3>What you dig — material and placing</h3>
+  <div class="sub">Digging has a point now: what the chisel breaks, you carry. Place a carried block and it stands in the world for every fox, for good — the same shared record as a carve, spent from your pack. What you cannot use, the world buys back at the rates below.</div>
+  <div id="board-materials"></div>
+  <!-- A2-LOAD item 3, corrected: the "Your form" editor stands in the board again — the board is the ruled form editor's home. Only the figure stays off the board: the form-preview standing-figure canvas is not restored. -->
+  <h3>Your form — a small phext you wear</h3>
+  <div class="sub">Your shape is yours to write: a little phext, one page a frame, and the frames walk its coordinates in order — that walk is the animation. A page can be svg, a bitmap, a turtle's walk, or plain shapes; pages may mix. The ruled lines are 4 KB of phext and the size of your own body; the build is generous past both, and says so where you stand. What you wear is written to the shared map, so the form is your public shape. Form pictures are pictures — nothing in a form ever runs.</div>
+  <div class="form-flex">
+    <div>
+      <div class="btnrow">
+        <button class="ghost" id="btn-form-play">pause</button>
+        <button class="ghost" id="btn-form-prev">‹ frame</button>
+        <button class="ghost" id="btn-form-next">frame ›</button>
+      </div>
+      <div id="form-frame-line" style="font-size:12px;color:#7e93bd"></div>
+    </div>
+    <div class="form-side">
+      <textarea id="form-text" spellcheck="false" autocomplete="off"></textarea>
+      <div id="form-meter"></div>
+      <div id="form-status"></div>
+      <div class="form-pages" id="form-pages"></div>
+      <div class="btnrow">
+        <span style="font-size:12.5px;color:#93a7cc">this page is</span>
+        <select id="form-type">
+          <option value="svg">svg</option>
+          <option value="bitmap">bitmap</option>
+          <option value="turtle">turtle</option>
+          <option value="shapes">shapes</option>
+        </select>
+        <button class="ghost" id="btn-form-addpage">add a page</button>
+      </div>
+      <div id="form-bitmap-tools" style="display:none">
+        <div class="form-pal" id="form-palette"></div>
+        <div id="form-grid"></div>
+      </div>
+      <div class="btnrow">
+        <button class="act" id="btn-form-apply">wear this form</button>
+        <button class="ghost" id="btn-form-clear">take it off</button>
+      </div>
+      <div class="btnrow">
+        <span style="font-size:12.5px;color:#93a7cc">start from</span>
+        <button class="ghost" data-form-example="svg">herald fox (svg)</button>
+        <button class="ghost" data-form-example="bitmap">ember kit (bitmap)</button>
+        <button class="ghost" data-form-example="turtle">little comet (turtle)</button>
+        <button class="ghost" data-form-example="shapes">circles (shapes)</button>
+      </div>
+      <div id="form-note"></div>
+    </div>
+  </div>
+  <div id="form-chart"></div>
+
+  <h3>Leave an idea</h3>
+  <div class="sub">There is a door standing east of Arrival — the telling door. What you leave there, the world hears: tellings are read, taken up, and built, and you can watch yours change state at the door. The same door opens from anywhere with the I key.</div>
+  <div class="btnrow">
+    <button class="act" id="btn-board-idea">leave an idea</button>
+  </div>
+  <h3>Saving your game</h3>
+  <div class="sub" id="save-state">…</div>
+  <div class="btnrow">
+    <button class="act" id="btn-login-save">log in to save your game</button>
+    <button class="ghost" id="btn-save-local">save a copy locally</button>
+    <button class="ghost" id="btn-load-local">load a copy</button>
+    <input type="file" id="file-load-local" accept="application/json,.json" style="display:none">
+  </div>
+  <div id="save-note" style="color:#7e93bd;font-size:12px;margin-top:8px"></div>
+</div>
+
+<div class="overlay hudpanel" id="nfconsole">
+  <h2>Test console</h2>
+  <div class="sub">The game's own checks, run in this client, against the world as it stands. <b>`</b> or Esc closes it. Type <b>help</b>.</div>
+  <div id="nfconsole-out"></div>
+  <div id="nfconsole-row">
+    <input type="text" id="nfconsole-input" placeholder="where · gravity · purse · rift-straight · rift-veer · rift-slope · runall" autocomplete="off" spellcheck="false">
+    <button class="ghost" id="nfconsole-stop" style="display:none">stop</button>
+    <button class="ghost" id="nfconsole-close">close</button>
+  </div>
+</div>
+<div class="overlay hudpanel" id="speedrun">
+  <h2>Speed runs</h2>
+  <div class="sub">One run, in the world's own terms: arm at Arrival, the clock starts when you move, and the finish is standing at the Deep Stone in the barrow. Splits are taken at Ashfall, the barrow door, and the guardian's fall. A run never touches the shared world — your marks, your purse, and your standings all stand.</div>
+  <div class="sub" id="sr-phase">No run in progress.</div>
+  <div class="btnrow">
+    <button class="act" id="sr-start">start a run</button>
+    <button class="ghost" id="sr-abort">give up</button>
+  </div>
+  <h3>Stream your telemetry</h3>
+  <div class="sub">Point the game at a WebSocket listener — an overlay, a friend's machine, your own — and your run flows to it live: starts, splits, positions, the finish. Nothing flows until you connect, and a dead listener never touches the run.</div>
+  <div class="btnrow">
+    <input type="text" id="sr-url" value="ws://127.0.0.1:9713" autocomplete="off" spellcheck="false">
+    <button class="ghost" id="sr-connect">connect</button>
+  </div>
+  <div class="sub" id="sr-stream-state">stream: closed</div>
+  <h3>Your runs</h3>
+  <div class="sub">Each finished run is written down as an event stream — inputs, positions, crossings, strikes — and checked against itself before it stands here. Download one and anyone can re-walk it.</div>
+  <div id="sr-runs"></div>
+</div>
+
+<div class="overlay hudpanel" id="gdial">
+  <h2>The gravity dial</h2>
+  <div class="sub">A small subspace. Dots and dashes choose the next coordinate. S.O.S brings you home.</div>
+  <div id="gdial-spectrum"></div>
+  <div id="gdial-read"></div>
+  <div class="sub">How hard down pulls</div>
+  <div class="stops" id="gdial-mags"></div>
+  <div class="sub">How fast the pull hums</div>
+  <div class="stops" id="gdial-freqs"></div>
+  <div id="gdial-pattern">·</div>
+  <div id="gdial-decoded"></div>
+  <div id="gdial-joy"></div>
+  <div class="btnrow">
+    <button class="tbtn" id="gdial-dot" type="button">dot</button>
+    <button class="tbtn" id="gdial-dash" type="button">dash</button>
+    <button class="ghost" id="gdial-gap" type="button">letter</button>
+    <button class="ghost" id="gdial-word" type="button">space</button>
+    <button class="act" id="gdial-lock" type="button">lock</button>
+    <button class="act" id="gdial-sos" type="button">key S.O.S</button>
+  </div>
+  <div class="btnrow">
+    <button class="ghost" id="gdial-ref-btn" type="button">Morse chart</button>
+    <button class="ghost" id="gdial-close" type="button">close</button>
+  </div>
+  <div id="gdial-ref"></div>
+</div>
+
+<div class="overlay hudpanel" id="ideas">
+  <h2>The telling door</h2>
+  <div class="sub">Leave an idea for the world — what you wish it had. Your telling leaves with your fox name on it, and you can come back here to watch what becomes of it: told, taken up, and one day in the world, with the epoch it arrived in beside it.</div>
+  <input type="text" id="idea-title" placeholder="a short name for your idea" autocomplete="off" spellcheck="false">
+  <textarea id="idea-body" placeholder="what you wish the world had — say it plainly" spellcheck="false" autocomplete="off"></textarea>
+  <div id="idea-count"></div>
+  <div class="btnrow">
+    <button class="act" id="btn-idea-tell">tell the world</button>
+    <button class="ghost" id="btn-idea-close">back to the world</button>
+  </div>
+  <div id="idea-note"></div>
+  <div id="idea-signin" style="display:none">
+    <span id="idea-signin-text"></span>
+    <div class="btnrow"><button class="ghost" id="btn-idea-login">sign in so your telling can travel</button></div>
+  </div>
+  <h3>Your ideas</h3>
+  <div id="idea-yours"></div>
+  <h3>Lately told</h3>
+  <div id="idea-lately"></div>
+</div>
+
+<div class="overlay hudpanel" id="realms">
+  <h2>The map of realms</h2>
+  <div class="sub">Eleven realms, ten rift portals — one for every realm but home. Choose a realm and its portal is brought up where you stand. Step in, and walk through.</div>
+  <div id="realms-list"></div>
+</div>
+
+<div class="overlay hudpanel" id="menu">
+  <h2>Menu</h2>
+  <div id="menu-items">
+    <button class="menuitem" id="menu-newgame">Start a New Game</button>
+    <button class="menuitem" id="menu-unstick">Return to this realm's Arrival <span class="st">unstick</span></button>
+    <button class="menuitem" id="menu-lan">Open to LAN <span class="st" id="menu-lan-state">closed</span></button>
+    <button class="menuitem" id="menu-mp">Multiplayer <span class="st" id="menu-mp-state">on</span></button>
+    <button class="menuitem" id="menu-savephext">Save the world to .phext</button>
+    <button class="menuitem" id="menu-merge">Merge the local game to fox.phext.io <span class="st" id="menu-merge-state"></span></button>
+    <button class="menuitem" id="menu-keys">Key bindings</button>
+    <button class="menuitem" id="menu-video">Video settings</button>
+    <button class="menuitem" id="menu-audio">Audio settings</button>
+    <button class="menuitem" id="menu-feedback">Send feedback / playtest notes</button>
+    <button class="menuitem" id="menu-quit">Quit</button>
+  </div>
+  <div id="menu-confirm">
+    <div id="menu-confirm-text">Start a new game? This erases your record, your purse, and every mark still waiting on this machine, and the world starts over. Your sign-in, key bindings, and settings stay.</div>
+    <div class="btnrow">
+      <button class="act" id="menu-confirm-yes">Start a New Game</button>
+      <button class="ghost" id="menu-confirm-no">Keep playing</button>
+    </div>
+  </div>
+  <div id="menu-note"></div>
+  <div class="btnrow">
+    <button class="ghost" id="menu-close">back to the world (Esc)</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="bindings-panel">
+  <h2>Key bindings</h2>
+  <div class="sub">Choose a binding, then press the key it should be. Two actions that would share a key swap places. Bindings live on this machine, in the same keeping as your other controls.</div>
+  <div id="bindings-list"></div>
+  <div id="bindings-note"></div>
+  <div class="btnrow">
+    <button class="ghost" id="bindings-reset">reset to defaults</button>
+    <button class="ghost" id="bindings-back">back (Esc)</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="video-panel">
+  <h2>Video settings</h2>
+  <div class="sub">Only what the engine really does — each of these takes effect the moment you choose it.</div>
+  <div class="setrow"><span>Render scale</span><button class="ghost" id="vid-scale">100%</button></div>
+  <div class="setrow"><span>View distance</span><button class="ghost" id="vid-view">standard</button></div>
+  <div class="setrow"><span>Fullscreen</span><button class="ghost" id="vid-full">enter</button></div>
+  <div class="btnrow">
+    <button class="ghost" id="video-back">back (Esc)</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="audio-panel">
+  <h2>Audio settings</h2>
+  <div class="setrow"><span>Master volume</span><input type="range" id="aud-master" min="0" max="100" step="1"></div>
+  <div class="setrow"><span>Narration volume</span><input type="range" id="aud-narration" min="0" max="100" step="1"></div>
+  <div class="setrow"><span>Music volume</span><input type="range" id="aud-music" min="0" max="100" step="1"></div>
+  <div class="setrow"><span>Sound</span><button class="ghost" id="aud-mute">on</button></div>
+  <div class="btnrow">
+    <button class="ghost" id="audio-back">back (Esc)</button>
+  </div>
+</div>
+
+<script>
+  // The instrument pads (game2.js wires the clicks). The fiction's
+  // interface is NUMBERS; the key hints ride along small.
+  const NUMKEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "−"];
+  const LETKEYS = ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "["];
+  document.getElementById("instrument").innerHTML =
+    Array.from({ length: 11 }, (_, i) =>
+      `<button class="notepad" data-note="${i}"><span class="num">${i + 1}</span><span class="key">${NUMKEYS[i]} · ${LETKEYS[i]}</span></button>`).join("");
+</script>
+<script type="module">
+/*__BUILT_MODULE__*/
+</script>
+</body>
+</html>

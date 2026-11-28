@@ -1,0 +1,91 @@
+{
+ "ee": "1319",
+ "base": "assets/1319/music/",
+ "totalBytes": 7807978,
+ "tracks": [
+  {
+   "file": "01-nova-prime.ogg",
+   "id": "01-nova-prime",
+   "scope": "realm:nova",
+   "bytes": 612219,
+   "sha256": "681b40756257c883c03ae54c5ee86fa5a430ff34dc6890b723d2e28035947c55"
+  },
+  {
+   "file": "02-ashfall-haven.ogg",
+   "id": "02-ashfall-haven",
+   "scope": "realm:ashfall",
+   "bytes": 568862,
+   "sha256": "ced43171f080aa8acd076f17d5fa36a05ceea6f37098031cebaca922f69d48ae"
+  },
+  {
+   "file": "03-ni-knight.ogg",
+   "id": "03-ni-knight",
+   "scope": "realm:ni-knight",
+   "bytes": 619936,
+   "sha256": "0b64f3631c3641378b951aad9b4cce84ac947d7655fee5e441e3981add0bce0f"
+  },
+  {
+   "file": "04-logos-prime.ogg",
+   "id": "04-logos-prime",
+   "scope": "realm:logos",
+   "bytes": 657896,
+   "sha256": "36d86e7da7f5a168fa9c7454c16c71cc73750764f4b98419bb8a5c2595f78db4"
+  },
+  {
+   "file": "05-elven-path.ogg",
+   "id": "05-elven-path",
+   "scope": "realm:elven",
+   "bytes": 604813,
+   "sha256": "8a8439dc46e87b72ca679d3ac985bf50eef1d9b66d57ce1e88dab50fd6946b58"
+  },
+  {
+   "file": "06-orchid-flow.ogg",
+   "id": "06-orchid-flow",
+   "scope": "realm:orchid",
+   "bytes": 536099,
+   "sha256": "88e02e2f13f2b2d3936fa898fa705b477d80e680f9d6231373c348bd9558d790"
+  },
+  {
+   "file": "07-halycon-vector.ogg",
+   "id": "07-halycon-vector",
+   "scope": "realm:halycon",
+   "bytes": 828228,
+   "sha256": "a9b4b79efd4ccb354d1f4f230c2b4edc45f3e81cb7a78afa653e0f152a565181"
+  },
+  {
+   "file": "08-delta-wood.ogg",
+   "id": "08-delta-wood",
+   "scope": "realm:delta",
+   "bytes": 835651,
+   "sha256": "98c4804cac97be6e77aaa2d01648267f5574c593607a629dc56b6207a0ad1d69"
+  },
+  {
+   "file": "09-best-willow.ogg",
+   "id": "09-best-willow",
+   "scope": "realm:willow",
+   "bytes": 741222,
+   "sha256": "31107dd8fb2381a7b18e69d92729c52d468161ad1c379d177f55327a0e8a180b"
+  },
+  {
+   "file": "10-plain-view.ogg",
+   "id": "10-plain-view",
+   "scope": "realm:plain",
+   "bytes": 631805,
+   "sha256": "5023306526a5450370968f78ce75fc894926d2156d085d9a371c325b00f951a3"
+  },
+  {
+   "file": "11-monster-fight.ogg",
+   "id": "11-monster-fight",
+   "scope": "state:fight",
+   "bytes": 715393,
+   "sha256": "88544333dc63cb14455c5f1c57f443d50c2ae218590dc469eccb7e035ffcfdee"
+  },
+  {
+   "file": "12-rift-traversal.ogg",
+   "id": "12-rift-traversal",
+   "scope": "state:transit",
+   "bytes": 455854,
+   "sha256": "758576d662332c8493e2a36741b2a0233aa24bab47eda94c7225a7306485f382"
+  }
+ ]
+}
