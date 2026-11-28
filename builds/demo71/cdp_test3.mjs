@@ -1213,8 +1213,8 @@ try {
     await evalJs("getComputedStyle(document.getElementById('questline')).display") === "none" &&
     await evalJs("getComputedStyle(document.getElementById('scoreline')).display") === "none" &&
     await evalJs("getComputedStyle(document.getElementById('syncline')).display") === "none");
-  check("clean UI: the portrait is optional, off by default",
-    await evalJs("getComputedStyle(document.getElementById('portrait')).display") === "none");
+  check("clean UI: the portrait is on screen by default (F-GROK-12)",
+    await evalJs("getComputedStyle(document.getElementById('portrait')).display") !== "none");
   check("clean UI: what play requires stays — hearts, chord, objective, instrument",
     await evalJs("getComputedStyle(document.getElementById('hearts')).display") !== "none" &&
     await evalJs("getComputedStyle(document.getElementById('chord')).display") !== "none" &&
