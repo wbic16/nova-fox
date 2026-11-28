@@ -10099,7 +10099,7 @@ async function nfLegSlope() {
   state.yaw = spot.yaw;
   const r = nfOpenBridgeRift();
   if (!r) { nfPrint("  FAIL  no rift opened — the tune answered otherwise from here.", "fail"); return "fail"; }
-  nfPrint(`  ring feetY is ${r.feetY.toFixed(2)} — in this build the ring's height is anchored to the ground where the tune was played, while the ground at the ring itself is ${spot.gR}. walking…`);
+  nfPrint(`  ring feetY is ${r.feetY.toFixed(2)} — the ground at the ring itself is ${spot.gR}. walking…`);
   const w = await nfWalkProbe(12000);
   if (w.cancelled) { nfPrint("  STOPPED  the walk was cancelled from the console.", "fail"); return "notrun"; }
   if (w.crossed) {
