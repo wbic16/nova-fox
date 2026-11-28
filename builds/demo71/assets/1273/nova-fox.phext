@@ -1032,6 +1032,7 @@ NF-MAP {"shell": "1.1.1/1.1.2/1.1.1", "modules": ["1.1.2/1.1.1/1.1.1", "1.1.2/1.
     <button class="ghost" id="nfconsole-stop" style="display:none">stop</button>
     <button class="ghost" id="nfconsole-close">close</button>
   </div>
+</div>
 <div class="overlay hudpanel" id="speedrun">
   <h2>Speed runs</h2>
   <div class="sub">One run, in the world's own terms: arm at Arrival, the clock starts when you move, and the finish is standing at the Deep Stone in the barrow. Splits are taken at Ashfall, the barrow door, and the guardian's fall. A run never touches the shared world — your marks, your purse, and your standings all stand.</div>
