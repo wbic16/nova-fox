@@ -419,7 +419,8 @@ if LITE:
         "per-part strip assembly differs from the whole-module strip"
     PART_NAMES = ["three", "wasm-core", "narration", "intro", "world",
                   "economy", "solver", "forms", "speedrun", "banter",
-                  "scheme", "ideas", "gdial", "feedback", "shiplog", "mp", "game"]
+                  "scheme", "ideas", "collectibles", "xfactor", "gdial",
+                  "feedback", "shiplog", "mp", "game"]
     module_coords = []
     module_names = {}
     _ci = 0
