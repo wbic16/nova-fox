@@ -62214,7 +62214,7 @@ function mpPulseJudge(selfId, selfPos, msg, lastBySource, now, house) {
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:1315";
+const NF_SHIP_EE = "NF_SHIP_EE:1319";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 document.title = `Nova Fox (EE${SHIP_EE})`; // A2-MOVE (Play 1, item 3): the titlebar carries the ship EE
 
