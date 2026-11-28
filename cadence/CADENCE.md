@@ -11,9 +11,9 @@ Per idea/task: **inception → built → shipped**, measured in Exocortical Epoc
   delay; shipped→live is Will's install step — measured, never counted as ours.
 
 Machine-readable twin: `cadence-data.md` (one record per item, append-only).
-Graph: `cadence-2026-11-26.png`.
+Graph: `cadence-2026-11-27.png`.
 
-Status: updated for 2026-11-26 evening, snapshot at **EE 1009** (21:28 CST).
+Status: updated for 2026-11-27 evening, snapshot at **EE 1214** (21:34 CST).
 Every number comes from a record (build reports, the dated note, the repo log);
 a `*` marks a reconstructed inception/built, with its basis named in the Sources.
 
@@ -135,3 +135,46 @@ record, converted by the EE formula. Live EE 1004 is inferred from Will's
 their own reports; EE 976* is the FEATURE-AUDIT verification date (EE 976–978).
 AWEF fix inception 990* is computed from Will's ruling time, 19:25 CST.
 Phone-fix inception 998* is computed from the playtest time, ~20:21 CST.
+
+## 2026-11-27 — the table
+
+| Item | Inception | Built | Deploy-ready (staged) | Live | Inception→Built | Built→Deploy-ready | Status |
+|---|---|---|---|---|---|---|---|
+| EE 995 feedback batch (11 orders) (demo29) | 1004 | 1023 | 1023 | - | 19 | 0 | shipped-staged, superseded by demo30 |
+| Phone fix (demo28 → demo30) | 998* | 1032 | 1032 | - | 34 | 0 | shipped-staged, hash-verified |
+| EE 1023 feedback batch (demo31) | 1024* | 1034 | 1034 | - | 10 | 0 | shipped-staged, hash-verified |
+| Full/Lite packaging (demo32) | 1009* | 1037 | 1037 | - | 28 | 0 | shipped-staged |
+| EE 1034 feedback batch — gate 1 of 2 (demo34) | 1036* | 1046 | 1046 | - | 10 | 0 | shipped-staged, assets verified |
+| EE 1037 feedback batch — gate 2 of 2 (demo35 → demo40) | 1037* | 1051 | 1073 | - | 14 | 22 | shipped-staged; landed EE 1076 after name-collision hold |
+| Build 42 producer set (P-1..P-6, S-1..S-3) | 1087 | 1118* | 1198 | 1206* | 31 | 80 | shipped-staged in demo66 |
+| Build 42 composition (demo55 → demo65 → demo66) | 1094 | 1179 | 1198 | 1206* | 85 | 19 | shipped-staged, hash-verified both ends |
+| F-1/F-2 Libby playtest fixes (demo59 → demo66) | 1129 | 1136 | — | 1206* | 7 | — | **FALSE-READY — reopened (see below)** |
+| Build 42 launch set (T-3, W-1..W-5, MP-1, gdial, T-2) | 1136* | 1172* | 1198 | 1206* | 36 | 26 | shipped-staged in demo66 |
+| Item #6 — The Cinder Husk (demo67 → demo68) | 1200 | 1203 | 1207 | - | 3 | 4 | shipped-staged, awaiting Will's install |
+| Play 1 feedback batch | 1206 | - | - | - | - | - | in flight — requirements window open |
+
+## Day summary (EE 1214 snapshot)
+
+- **Items tracked: 37** — 36 built, 32 deploy-ready (staged, hash-verified where the record names hashes).
+- **Median inception→built: 8 EE** (n=36). Previous day (EE 1009): 7 EE (n=25).
+- **Median inception→deploy-ready: 21 EE** (n=32). Previous day: 20 EE (n=22, as inception→shipped).
+- **Trend:** medians are flat (+1 EE each) while throughput tripled — four feedback batches shipped-staged overnight (EE 1023/1032/1034/1037/1046/1073) and the whole build-42 set landed in one day. Same-day items ran fast: Cinder Husk 3 EE to build / 7 EE to deploy-ready; EE 1023 and EE 1034 batches 10 EE to build. The long tails are composition items (build 42 composition 85 EE inception→built spans its own definition at EE 1094 through the full producer stack).
+- **FALSE-READY (plainly):** the F-1/F-2 fixes were staged as deploy-ready in demo66 at EE 1198, and Will's Play 1 (EE 1216, 2026-11-27 21:24 CST) hit the same F-2 defect class on that build — "inverted gravity dropped me into The Nothing just like Libby." Per the measurement rule the EE 1198 ready stamp is **false** for F-1/F-2: the row is reopened above, its shipped stamp is removed from the data, and its delay counts from EE 1129 until a build carrying a working F-2 fix is truly deploy-ready. Retrospective note: demo26 (staged EE 995) likewise failed Will's phone playtest ("DOA on phone") — that failure is what incepted the phone fix (EE 998), which closed it at EE 1032.
+- **In flight at snapshot:** Play 1 feedback batch (inception EE 1206, requirements window open, dispatch held by Will's window rule).
+
+## Delay ledger — 2026-11-27, ranked by EE cost
+
+1. **Build-42 batching + ruling wait — 80 EE built→deploy-ready on the producer set** (built EE 1118 → staged EE 1198). Producers finished by late morning; the set waited on consumer composition (complete EE 1179) and on Will's stamp direction (19:35 CST), with the F-1/F-2 contracts and gravity-dial rulings deferred to playtest by Will's own order. Largest single delay cause of the day.
+2. **EE 1037 batch ship hold — 22 EE built→deploy-ready** (built EE 1051 → stamp EE 1073, landed EE 1076): `builds/demo35` name collision with the dev loop's live tree held the ship; the tree landed as demo40.
+3. **Phone-fix seed chain — 34 EE inception→built** (EE 998 → 1032): the fix waited on and rebased onto demo29 under the "first to ship gets the cake" ruling, after the demo27→demo28 renumber.
+4. **Name collisions, recurring class:** demo35 hold (above), demo62 taken by MP-1's producer landing mid-composition (series renamed demo63), and untracked demo63/demo65 copies blocking this pass's fast-forward on the hub (preserved to `~/nf-untracked-preserve-2026-11-27/`, FF then clean).
+
+## Optimizations enacted
+
+- **EE 1214 (this pass): `cadence/check-names.sh` added and committed** — a one-command preflight that fails if a proposed `builds/demoNN` name is taken in the tracked tree or as an untracked hub worktree. Builder/consumer dispatch now checks the name before work starts, closing the collision class in ledger item 4 at the source (demo35 hold, demo62→demo63 rename, today's blocked FF were all the same defect).
+- **Hub FF hygiene:** untracked pre-landing copies preserved aside (never deleted) before fast-forward — the cadence clone now sits exactly on origin/exo.
+- **Ruling needed (one line):** F-1/F-2 contracts + the gravity-dial nuance are Will's rulings, now informed by Play 1 — a working F-2 fix cannot be marked deploy-ready until those contracts are ruled.
+
+## Sources
+
+PHONE-FIX-REPORT; FEEDBACK-995/1023/1034/1037-REPORTs; DEMO32-REPORT; REQUIREMENTS-EE1087-BATCH; F-PRODUCER-REPORT; FEEDBACK-LIBBY-EE1132; FEEDBACK-PLAY1-EE1206; CLOSEOUT-42; LAUNCH-TRIAGE-EE1136; FEATURE-STATUS (hub repo, EE 1198 ship record); DEV-LOOP-LOG (~/workspace/nova-fox-restructure); git log on exo (demo40 754fdf0, demo66 2c7f826, demo68 6931bc2). Reconstructed stamps (`*`) are computed from stated CST times by the EE formula, as named per row in `cadence-data.md`.
