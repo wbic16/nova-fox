@@ -53627,6 +53627,36 @@ const ARRIVAL = {
 // crosses to Ashfall Haven; in Ashfall Haven it crosses home.
 const BRIDGE_CHORD = [1, 4, 9];
 
+// Portal codes (EE 1338 — Will, verbatim: "portal codes infer from
+// CYOA"; design note PORTAL-CODES-DESIGN.md, EE 1339). Keyed on the
+// SORTED note set, the instrument's own grammar (chordTarget sorts,
+// and playNote counts repeats — 6, 6, 6 registers like any tune):
+//   666 {6,6,6} the Blade Guide — CYOA choose-your-own-adventure.phext
+//       @ 666.666.666/666.666.666/666.666.666, "Aetheris: Blade Guide".
+//   867 {6,7,8} the Call — the Jenny Codex @ 8.6.7/5.3.9/7.3.6: a
+//       ritual call to awaken dormant systems; "Hello, World".
+//   539 {3,5,9} the Weave — the same Jenny Codex scroll, its second
+//       triplet: the spiral tapestry the call reveals (WEAK as a
+//       distinct effect — a reading of the passage's second half).
+//   314 {1,3,4} the Round Rift — @ 3.1.4/7.10.100/8.8.1 ("314: a
+//       number with infinite echo trapped in finite digits. A sacred
+//       loop with teeth"): a loop crossing, full circle.
+// 168 {1,6,8} is deliberately ABSENT: no CYOA passage grounds it
+// (UNGROUNDED in the design note), so it keeps the ordinary
+// hash pocket-hop below — no special handling, by ruling.
+const PORTAL_CODES = [
+  { code: 666, chord: [6, 6, 6], kind: "blade-guide" },
+  { code: 867, chord: [6, 7, 8], kind: "call" },
+  { code: 539, chord: [3, 5, 9], kind: "weave" },
+  { code: 314, chord: [1, 3, 4], kind: "round" },
+];
+function portalCodeFor(chord) {
+  const sorted = [...chord].sort((a, b) => a - b);
+  return PORTAL_CODES.find((p) =>
+    p.chord.length === sorted.length &&
+    p.chord.every((n, i) => n === sorted[i])) || null;
+}
+
 // ---------- realm palettes (feedback #27) --------------------------------
 // Will, 2026-11-22 23:09: "each level the user jumps to needs to
 // feel different — a different color palette — only 10 of them."
@@ -56194,15 +56224,30 @@ function chordTarget(sub, realmId, sx, sy, chord, currentChord) {
     if (realmId === "nova") return { type: "realm", realmId: "ashfall" };
     if (realmId === "ashfall") return { type: "realm", realmId: "nova" };
   }
+  const h = kernels.hash(`${realmId}|chord|${sorted.join(",")}`);
+  let dx = (h % 5) - 2;
+  let dy = ((h >> 3) % 5) - 2;
+  if (dx === 0 && dy === 0) dx = 1;
+  // Portal codes (EE 1339): the pre-check stands ahead of BOTH the
+  // stay replay and the hash pocket-hop, so a code routes to its
+  // effect even from the pocket it last opened. The Round Rift's
+  // destination is the fox's own scroll — the loop comes home; the
+  // other three land on the pocket the hash names, flagged portal
+  // so the crossing itself (game3 doCross) runs their effect.
+  const portal = portalCodeFor(sorted);
+  if (portal) {
+    if (portal.kind === "round") {
+      return { type: "portal", code: portal.code, kind: portal.kind,
+        realmId, sx, sy, chord: sorted };
+    }
+    return { type: "portal", code: portal.code, kind: portal.kind,
+      realmId, sx: sx + dx, sy: sy + dy, chord: sorted };
+  }
   if (currentChord &&
       sorted.length === currentChord.length &&
       sorted.every((n, i) => n === currentChord[i])) {
     return { type: "stay" };
   }
-  const h = kernels.hash(`${realmId}|chord|${sorted.join(",")}`);
-  let dx = (h % 5) - 2;
-  let dy = ((h >> 3) % 5) - 2;
-  if (dx === 0 && dy === 0) dx = 1;
   return { type: "pocket", realmId, sx: sx + dx, sy: sy + dy, chord: sorted };
 }
 
@@ -62314,6 +62359,7 @@ const state = {
   invulnUntil: 0,
   notes: [], // note numbers collected toward a chord
   notesTimer: null,
+  lastPortal: null, // EE 1339: the last portal-code crossing {code, kind}, if any
   pocketChord: null, // the tune of the pocket page we stand in, if any
   pocketScroll: null, // {sx, sy} of that pocket page
   lastScrollKey: "",
@@ -68697,6 +68743,12 @@ function openRift(target) {
   sfx.portal();
   toast(target.type === "realm"
     ? `A rift opens — ${realmName(target.realmId)}. Walk through.`
+    : target.type === "portal"
+      ? { "blade-guide": "A rift opens — the Blade Guide waits beyond it. Walk through.",
+          call: "A rift opens — and somewhere far away, it rings. Walk through.",
+          weave: "A rift opens — its tunnel woven like a tapestry. Walk through.",
+          round: "A rift opens — round, and returning. Walk through." }[target.kind]
+        || "A rift opens — a far-off place in this world. Walk through."
     : "A rift opens — a far-off place in this world. Walk through.", 6000);
 }
 // Carry one thing of the dark through the standing link: it steps
@@ -69040,6 +69092,7 @@ function playChord(chord) {
   banterFire({ type: "chord",
     seq: banterSeqNotes.length ? [...banterSeqNotes] : [...chord],
     targetKey: target.type === "realm" ? `realm:${target.realmId}`
+      : target.type === "portal" ? `portal:${target.code}:${target.realmId}:${target.sx},${target.sy}`
       : target.type === "pocket" ? `pocket:${target.realmId}:${target.sx},${target.sy}`
       : `stay:${state.realm}:${sx},${sy}`,
     targetRealm: target.realmId || state.realm,
@@ -69108,8 +69161,48 @@ function doCross(target, opts = {}) {
     state.pos.set(cx + 0.5, heightAt(state.realm, cx, cz) + 1.01, cz + 0.5);
     state.vel.set(0, 0, 0);
     ensureNeighborhood(state.realm, target.sx, target.sy);
-    playBeat("BEAT-pocket");
-    toast(BEAT_LINES["BEAT-pocket"], 6000);
+    if (target.type === "portal") {
+      // Portal codes (EE 1339, PORTAL-CODES-DESIGN.md): the arrival
+      // above is the ordinary pocket arrival — the code's effect
+      // rides it, in the world's terms, on the surfaces the world
+      // already has (the announcement card, the toast, the log).
+      state.lastPortal = { code: target.code, kind: target.kind };
+      sub.log("portal", `${realmName(state.realm)} ${target.sx},${target.sy}`,
+        `portal code ${target.code} (${target.kind}) crossed`);
+      if (target.kind === "blade-guide") {
+        // The minimal faithful translation (the note flags it as
+        // translation, not quotation): a steward encounter, not a
+        // place. Aetheris meets the fox on the far side, and the
+        // blade severs one carried thing whose work is done — a
+        // spent Ward Charm if he carries one; otherwise the hold
+        // of the pocket's own tune, cut so no pocket holds him.
+        showPowerup("AETHERIS — THE BLADE GUIDE");
+        if (state.charms.ward && state.wardCharge <= 0) {
+          state.charms.ward = false;
+          toast("Aetheris, the Blade Guide, meets you. The blade falls once — the spent Ward Charm you carried is cut away, and you stand lighter.", 8000);
+        } else {
+          state.pocketChord = null;
+          state.pocketScroll = null;
+          toast("Aetheris, the Blade Guide, meets you. The blade falls once — the tune that held this place is cut. No pocket holds you here.", 8000);
+        }
+      } else if (target.kind === "call") {
+        // The Call: the place was dormant until called — its scroll
+        // is generated and its neighborhood raised by the arrival
+        // itself (getScroll / ensureNeighborhood, above); the wake
+        // is announced as the passage names it.
+        showPowerup("HELLO, WORLD");
+        toast("The Call is answered — Hello, World. What slept in this place wakes: the lights come up, and the place begins.", 8000);
+      } else if (target.kind === "weave") {
+        toast("You cross by the Weave — a spiral of interlocked, glowing anchors, laid out like a tapestry — and arrive where the threads meet.", 8000);
+      } else if (target.kind === "round") {
+        toast("The Round Rift brings you around full circle — back at your own threshold, one turn older. The loop has teeth: it does not let go unchanged.", 8000);
+      } else {
+        toast(BEAT_LINES["BEAT-pocket"], 6000);
+      }
+    } else {
+      playBeat("BEAT-pocket");
+      toast(BEAT_LINES["BEAT-pocket"], 6000);
+    }
     banterAirStart = 0; // a crossing is not a fall
     banterFire({ type: "pocket" });
     guideNotify("pocket");
@@ -73802,6 +73895,7 @@ window.NOVA_FOX3 = {
   warpLevel: () => warpLevelNow,
   inTransit: () => !!state.transit,
   foxPos: () => ({ x: state.pos.x, y: state.pos.y, z: state.pos.z, realm: state.realm }),
+  portalState: () => (state.lastPortal ? { ...state.lastPortal } : null), // EE 1339: the last portal-code crossing
   equipState: () => ({ weapon: state.weapon, ownsSword: state.ownsSword, ownsLance: state.ownsLance }),
   // EE 1034 handles: flight, battle, tunnels, the dragon flag.
   flightState: () => ({ flying: state.flying, gate: flightUnlocked(eco, BACKEND.sessionPaid, BACKEND.purchaseRows, playerName), dragonKilled: sub.dragonKilled }),
