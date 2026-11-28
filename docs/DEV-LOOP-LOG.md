@@ -556,6 +556,6 @@ oldest unshipped first._
 
 - **Item:** the first minutes, and the gravity dial a new fox can actually see.
 - **Playtest:** headless Chrome against https://fox.phext.io/ (EE 1207) and local `builds/demo68`. On the live page, `#gdial`'s parent is `#nfconsole` (`display: none`); after clicking dial the box is 0×0. Three dots then lock says "That coordinate isn't on the chart." A short walk (about 2.7) plus one jump does not finish "walk, and jump once." Objective opens as "listen to Joy."
-- **Tree:** `builds/demo69`, seeded from `builds/demo68`. No other `builds/demoNN` edited. `NF_SHIP_EE:1207` inherited, not restamped. Not staged.
+- **Tree:** `builds/demo70`, seeded from `builds/demo68`. Moved from `builds/demo69` per Will (Penelope keeps demo69 for Attempt 2). No other `builds/demoNN` edited. `NF_SHIP_EE:1207` inherited, not restamped. Not staged.
 - **Gates:** unit 928/0, probe-gdial 25/0, Lite phext 1,867,484 B under 1.9 MB.
 - **Stack:** producer delta on exo `cbbafe1`. Merge is the consumer's.

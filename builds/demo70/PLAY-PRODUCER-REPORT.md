@@ -4,7 +4,7 @@
 
 ## Tree
 
-`builds/demo69`, seeded from `builds/demo68` (the EE 1207 ship). `demo67` was left unused: the ship commit names it as the Cinder Husk source, and that folder is not on `exo`. No other producer tree was edited.
+`builds/demo70`, seeded from `builds/demo68` (the EE 1207 ship). Moved from `builds/demo69` per Will: Penelope keeps demo69 for her Attempt 2 consumer build. `demo67` stays the named Cinder Husk source. No other producer tree was edited.
 
 ## Base
 
