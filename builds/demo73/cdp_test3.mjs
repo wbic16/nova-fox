@@ -640,18 +640,38 @@ try {
   check("guide advances to the gesture beat",
     await waitFor("NOVA_FOX3.guideCurrent().id === 'gesture'", 8000, "gesture beat"),
     await evalJs("NOVA_FOX3.guideCurrent().id"));
-  // ONE SHIFT A DAY (demo10; Will, 2026-11-26): gravity lives in
-  // subspace now, and this fox has spent today's shift in this
-  // realm — G again is refused, and down stays up.
+  // ONE SHIFT A DAY (demo10; Will, 2026-11-26), as amended by
+  // the F-2 correction window (EE 1129; ruled "F1/F2 good",
+  // EE 1338; re-pinned EE 1339): gravity lives in subspace now,
+  // and this fox has spent today's shift in this realm — but a
+  // second G inside the 120 s window is not a second shift: it
+  // CORRECTS the fox's own shift (the realm's latest line is its
+  // own, from today, its only line today), restoring the down
+  // that stood before it, and the day is spent either way. The
+  // window must still stand open here — the ceiling landing
+  // above takes seconds, not minutes; if it has closed, this
+  // leg fails loudly instead of silently re-pinning a refusal.
+  check("F-2 correction: the window stands open over the fox's own fresh shift",
+    await evalJs("NOVA_FOX3.gravityState().correction") === true,
+    JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
+  await key("g", "KeyG");
+  check("G again is refused — one shift per realm per day (demo10)",
+    await waitFor("NOVA_FOX3.state.gravDir === 1", 6000, "the correction restores down") &&
+    await evalJs("NOVA_FOX3.gravityState().allowed") === false &&
+    await evalJs("NOVA_FOX3.gravityState().correction") === false &&
+    await evalJs("NOVA_FOX3.gravityState().known") >= 2 &&
+    (await evalJs("document.getElementById('comms').textContent")).includes("Correction"),
+    JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
+  // A correction is a real inversion and announces itself (the
+  // warp text fired: shown 1 -> 2, asserted by the read-back leg
+  // below). A REFUSED shift — the third press, the day spent and
+  // no window left — inverts nothing and announces nothing: that
+  // refusal is what this leg has always protected (demo18).
   await key("g", "KeyG");
   await sleep(1200);
-  check("G again is refused — one shift per realm per day (demo10)",
-    await evalJs("NOVA_FOX3.state.gravDir") === -1 &&
-    await evalJs("NOVA_FOX3.gravityState().allowed") === false &&
-    await evalJs("NOVA_FOX3.gravityState().known") >= 1,
-    JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
   check("a refused shift announces nothing — no warp text (demo18)",
-    await evalJs("NOVA_FOX3.warpText().shown") === 1);
+    await evalJs("NOVA_FOX3.state.gravDir") === 1 &&
+    await evalJs("NOVA_FOX3.warpText().shown") === 2);
   // The chart answers: another fox's shift, read back through the
   // same reconcile path the flush uses, attunes this view — down
   // is down again, and the fox lands.
@@ -661,14 +681,23 @@ try {
     const dd = String(d.getDate()).padStart(2, "0");
     return `${d.getFullYear()}-${mm}-${dd}`;
   })();
-  await evalJs(`NOVA_FOX3.gravityReadback("grav|nova|1|another-fox|${todayG}|${Date.now() + 60000}")`);
+  // F12 re-pin knock-on (EE 1339): the correction above already
+  // restored down, so a lone dir-1 read-back would turn nothing
+  // and announce nothing. The chart first turns the realm up
+  // under the fox (another fox's shift, read back), then back
+  // down — both are real turns, so both legs below still test
+  // what they always tested. Warp count: the fox's own flip (1),
+  // its correction (2), the read-back up-turn (3), the read-back
+  // down-turn (4).
+  await evalJs(`NOVA_FOX3.gravityReadback("grav|nova|-1|another-fox|${todayG}|${Date.now() + 60000}")`);
+  await evalJs(`NOVA_FOX3.gravityReadback("grav|nova|1|another-fox|${todayG}|${Date.now() + 120000}")`);
   check("another fox's shift, read back, restores down — and the fox lands",
     await waitFor(
       "NOVA_FOX3.state.gravDir === 1 && NOVA_FOX3.state.pos.y < 26",
       20000, "ground landing"),
     await evalJs("NOVA_FOX3.state.pos.y"));
   check("a read-back turn is announced too — the warp text fires again (demo18)",
-    await evalJs("NOVA_FOX3.warpText().shown") === 2);
+    await evalJs("NOVA_FOX3.warpText().shown") === 4);
 
   // THE GESTURE (feedback #5): a right-mouse triangle, drawn with
   // real mouse events (pointer-lock-free path).
@@ -1432,11 +1461,24 @@ try {
   check("touch: the fox lands on the new ceiling",
     await waitFor("NOVA_FOX3.state.pos.y > 40", 20000, "ceiling landing (touch)"),
     await evalJs("NOVA_FOX3.state.pos.y"));
+  // F12 re-pin (EE 1339), same ruling as the G legs above: the
+  // second tap lands inside the 120 s correction window (the
+  // ceiling landing above takes seconds), so it CORRECTS the
+  // fox's own shift — down is restored, the correction names
+  // itself, and the day is spent either way: no second shift,
+  // no toggle loop (a third tap would be refused). The window
+  // must still stand open; if it has closed this leg fails
+  // loudly instead of silently re-pinning a refusal.
+  check("touch: the correction window stands open over the fox's own fresh shift",
+    await evalJs("NOVA_FOX3.gravityState().correction") === true,
+    JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
   await tap("t-flip");
-  await sleep(1200);
   check("touch: a second flip is refused — the realm's shift is spent for today (demo10)",
-    await evalJs("NOVA_FOX3.state.gravDir") === -1 &&
-    await evalJs("NOVA_FOX3.gravityState().allowed") === false,
+    await waitFor("NOVA_FOX3.state.gravDir === 1", 6000, "the correction restores down (touch)") &&
+    await evalJs("NOVA_FOX3.gravityState().allowed") === false &&
+    await evalJs("NOVA_FOX3.gravityState().correction") === false &&
+    await evalJs("NOVA_FOX3.gravityState().known") >= 2 &&
+    (await evalJs("document.getElementById('comms').textContent")).includes("Correction"),
     JSON.stringify(await evalJs("NOVA_FOX3.gravityState()")));
   await tap("t-draw");
   check("touch: the draw button arms the second instrument",
