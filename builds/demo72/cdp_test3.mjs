@@ -292,14 +292,38 @@ try {
   check("spawn realm is Nova Prime",
     await evalJs("NOVA_FOX3.state.realm") === "nova");
   // Realm palettes (feedback #27): exactly ten in the table, home
-  // wears palette v4 at boot, and applying a realm's palette puts
-  // that realm's fog on the scene.
+  // wears the coordinate-derived palette at boot (wg7 / F-GAME-7;
+  // Will ruling EE 1320: keep the pure derived rule - Nova goes
+  // grey, re-pin the two expectations), and applying a realm's
+  // palette puts that realm's fog on the scene.
   check("the palette table has exactly 10 entries (feedback #27)",
     await evalJs("Object.keys(NOVA_FOX3.palettes()).length") === 10);
-  check("home at boot wears palette v4 (ocean fog, Tron cyan)",
+  // F-GAME-7 re-pin: the expected home palette is DERIVED here,
+  // independently recomputing the design section 2.1 rule from the live
+  // realmCoord('nova') read through the game's debug surface - no
+  // hand-typed color literals. k(v)=((v-1) mod 15 + 1) x 17 for
+  // v>=1, k(0)=0; K(triplet) is the (R,G,B) byte triple of k();
+  // accent=K(T1), accent2=K(T2), fog=dark(K(T1),0.16) per-channel
+  // floor, T1/T2 the first/second triplets of the coordinate.
+  const novaCoord = await evalJs("NOVA_FOX3.realmCoord('nova')");
+  const derivedNova = (() => {
+    const k = (v) => v >= 1 ? (((v - 1) % 15) + 1) * 17 : 0;
+    const KT = (trip) => ((k(trip[0]) << 16) | (k(trip[1]) << 8) | k(trip[2])) >>> 0;
+    const dark = (h, f) => ((Math.floor(((h >> 16) & 255) * f) << 16)
+      | (Math.floor(((h >> 8) & 255) * f) << 8) | Math.floor((h & 255) * f)) >>> 0;
+    const k1 = KT([novaCoord[0], novaCoord[1], novaCoord[2]]);
+    const k2 = KT([novaCoord[3], novaCoord[4], novaCoord[5]]);
+    return { fog: dark(k1, 0.16), accent: k1, accent2: k2 };
+  })();
+  const derivedNovaIsGrey = ((derivedNova.accent >> 16) & 255) === ((derivedNova.accent >> 8) & 255)
+    && ((derivedNova.accent >> 8) & 255) === (derivedNova.accent & 255);
+  check("home at boot wears the coordinate-derived palette",
     await evalJs("NOVA_FOX3.paletteNow().applied") === "nova" &&
-    await evalJs("NOVA_FOX3.paletteNow().fog") === 0x020814 &&
-    await evalJs("NOVA_FOX3.homePalette().accent") === 0x00d9ff);
+    await evalJs("NOVA_FOX3.paletteNow().fog") === derivedNova.fog &&
+    await evalJs("NOVA_FOX3.homePalette().fog") === derivedNova.fog &&
+    await evalJs("NOVA_FOX3.homePalette().accent") === derivedNova.accent &&
+    await evalJs("NOVA_FOX3.homePalette().accent2") === derivedNova.accent2 &&
+    derivedNovaIsGrey);
   check("applying a realm's palette dresses the scene in it",
     await evalJs("NOVA_FOX3.applyPalette('logos'), NOVA_FOX3.paletteNow().fog") ===
       await evalJs("NOVA_FOX3.palettes().logos.fog") &&
@@ -307,8 +331,9 @@ try {
     await evalJs("NOVA_FOX3.applyPalette('plain'), NOVA_FOX3.paletteNow().fog") ===
       await evalJs("NOVA_FOX3.palettes().plain.fog"));
   await evalJs("NOVA_FOX3.applyPalette('nova')");
-  check("home's palette restores cleanly",
-    await evalJs("NOVA_FOX3.paletteNow().fog") === 0x020814);
+  check("home's palette restores cleanly to the coordinate-derived palette",
+    await evalJs("NOVA_FOX3.paletteNow().fog") === derivedNova.fog &&
+    await evalJs("NOVA_FOX3.homePalette().accent") === derivedNova.accent);
   check("HP is numeric in the HUD from the first frame",
     (await evalJs("document.getElementById('hpnum').textContent")) === "HP 20 / 20");
   check("the ward holds at spawn (feedback #4)",
