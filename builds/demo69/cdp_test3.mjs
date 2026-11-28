@@ -1599,11 +1599,14 @@ try {
   // into the client. Driven here through the real input path
   // (Backquote key, typed commands) and the console's own handle;
   // every assertion is on what the console measured and printed,
-  // never on a canned outcome. This build's traversal is the
-  // diagnosed one, so the veer and slope legs are expected to
-  // FAIL with the diagnosis's numbers — those checks assert the
-  // console reports the defect honestly, and they flip when the
-  // traversal fix lands in a later tree.
+  // never on a canned outcome. F-GROK-10: the traversal carve
+  // has landed — the veer and slope legs are expected to CROSS,
+  // and the checks below assert the post-carve behavior Grok's
+  // play report (section 6) measured: a veer through the disc
+  // crosses to Ashfall, and a standable rise crosses with the
+  // ring standing on the ring's own ground. The pre-carve
+  // asserts (FAIL + approach > 1.118 + the old trigger story,
+  // and the anchoring story) are gone.
   async function conRun(line) {
     const before = (await evalJs("NOVA_FOX3.nfConsole.text()")).length;
     await evalJs(`NOVA_FOX3.nfConsole.run(${JSON.stringify(line)})`);
@@ -1656,7 +1659,10 @@ try {
     (await conRun("bridge")).includes("PASS"));
   // Terrain at hand, measured off the live heightAt (surfaceY):
   // a flat stance (a level 3.4-block path) and a steep one (a
-  // >= 2.6-block rise across the gap), wherever the fox now is.
+  // STANDABLE rise across the gap: steepest rise in [2.4, 4.0]
+  // — Grok's slope case, F-GROK-10; the first cliff >= 2.6 is
+  // not the slope case, a cliff legitimately fails the 2.4
+  // height gate), wherever the fox now is.
   const terrain = await evalJs(`(() => {
     const S = NOVA_FOX3, st = S.state;
     const g = (x, z) => S.surfaceY(x, z) - 1;
@@ -1679,7 +1685,7 @@ try {
             if (level) flat = { x, z, yaw };
           }
         }
-        if (!steep && maxRise >= 2.6) steep = { x, z, rise: maxRise };
+        if (!steep && maxRise >= 2.4 && maxRise <= 4.0) steep = { x, z, rise: maxRise };
       }
     }
     return { flat, steep };
@@ -1687,7 +1693,7 @@ try {
   check("console: terrain for the legs exists in this realm (flat + steep)",
     !!terrain.flat && !!terrain.steep, JSON.stringify(terrain));
   if (terrain.flat) {
-    // A2-HARNESS: the diagnosed dead band is measured from a
+    // A2-HARNESS: the veer leg is measured from a
     // matched-terrain Nova stance (the investigator's method:
     // verbatim terrain search + token + rift-veer). The terrain
     // above was searched wherever the sequence left the fox — in
@@ -1719,7 +1725,7 @@ try {
             if (level) flat = { x, z, yaw };
           }
         }
-        if (!steep && maxRise >= 2.6) steep = { x, z, rise: maxRise };
+        if (!steep && maxRise >= 2.4 && maxRise <= 4.0) steep = { x, z, rise: maxRise };
       }
     }
     return { flat, steep };
@@ -1740,10 +1746,19 @@ try {
     const veerD = veerOut.match(/closest approach ([\d.]+)/);
     check("console: veer probe measures a real closest approach",
       !!veerD, veerOut.trim().split("\n").pop());
-    check("console: veer probe reports the diagnosed dead band honestly (fails on this build)",
-      veerOut.includes("FAIL") && !!veerD &&
-      Number(veerD[1]) > 1.118 &&
-      veerOut.includes("against a trigger radius of 1.118 and a visible disc of 1.467"),
+    // F-GROK-10 (Grok's play report, section 6): the carve —
+    // a veer through the visible disc now CROSSES. Grok's
+    // replacement assertions, as written.
+    const veerDisc = veerOut.match(/of a ([\d.]+) disc/);
+    check("console: veer probe crosses to Ashfall Haven (the carve)",
+      /PASS\s+crossed to Ashfall/.test(veerOut),
+      veerOut.trim().split("\n").pop());
+    check("console: veer probe's closest approach is inside the disc",
+      !!veerD && !!veerDisc && Number(veerD[1]) <= Number(veerDisc[1]),
+      veerOut.trim().split("\n").pop());
+    check("console: veer probe tells no pre-carve story (no dead band, no 1.118 trigger)",
+      !veerOut.includes("did not take him") &&
+      !veerOut.includes("trigger radius of 1.118"),
       veerOut.trim().split("\n").pop());
     // A2-HARNESS (fix batch #2, D): the veer leg above crosses
     // the fox to Ashfall and leaves it there — teleportTo does
@@ -1779,7 +1794,7 @@ try {
             if (level) flat = { x, z, yaw };
           }
         }
-        if (!steep && maxRise >= 2.6) steep = { x, z, rise: maxRise };
+        if (!steep && maxRise >= 2.4 && maxRise <= 4.0) steep = { x, z, rise: maxRise };
       }
     }
     return { flat, steep };
@@ -1831,7 +1846,7 @@ try {
             if (level) flat = { x, z, yaw };
           }
         }
-        if (!steep && maxRise >= 2.6) steep = { x, z, rise: maxRise };
+        if (!steep && maxRise >= 2.4 && maxRise <= 4.0) steep = { x, z, rise: maxRise };
       }
     }
     return { flat, steep };
@@ -1842,11 +1857,27 @@ try {
     await evalJs("localStorage.setItem('nova-phox-token', JSON.stringify('e2e-console-token'))");
     const slopeOut = await conRun("rift-slope");
     await evalJs("localStorage.removeItem('nova-phox-token')");
-    check("console: slope probe runs on a real rise and reports both gates",
-      slopeOut.includes("steepest rise") && slopeOut.includes("the two gates, measured"),
+    check("console: slope probe runs on a real rise",
+      slopeOut.includes("steepest rise"),
       slopeOut.trim().split("\n").pop());
-    check("console: slope probe reports the height gate unmet on this build",
-      slopeOut.includes("FAIL") && /height \|dy\| [\d.]+ vs 2\.4 — NOT met/.test(slopeOut),
+    // F-GROK-10 (Grok's play report, section 6): the slope leg
+    // stands on a STANDABLE rise (terrain.steep above is a rise
+    // in [2.4, 4.0] across the 3.4-block gap, not the first
+    // cliff >= 2.6). Grok's replacement assertions, as written:
+    // the anchoring regression assert (the ring's feetY IS the
+    // ring's own ground), the crossing, no pre-carve story.
+    const slopeFeet = slopeOut.match(/ring feetY is ([\d.]+)/);
+    const slopeRingGround = slopeOut.match(/ground at the ring itself is ([\d.]+)/);
+    check("console: slope probe's ring stands on the ring's own ground (anchoring regression)",
+      !!slopeFeet && !!slopeRingGround &&
+      Math.abs(Number(slopeFeet[1]) - Number(slopeRingGround[1])) < 0.05,
+      slopeOut.trim().split("\n").pop());
+    check("console: slope probe crosses on a standable rise (the carve)",
+      /PASS\s+crossed/.test(slopeOut),
+      slopeOut.trim().split("\n").pop());
+    check("console: slope probe tells no pre-carve story (height gate met, no anchoring story)",
+      !/height \|dy\| [\d.]+ vs 2\.4 — NOT met/.test(slopeOut) &&
+      !slopeOut.includes("anchored to the ground where the tune was played"),
       slopeOut.trim().split("\n").pop());
   }
   await evalJs("localStorage.setItem('nova-phox-token', JSON.stringify('e2e-console-token'))");
