@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova Fox</title>
+<!-- NF_SHIP_EE:1306 -->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #050c13; color: #dbe4f5; overflow: hidden;
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .splash-panel { text-align: center; padding: 24px; max-width: 92vw; }
+  #nf-cover-poster {
+    display: block; width: min(560px, 84vw); max-height: 36vh;
+    aspect-ratio: 16 / 9; object-fit: cover;
+    margin: 0 auto 18px; border-radius: 10px;
+    border: 1px solid rgba(127, 216, 255, 0.35);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  }
+  .splash-word {
+    font-family: Georgia, "Times New Roman", serif; font-size: 44px;
+    letter-spacing: 0.42em; padding-left: 0.42em; color: #fff;
+  }
+  .splash-sub { color: #7fd8ff; letter-spacing: 0.32em; font-size: 13px; margin: 8px 0 4px; padding-left: 0.32em; }
+  #nf-load-ee { color: #5f7194; font-size: 11.5px; letter-spacing: 0.08em; margin-bottom: 20px; }
+  #trail-line {
+    font-family: Georgia, serif; font-style: italic; font-size: 11px;
+    color: #41618c; min-height: 15px; margin: 0 auto 14px; max-width: 520px;
+    white-space: nowrap; overflow: hidden;
+  }
+  #nf-load-track {
+    width: min(420px, 80vw); height: 6px; margin: 0 auto;
+    background: rgba(204, 150, 77, 0.18); border-radius: 3px; overflow: hidden;
+  }
+  #nf-load-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #cc964d, #f9dd74);
+    border-radius: 3px; transition: width 120ms linear;
+  }
+  #nf-load-fill.err { background: #a14a56; }
+  #nf-load-phase { color: #5f7194; font-size: 12px; margin-top: 10px; min-height: 16px; }
+  #nf-load-err { display: none; margin-top: 16px; color: #e8b4ba; font-size: 13px; }
+  #nf-load-err button {
+    background: transparent; color: #dbe4f5; border: 1px solid #005f9e;
+    border-radius: 6px; padding: 7px 12px; font-size: 12.5px; cursor: pointer; margin-right: 8px;
+  }
+  #nf-load-err a { color: #7fd8ff; font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <div class="splash-panel">
+    <img id="nf-cover-poster" src="assets/cover.jpg" alt="Nova Fox cover art">
+    <div class="splash-word">phext</div>
+    <div class="splash-sub">NOVA FOX</div>
+    <div id="nf-load-ee"></div>
+    <div id="trail-line"></div>
+    <div id="nf-load-track"><div id="nf-load-fill"></div></div>
+    <div id="nf-load-phase">fetching the world</div>
+    <div id="nf-load-err">
+      <div id="nf-load-err-msg" style="margin-bottom:10px"></div>
+      <button id="nf-load-retry" type="button">try again</button>
+      <a id="nf-load-full" href="index.html">the full version, in one file</a>
+    </div>
+  </div>
+<script>
+"use strict";
+// Nova Fox Lite loader (T-3): the Lite artifact is this page plus a
+// scroll-addressed phext, gzip-compressed (a .phext.gz). The loader
+// fetches the package through a byte-counting stream, opens it with
+// the browser's own gzip DecompressionStream, parses the phext by
+// scroll, assembles the game page from its scrolls, and hands the
+// document over to it. The bar is real work only: compressed bytes
+// fetched, decompressed bytes produced, scrolls parsed — no timers.
+const LOADER_MIN_VISIBLE_MS = 5000; // A2-LOAD item 1: at least 5 seconds of visibility
+const loaderShownAt = Date.now();
+const LOADER = {"ee": "1306", "packageUrl": "assets/1306/nova-fox.phext.gz", "packageBytes": 429695, "phextBytes": 1906471, "phextSha256": "8261e39d8696a65d242e07a84260fea1d291842b1b6bde7b614aa56e8bad7788", "scrollCount": 37, "fullUrl": "index.html"};
+const TRAIL_FLAVOR = ["reticulating splines", "charging batteries", "greasing the gears", "polishing the portals", "counting backwards from infinity", "untangling the cables", "feeding the hamsters", "sharpening the pencils", "inflating the tires", "brewing the coffee", "sorting the mail", "winding the clockwork", "dusting the shelves", "aligning the stars", "tuning the instruments", "oiling the hinges", "stacking the crates", "herding the electrons", "shuffling the deck", "tightening the bolts", "waxing the moon", "folding the laundry", "priming the pump", "sweeping the hangar", "labeling the boxes", "testing the echoes", "raising the periscope", "calibrating the compass"];
+
+const $ = (id) => document.getElementById(id);
+const state = { phase: "fetch", fetched: 0, opened: 0, scrolls: 0, history: [] };
+window.__NF_LOADER = state;
+
+$("nf-load-ee").textContent = "EE " + LOADER.ee;
+$("nf-load-full").href = LOADER.fullUrl;
+
+function setPhase(phase, frac, detail) {
+  state.phase = phase;
+  const pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+  $("nf-load-fill").style.width = pct + "%";
+  $("nf-load-phase").textContent = detail;
+  state.history.push({ phase, pct, t: Date.now() });
+}
+function fail(err) {
+  $("nf-load-fill").classList.add("err");
+  $("nf-load-phase").textContent = "the world did not arrive";
+  $("nf-load-err-msg").textContent = String((err && err.message) || err);
+  $("nf-load-err").style.display = "block";
+  state.phase = "error";
+}
+$("nf-load-retry").addEventListener("click", () => location.reload());
+
+// The trail: read words fed from the package's own home scroll as it
+// is parsed, flavor phrases interleaved — the game's own idiom
+// (world.js TrailFeed), kept small for the loader.
+const trailQ = [];
+let flavorIdx = 0, sinceFlavor = 0, flavorGap = 5;
+function trailFeed(text) {
+  for (const w of String(text).split(/[^A-Za-z0-9']+/)) {
+    if (w.length >= 2 && trailQ.length < 220) trailQ.push(w.slice(0, 24));
+  }
+}
+function trailNext() {
+  if (trailQ.length && sinceFlavor < flavorGap) { sinceFlavor++; return trailQ.shift(); }
+  sinceFlavor = 0;
+  flavorGap = 5 + ((flavorIdx * 7) % 5);
+  return TRAIL_FLAVOR[flavorIdx++ % TRAIL_FLAVOR.length];
+}
+const trailWindow = [];
+setInterval(() => {
+  trailWindow.push(trailNext());
+  while (trailWindow.length > 9) trailWindow.shift();
+  $("trail-line").textContent = trailWindow.join(" ");
+}, 110);
+
+// The phext explode: the mirror of world.js phextImplode. Level
+// bytes advance one coordinate component and reset every deeper
+// component to 1; the text between them is that scroll's content.
+const PHEXT_LEVELS = new Map(
+  [0x01, 0x1F, 0x1E, 0x1D, 0x1C, 0x1A, 0x19, 0x18, 0x17].map((b, i) => [b, i]));
+function parsePhext(bytes) {
+  const coord = [1, 1, 1, 1, 1, 1, 1, 1, 1];
+  const scrolls = new Map();
+  const dec = new TextDecoder();
+  let start = 0;
+  const close = (end) => {
+    const key = `${coord[0]}.${coord[1]}.${coord[2]}/${coord[3]}.${coord[4]}.${coord[5]}/${coord[6]}.${coord[7]}.${coord[8]}`;
+    scrolls.set(key, dec.decode(bytes.subarray(start, end)));
+    state.scrolls = scrolls.size;
+    setPhase("read", scrolls.size / LOADER.scrollCount,
+      `reading the world — ${scrolls.size} of ${LOADER.scrollCount} scrolls`);
+  };
+  for (let i = 0; i < bytes.length; i++) {
+    const lvl = PHEXT_LEVELS.get(bytes[i]);
+    if (lvl !== undefined) {
+      close(i);
+      coord[lvl]++;
+      for (let j = lvl + 1; j < 9; j++) coord[j] = 1;
+      start = i + 1;
+    }
+  }
+  close(bytes.length);
+  return scrolls;
+}
+
+async function boot() {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("this browser cannot open gzip streams (no DecompressionStream)");
+  }
+  const resp = await fetch(LOADER.packageUrl);
+  if (!resp.ok || !resp.body) throw new Error(`package fetch failed: HTTP ${resp.status}`);
+  const counter = new TransformStream({
+    transform(chunk, ctrl) {
+      state.fetched += chunk.byteLength;
+      setPhase("fetch", state.fetched / LOADER.packageBytes,
+        `fetching the world — ${state.fetched.toLocaleString()} of ${LOADER.packageBytes.toLocaleString()} bytes`);
+      ctrl.enqueue(chunk);
+    },
+  });
+  const opened = resp.body.pipeThrough(counter).pipeThrough(new DecompressionStream("gzip"));
+  const reader = opened.getReader();
+  const chunks = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    state.opened += value.byteLength;
+    setPhase("open", state.opened / LOADER.phextBytes,
+      `opening the world — ${state.opened.toLocaleString()} of ${LOADER.phextBytes.toLocaleString()} bytes`);
+  }
+  const phextBytes = new Uint8Array(state.opened);
+  { let off = 0; for (const c of chunks) { phextBytes.set(c, off); off += c.byteLength; } }
+  if (crypto && crypto.subtle) {
+    const digest = await crypto.subtle.digest("SHA-256", phextBytes);
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (hex !== LOADER.phextSha256) throw new Error("the package does not match its manifest hash");
+  }
+  const scrolls = parsePhext(phextBytes);
+  const home = scrolls.get("1.1.1/1.1.1/1.1.1");
+  if (!home) throw new Error("the package has no home scroll");
+  trailFeed(home);
+  const mapLine = home.split("\n").find((l) => l.startsWith("NF-MAP "));
+  if (!mapLine) throw new Error("the package home scroll carries no map");
+  const map = JSON.parse(mapLine.slice(7));
+  const shell = scrolls.get(map.shell);
+  if (!shell || !shell.includes("/*__BUILT_MODULE__*/")) throw new Error("the package shell scroll is missing its module mark");
+  const parts = map.modules.map((k) => {
+    const s = scrolls.get(k);
+    if (s === undefined) throw new Error(`the package is missing scroll ${k}`);
+    return s;
+  });
+  setPhase("boot", 1, "the world is here");
+  // A2-LOAD item 1: hold the bar until it has been visible at least
+  // LOADER_MIN_VISIBLE_MS — a fast fetch must not flash it past.
+  const loaderElapsed = Date.now() - loaderShownAt;
+  if (loaderElapsed < LOADER_MIN_VISIBLE_MS) {
+    await new Promise((r) => setTimeout(r, LOADER_MIN_VISIBLE_MS - loaderElapsed));
+  }
+  // The hand-off: the shell goes through document.write (the URL
+  // stays lite.html, storage and assets keep their meaning), but
+  // the module rides as a blob-URL module script. Written inline,
+  // Chrome's document.write parser rejects the assembled module
+  // with a SyntaxError the navigation parser never raises (the
+  // monolith's whole life is the proof) — as a blob the module
+  // never passes through the HTML parser at all.
+  const moduleText = parts.join("\n");
+  const blobUrl = URL.createObjectURL(new Blob([moduleText], { type: "text/javascript" }));
+  const page = shell
+    .replace("/*__BUILT_MODULE__*/", "")
+    .replace('<script type="module">', `<script type="module" src="${blobUrl}">`);
+  if (!page.includes(`src="${blobUrl}"`)) throw new Error("the shell's module script took no source");
+  document.open();
+  document.write(page);
+  document.close();
+}
+boot().catch(fail);
+</script>
+</body>
+</html>
