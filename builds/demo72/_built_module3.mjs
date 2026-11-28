@@ -53645,88 +53645,84 @@ const BRIDGE_CHORD = [1, 4, 9];
 // material tint, and two accents (the primary also colors a rift
 // ring that leads there). Departures are hue changes, never mere
 // brightness steps; every realm stays OLED-dark so the HUD keeps
-// its contrast. See PALETTES-10.md for the design table.
+// its contrast. Superseded by wg7 (F-GAME-7): colors now derive from the rift coordinate \— see derivedPaletteFor below and WORLDGEO-DESIGN-EE1311 \§2.
+// wg7 (F-GAME-7, WORLDGEO-DESIGN-EE1311 \§2): NON-COLOR constants only.
+// The color fields of the old chosen tables are DELETED \— every color
+// is derived from the realm's rift coordinate by derivedPaletteFor()
+// below. These records carry only the visibility/lighting magnitudes
+// (fogNear, fogFar, hemiI, sunI), which are not color and stay
+// per-realm constants from the demo71 palette records.
 const HOME_PALETTE = {
-  void: 0x000000, fog: 0x020814, fogNear: 34, fogFar: 110,
-  hemiSky: 0x8fd0ff, hemiGround: 0x0a1a33, hemiI: 0.95,
-  sun: 0xbfe3ff, sunI: 1.6,
-  accent: 0x00d9ff, accent2: 0x2979ff,
-  hue: 0, sat: 1.0, tint: 0xffffff,
+  fogNear: 34, fogFar: 110, hemiI: 0.95, sunI: 1.6,
 };
 const REALM_PALETTES = {
-  ashfall: {
-    void: 0x000000, fog: 0x140301, fogNear: 26, fogFar: 88,
-    hemiSky: 0xc97a4e, hemiGround: 0x180602, hemiI: 0.7,
-    sun: 0xff9a5c, sunI: 1.25,
-    accent: 0xff7a00, accent2: 0xffb03f,
-    hue: 180, sat: 1.05, tint: 0xffe3cf,
-  },
-  "ni-knight": {
-    void: 0x000000, fog: 0x05030f, fogNear: 30, fogFar: 100,
-    hemiSky: 0x7a6ad6, hemiGround: 0x090618, hemiI: 0.8,
-    sun: 0x9a8fff, sunI: 1.35,
-    accent: 0x6a5cff, accent2: 0xb3a7ff,
-    hue: 45, sat: 1.0, tint: 0xe0dcff,
-  },
-  logos: {
-    void: 0x000000, fog: 0x0f0c00, fogNear: 32, fogFar: 105,
-    hemiSky: 0xd6c25e, hemiGround: 0x171402, hemiI: 0.85,
-    sun: 0xffe97a, sunI: 1.55,
-    accent: 0xffd21f, accent2: 0xffe97a,
-    hue: 205, sat: 1.0, tint: 0xfff6c2,
-  },
-  elven: {
-    void: 0x000000, fog: 0x02100a, fogNear: 30, fogFar: 100,
-    hemiSky: 0x5ec98d, hemiGround: 0x04150a, hemiI: 0.8,
-    sun: 0x8fffca, sunI: 1.3,
-    accent: 0x2eff7a, accent2: 0xa8ffbe,
-    hue: 270, sat: 1.05, tint: 0xd2ffe6,
-  },
-  orchid: {
-    void: 0x000000, fog: 0x0d0312, fogNear: 30, fogFar: 98,
-    hemiSky: 0xb45ed6, hemiGround: 0x120418, hemiI: 0.8,
-    sun: 0xd68fff, sunI: 1.35,
-    accent: 0xb45cff, accent2: 0xdfa8ff,
-    hue: 75, sat: 1.05, tint: 0xf3d9ff,
-  },
-  halycon: {
-    void: 0x000000, fog: 0x030a18, fogNear: 36, fogFar: 120,
-    hemiSky: 0x7ab8e6, hemiGround: 0x0a1420, hemiI: 1.1,
-    sun: 0xcfe6ff, sunI: 1.7,
-    accent: 0x3fa9ff, accent2: 0xaed6ff,
-    hue: 10, sat: 0.9, tint: 0xeaf4ff,
-  },
-  delta: {
-    void: 0x000000, fog: 0x02100e, fogNear: 30, fogFar: 102,
-    hemiSky: 0x4ec9bb, hemiGround: 0x03120e, hemiI: 0.85,
-    sun: 0x9ffce8, sunI: 1.4,
-    accent: 0x00ffd0, accent2: 0x8ffcf0,
-    hue: 325, sat: 1.1, tint: 0xd8fff4,
-  },
-  willow: {
-    void: 0x000000, fog: 0x080c02, fogNear: 30, fogFar: 100,
-    hemiSky: 0xa4d65e, hemiGround: 0x101602, hemiI: 0.85,
-    sun: 0xd9ff8f, sunI: 1.45,
-    accent: 0xb6ff2e, accent2: 0xe2ffa8,
-    hue: 230, sat: 1.0, tint: 0xf0ffd2,
-  },
-  plain: {
-    void: 0x000000, fog: 0x050505, fogNear: 32, fogFar: 108,
-    hemiSky: 0xcfd8dc, hemiGround: 0x0c0e10, hemiI: 0.95,
-    sun: 0xf2f2f2, sunI: 1.7,
-    accent: 0xe8e8e8, accent2: 0x9fb6c9,
-    hue: 0, sat: 0.12, tint: 0xf5f5f5,
-  },
-  trust: {
-    void: 0x000000, fog: 0x120202, fogNear: 28, fogFar: 92,
-    hemiSky: 0xd65e5e, hemiGround: 0x170303, hemiI: 0.75,
-    sun: 0xff6a5c, sunI: 1.3,
-    accent: 0xff2e2e, accent2: 0xff8f8f,
-    hue: 150, sat: 1.05, tint: 0xffd9d9,
-  },
+  ashfall: { fogNear: 26, fogFar: 88, hemiI: 0.7, sunI: 1.25 },
+  "ni-knight": { fogNear: 30, fogFar: 100, hemiI: 0.8, sunI: 1.35 },
+  logos: { fogNear: 32, fogFar: 105, hemiI: 0.85, sunI: 1.55 },
+  elven: { fogNear: 30, fogFar: 100, hemiI: 0.8, sunI: 1.3 },
+  orchid: { fogNear: 30, fogFar: 98, hemiI: 0.8, sunI: 1.35 },
+  halycon: { fogNear: 36, fogFar: 120, hemiI: 1.1, sunI: 1.7 },
+  delta: { fogNear: 30, fogFar: 102, hemiI: 0.85, sunI: 1.4 },
+  willow: { fogNear: 30, fogFar: 100, hemiI: 0.85, sunI: 1.45 },
+  plain: { fogNear: 32, fogFar: 108, hemiI: 0.95, sunI: 1.7 },
+  trust: { fogNear: 28, fogFar: 92, hemiI: 0.75, sunI: 1.3 },
 };
+// The coordinate -> color rule (design \§2.1, exact): read
+// c = realmCoord(id) as triplets T1=(c0,c1,c2), T2=(c3,c4,c5),
+// T3=(c6,c7,c8). k(v) = ((v-1) mod 15 + 1) x 17 for v >= 1, k(0) = 0;
+// K(triplet) is the (R,G,B) byte triple of k() over the triplet.
+// accent=K(T1) raw; accent2=K(T2) raw; hemiSky=mix(K(T3),white,0.45);
+// sun=mix(K(T3),white,0.68); fog=dark(K(T1),0.16) (per-channel floor);
+// hemiGround=dark(K(T2),0.14); tint=mix(K(T1),white,0.72); atlas hue =
+// HSL hue of accent in degrees (0 if grey); atlas sat = 1.0 if accent
+// is grey, else clamp(HSL sat of accent, 0.85, 1.10); void stays
+// 0x000000. Nova derives neutral grey \— NO home exception; the rule
+// is pure. Unknown realm -> derive from Nova's coordinate.
+function coordKeyByte(v) {
+  return v >= 1 ? (((v - 1) % 15) + 1) * 17 : 0;
+}
+function coordTripletHex(trip) {
+  return ((coordKeyByte(trip[0]) << 16) | (coordKeyByte(trip[1]) << 8)
+    | coordKeyByte(trip[2])) >>> 0;
+}
+function darkHex(hex, f) {
+  return ((Math.floor(((hex >> 16) & 255) * f) << 16)
+    | (Math.floor(((hex >> 8) & 255) * f) << 8)
+    | Math.floor((hex & 255) * f)) >>> 0;
+}
+function hslHueSat(hex) {
+  const r = ((hex >> 16) & 255) / 255, gg = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+  const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn;
+  if (d === 0) return { hue: 0, sat: 0, grey: true };
+  const l = (mx + mn) / 2;
+  const sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let hue;
+  if (mx === r) hue = ((gg - b) / d + (gg < b ? 6 : 0)) * 60;
+  else if (mx === gg) hue = ((b - r) / d + 2) * 60;
+  else hue = ((r - gg) / d + 4) * 60;
+  return { hue, sat, grey: false };
+}
+function derivedPaletteFor(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  const nc = REALM_PALETTES[realmId] || HOME_PALETTE;
+  const k1 = coordTripletHex([c[0], c[1], c[2]]);
+  const k2 = coordTripletHex([c[3], c[4], c[5]]);
+  const k3 = coordTripletHex([c[6], c[7], c[8]]);
+  const hs = hslHueSat(k1);
+  return {
+    void: 0x000000,
+    fog: darkHex(k1, 0.16), fogNear: nc.fogNear, fogFar: nc.fogFar,
+    hemiSky: mixHex(k3, 0xffffff, 0.45), hemiGround: darkHex(k2, 0.14),
+    hemiI: nc.hemiI,
+    sun: mixHex(k3, 0xffffff, 0.68), sunI: nc.sunI,
+    accent: k1, accent2: k2,
+    hue: hs.grey ? 0 : hs.hue,
+    sat: hs.grey ? 1.0 : Math.max(0.85, Math.min(1.10, hs.sat)),
+    tint: mixHex(k1, 0xffffff, 0.72),
+  };
+}
 function paletteFor(realmId) {
-  return REALM_PALETTES[realmId] || HOME_PALETTE;
+  return derivedPaletteFor(realmId);
 }
 
 // ---------- the quest (Nova Prime): the Deep Stone ----------------------
@@ -53936,6 +53932,29 @@ const ITEM_SPOTS = {
   swift: { realmId: "ashfall", bx: 13, bz: 11 },
   ward: { realmId: "nova", bx: 52, bz: 35, y: DUNGEON.floorY + 1 },
 };
+
+// ---------- wg9: nature (F-GAME-9, WORLDGEO-DESIGN-EE1311 \u00a74/\u00a75) -------
+// REPRESENTATION DECLARATION (wg9): the starstuff muffin is carried
+// as a placed ITEM in the existing item idiom (Subspace.items, the
+// same record shape as the Lance and the charms: {id, kind, realmId,
+// bx, bz, y, taken}) \u2014 NOT as a new BLOCK id. No BLOCK id 19 exists.
+// Eating is the one proposed interaction (design \u00a74.3): walking over
+// a muffin takes it via pickupItem, restores MUFFIN_HEAL hp in the
+// view, and the taking is ALSO inscribed as an AIR override at the
+// muffin's ground cell (the existing override mechanism), so the
+// consumed muffin never reappears in that visit's generated chunks.
+const MUFFIN_HEAL = 2;
+const MUFFIN_DEF = {
+  kind: "muffin", name: "a starstuff muffin", weapon: false,
+  blurb: "a small piece of subspace, baked \u2014 it smells faintly of galaxies",
+  use: "Walk over it and it is eaten, restoring 2 HP, once.",
+  heal: MUFFIN_HEAL,
+};
+// Meadow-mix realms (REALM_GEN mix === "meadow"): the gummy bears'
+// only country, per design \u00a74.2's realm list.
+const GUMMY_REALMS = ["nova", "elven", "orchid", "delta", "willow", "plain"];
+const MUFFINS_PER_REALM = 3;
+const GUMMIES_PER_REALM = 2;
 
 // ---------- deterministic kernels (JS fallbacks, bit-identical) --------
 
@@ -54152,7 +54171,7 @@ function deltaRiver(realmId, x, z) {
   if (v <= 0.60 || v >= 0.68) return 0;
   return Math.sin(((v - 0.60) / 0.08) * Math.PI); // 0 at the banks, 1 mid-stream
 }
-function heightAt(realmId, x, z) {
+function baseHeightAt(realmId, x, z) {
   const r = realmById(realmId);
   const t = terrainFor(realmId);
   const n1 = vnoise(`${r.seed}|h1`, x, z, t.s1);
@@ -54182,6 +54201,210 @@ function heightAt(realmId, x, z) {
     h += 7;
   }
   return h;
+}
+
+// ---------- wg8: the coordinate-keyed terrain layer (F-GAME-8) -------------
+// WORLDGEO-DESIGN-EE1311 §3: REALM_GEN and the historical height
+// formula above (now baseHeightAt) are NOT replaced — Nova's and
+// Ashfall's formulas are pinned history. wg8 adds a layer derived
+// purely from the realm's rift coordinate c = realmCoord(id), the
+// same source wg7's palettes and the EE 1286 sky read:
+//   coordSeed = "coord|" + c.join(".")
+//   ampDelta(c)  = (c0+c1+c2) mod 3            in {0,1,2} blocks
+//   cellDelta(c) = 22 + 4*((c6+c7+c8) mod 4)   in {22,26,30,34}
+//   deltaH = round(ampDelta * (2*vnoise(coordSeed, x, z, cellDelta) - 1))
+//   heightAt = baseHeightAt + deltaH
+// Subtlety bound, by construction: |deltaH| <= 2 everywhere
+// (ampDelta <= 2, |2*vnoise-1| <= 1); ampDelta is 0 for Nova,
+// Ashfall, Trust, Elven and Orchid, so those realms' ground does
+// not move at all; cellDelta >= 22 keeps the adjacent-column
+// deltaH step <= 1. heightAt stays a pure function of
+// (realmId, x, z): same state in, same blocks out.
+// Exclusion zones — deltaH = 0 identically where:
+//   (a) the Arrival pad, |x-8| <= 3 and |z-8| <= 3 (all realms);
+//   (b) the Deep Stone dungeon footprint + 2 (the barrow zone);
+//   (c) ITEM_SPOTS +-1 (the spot's own realm);
+//   (d) standing tunnel/carve footprints and the transit pocket:
+//       these are not visible to a pure (realmId, x, z) function,
+//       and by construction they never read the unlayered value —
+//       a tunnel end's floorY is recorded at craft time from the
+//       stand paths, which read heightAt (the layered value), and
+//       genChunk stamps the bore from that stored floorY; the
+//       transit pocket scroll generates as the vault corridor
+//       alone and never consults heightAt at all. So no bore
+//       mouth's anchoring can disagree with the ground under it.
+function terrainAmpDelta(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return (c[0] + c[1] + c[2]) % 3;
+}
+function terrainCellDelta(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return 22 + 4 * ((c[6] + c[7] + c[8]) % 4);
+}
+function deltaExcluded(realmId, x, z) {
+  const a = ARRIVAL[realmId] || ARRIVAL.nova;
+  if (Math.abs(x - a.x) <= 3 && Math.abs(z - a.z) <= 3) return true;
+  if (x >= DUNGEON.x0 - 2 && x <= DUNGEON.x1 + 2 &&
+      z >= DUNGEON.z0 - 2 && z <= DUNGEON.z1 + 2) return true;
+  for (const s of Object.values(ITEM_SPOTS)) {
+    if (s.realmId === realmId &&
+        Math.abs(s.bx - x) <= 1 && Math.abs(s.bz - z) <= 1) return true;
+  }
+  return false;
+}
+function deltaH(realmId, x, z) {
+  const amp = terrainAmpDelta(realmId);
+  if (amp === 0 || deltaExcluded(realmId, x, z)) return 0;
+  const c = realmCoord(realmId) || realmCoord("nova");
+  const v = vnoise("coord|" + c.join("."), x, z, terrainCellDelta(realmId));
+  return Math.round(amp * (2 * v - 1));
+}
+// The layered surface height: every consumer of heightAt — chunk
+// generation, baseBlockAt's default, the stand paths, carve floor
+// anchoring, monster/item placement — reads THIS value; the
+// unlayered baseHeightAt remains only as the layer's input and
+// the re-pin reference for the historical formulas.
+function heightAt(realmId, x, z) {
+  return baseHeightAt(realmId, x, z) + deltaH(realmId, x, z);
+}
+// Feature-parameter derivations (genChunk dressing only, §3.2):
+// the boulder cluster gate and the grove noise cell, keyed to the
+// coordinate. Density, trunk, canopy, mode, step and strataPeriod
+// stay REALM_GEN's — the named differences stay named.
+function boulderClusterGate(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return 0.42 + 0.02 * ((c[5] % 5) - 2);
+}
+function groveCell(realmId) {
+  const c = realmCoord(realmId) || realmCoord("nova");
+  return 20 + (c[3] % 5);
+}
+// The terrain fingerprint (§3.5): heightAt sampled over the fixed
+// grid x,z in [320, 384), so an independent verifier can recompute
+// the rule and compare against the live world's sampled heights.
+function terrainFingerprint(realmId) {
+  let min = Infinity, max = -Infinity, sum = 0;
+  const seen = new Set();
+  for (let z = 320; z < 384; z++) {
+    for (let x = 320; x < 384; x++) {
+      const h = heightAt(realmId, x, z);
+      if (h < min) min = h;
+      if (h > max) max = h;
+      sum += h;
+      seen.add(h);
+    }
+  }
+  return {
+    mode: realmGenParams(realmId).mode,
+    min, max, mean: sum / (64 * 64), distinct: seen.size,
+    ampDelta: terrainAmpDelta(realmId), cellDelta: terrainCellDelta(realmId),
+  };
+}
+
+// ---------- wg9: nature generation (F-GAME-9) ------------------------------
+// Crystalline trees: in every realm whose canopy form is oak or
+// willow, a deterministic 1-in-6 fraction of generated trees (by the
+// existing tree hash in genChunk's tree pass) generate as
+// crystalline \u2014 BLOCK.CRYSTAL trunk + CRYSTAL canopy in the SAME
+// silhouette. Canopy-none and pillar realms: none.
+function isCrystallineTree(realmId, x, z) {
+  const g = realmGenParams(realmId);
+  if (g.canopy !== "oak" && g.canopy !== "willow") return false;
+  const r = realmById(realmId);
+  return kernels.hash(`${r.seed}|tree|${x},${z}`) % 6 === 0;
+}
+// Whether genChunk's tree pass plants a tree at (x, z) \u2014 the same
+// gate the pass itself applies (density \u00d7 grove noise, slope,
+// dungeon), restated purely so muffin placement can keep clear of
+// trees exactly as generated.
+function treePlantedAt(realmId, x, z) {
+  if (realmId === DUNGEON.realm && inDungeon(x, z)) return false;
+  const g = realmGenParams(realmId);
+  if (g.canopy === "none" || g.density <= 0) return false;
+  const r = realmById(realmId);
+  const roll = kernels.hash(`${r.seed}|tree|${x},${z}`) % 1000 / 1000;
+  const grove = vnoise(`${r.seed}|grove`, x, z, groveCell(realmId));
+  if (roll >= g.density * (0.25 + grove * 1.75)) return false;
+  const h = heightAt(realmId, x, z);
+  return Math.abs(heightAt(realmId, x + 1, z) - h) <= 1;
+}
+const _muffinCache = new Map();
+// Starstuff muffins: exactly MUFFINS_PER_REALM per realm, in the
+// scrolls around Arrival \u2014 deterministically placed by realm seed:
+// every candidate column in [-16, 80) x [-16, 80) that is outside
+// the Arrival clearing, clear of items (\u00b11) and of trees (the tree
+// gate, \u00b11), outside the dungeon, and on gentle ground (slope
+// \u2264 1, against the layered heightAt) is ranked by the realm-seed
+// muffin hash; the table takes the lowest ranks greedily, at least
+// 12 blocks apart. Pure in the realm seed \u2014 same table every visit.
+function muffinSpotsFor(realmId) {
+  if (_muffinCache.has(realmId)) return _muffinCache.get(realmId).map((s2) => ({ ...s2 }));
+  const r = realmById(realmId) || realmById("nova");
+  const id = r.id;
+  const a = ARRIVAL[id] || ARRIVAL.nova;
+  const cands = [];
+  for (let z = -16; z < 80; z++) {
+    for (let x = -16; x < 80; x++) {
+      if (Math.max(Math.abs(x - a.x), Math.abs(z - a.z)) <= 7) continue; // outside the Arrival clearing
+      if (id === DUNGEON.realm && inDungeon(x, z)) continue;
+      if (Object.values(ITEM_SPOTS).some((s2) => s2.realmId === id &&
+          Math.abs(s2.bx - x) <= 1 && Math.abs(s2.bz - z) <= 1)) continue; // clear of items
+      let nearTree = false;
+      for (let dz = -1; dz <= 1 && !nearTree; dz++)
+        for (let dx = -1; dx <= 1; dx++)
+          if (treePlantedAt(id, x + dx, z + dz)) { nearTree = true; break; }
+      if (nearTree) continue; // clear of trees
+      const h = heightAt(id, x, z);
+      if (Math.abs(heightAt(id, x + 1, z) - h) > 1) continue;
+      if (Math.abs(heightAt(id, x, z + 1) - h) > 1) continue;
+      cands.push({ bx: x, bz: z, rank: kernels.hash(`${r.seed}|muffin|${x},${z}`) });
+    }
+  }
+  cands.sort((p, q) => p.rank - q.rank);
+  const picked = [];
+  for (const c of cands) {
+    if (picked.length >= MUFFINS_PER_REALM) break;
+    if (picked.some((s2) => Math.hypot(s2.bx - c.bx, s2.bz - c.bz) < 12)) continue;
+    picked.push({ realmId: id, bx: c.bx, bz: c.bz, y: heightAt(id, c.bx, c.bz) + 1 });
+  }
+  _muffinCache.set(realmId, picked);
+  return picked.map((s2) => ({ ...s2 }));
+}
+const _gummyCache = new Map();
+// Gummy-bear home spots: GUMMIES_PER_REALM deterministic spots in
+// the first two scrolls of a meadow realm (blocks x in [0, 128),
+// z in [0, 64) \u2014 scrolls (0,0) and (1,0)), outside the Arrival
+// clearing, ranked by the realm-seed gummy hash, at least 18
+// blocks apart. Cell coords (gx, gy) ride the monster-stream idiom.
+function gummySpotsFor(realmId) {
+  if (_gummyCache.has(realmId)) return _gummyCache.get(realmId).map((s2) => ({ ...s2 }));
+  const r = realmById(realmId) || realmById("nova");
+  const id = r.id;
+  const a = ARRIVAL[id] || ARRIVAL.nova;
+  const cands = [];
+  for (let z = 4; z < 60; z += 2) {
+    for (let x = 18; x < 120; x += 2) {
+      if (Math.max(Math.abs(x - a.x), Math.abs(z - a.z)) <= 7) continue; // clear of the Arrival pad
+      if (id === DUNGEON.realm && inDungeon(x, z)) continue;
+      cands.push({ bx: x, bz: z, rank: kernels.hash(`${r.seed}|gummy|${x},${z}`) });
+    }
+  }
+  cands.sort((p, q) => p.rank - q.rank);
+  const picked = [];
+  for (const c of cands) {
+    if (picked.length >= GUMMIES_PER_REALM) break;
+    if (picked.some((s2) => Math.hypot(s2.bx - c.bx, s2.bz - c.bz) < 18)) continue;
+    picked.push({ realmId: id, bx: c.bx, bz: c.bz,
+      gx: Math.floor(c.bx / 2), gy: Math.floor(c.bz / 2) });
+  }
+  _gummyCache.set(realmId, picked);
+  return picked.map((s2) => ({ ...s2 }));
+}
+// The wg9 forms whose home falls in one chunk \u2014 genChunk's muffin
+// ground-clearing reads this, and verifiers enumerate by it.
+function muffinSpotsInChunk(realmId, cx, cz) {
+  return muffinSpotsFor(realmId).filter((s2) =>
+    Math.floor(s2.bx / CHUNK) === cx && Math.floor(s2.bz / CHUNK) === cz);
 }
 
 // ---------- scroll coordinates -------------------------------------------
@@ -54220,6 +54443,10 @@ class Subspace {
     this._itemsPlaced = new Set(); // realmIds whose (0,0)-scroll items exist
     this.genesisLife = null; // total alive cells when the first scrolls opened
     this._monsterSeq = 0;
+    this.gummies = []; // wg9: gummy-bear records (creatures, NOT monsters \u2014 no hp, no fight state)
+    this._gummySeq = 0;
+    this._muffinsPlaced = new Set(); // wg9: realmIds whose muffin items exist
+    this._gummiesEnsured = new Set(); // wg9: realmIds whose gummy spots are spawned
     this.fightEvents = []; // A2-MONSTER: actions/morphs the view applies (hurt, cues)
     this._nextSpawnTick = 0; // EE 995: the random-rise clock (item 9)
     this.transitPocket = null; // EE 995: the wormhole's room (items 5+6) — set by beginTransit (restored, Attempt 2)
@@ -54296,6 +54523,24 @@ class Subspace {
         });
       }
     }
+    // wg9: starstuff muffins \u2014 placed items in the same idiom,
+    // exactly MUFFINS_PER_REALM per open realm, from the deterministic
+    // placement table (muffinSpotsFor, below).
+    if (sx === 0 && sy === 0 && !this._muffinsPlaced.has(realmId)) {
+      this._muffinsPlaced.add(realmId);
+      const r0 = realmById(realmId);
+      if (r0 && r0.open) {
+        muffinSpotsFor(realmId).forEach((spot, i) => {
+          this.items.push({
+            id: `muffin-${realmId}-${i}`, kind: "muffin", realmId,
+            bx: spot.bx, bz: spot.bz, y: null, taken: false,
+          });
+        });
+      }
+    }
+    // wg9: gummy bears \u2014 guaranteed presence in meadow realms once
+    // either of the first two scrolls (0,0) / (1,0) has opened.
+    if ((sx === 0 && sy === 0) || (sx === 1 && sy === 0)) this.ensureGummies(realmId);
     return s;
   }
 
@@ -54306,7 +54551,13 @@ class Subspace {
     const it = this.items.find((i) => i.id === id && !i.taken);
     if (!it) return null;
     it.taken = true;
-    const def = ITEM_DEFS[it.kind];
+    const def = ITEM_DEFS[it.kind] || (it.kind === "muffin" ? MUFFIN_DEF : null);
+    if (it.kind === "muffin") {
+      // wg9: consumption inscribed via the existing override
+      // mechanism \u2014 an AIR override at the muffin's ground cell,
+      // which genChunk honors on every regeneration this visit.
+      this.setOverride(it.realmId, it.bx, heightAt(it.realmId, it.bx, it.bz) + 1, it.bz, BLOCK.AIR);
+    }
     this.log("pickup", realmById(it.realmId).name,
       `${def.name} is taken up — ${def.blurb}`);
     return def;
@@ -54319,6 +54570,83 @@ class Subspace {
       }
     }
     return null;
+  }
+
+  // --- wg9: gummy bears (creatures, NOT monsters) ------------------
+  // They ride the monster stream's substrate idiom (spawn records in
+  // cell coords with a home, wander in the physics tick, the realm
+  // population bound consulted at spawn) but live in their OWN roll:
+  // this.gummies, never this.monsters. They carry no hp, no fight
+  // ticks, no engaged/aggro state \u2014 strikeMonster, _fightTick and
+  // the fightEvents stream can never see them, so no fight record
+  // of any kind can name one.
+  spawnGummyBear(realmId, gx, gy, spot = -1) {
+    const g = {
+      id: ++this._gummySeq, kind: "gummy", realmId, gx, gy,
+      hx: gx, hy: gy, spot, alive: true, gentle: true,
+    };
+    this.gummies.push(g);
+    this.log("gummy", `${realmById(realmId).name} ${gx * 2 + 1},${gy * 2 + 1}`,
+      "a gummy bear ambles into the meadow \u2014 soft, translucent, and entirely unbothered");
+    return g;
+  }
+  // Maintain the guaranteed presence: GUMMIES_PER_REALM living bears
+  // at their deterministic home spots (gummySpotsFor) in every
+  // meadow realm, subject to the realm's standing surface bound
+  // (the REALM_SURFACE_CAP idiom the monster stream consults).
+  ensureGummies(realmId) {
+    if (!GUMMY_REALMS.includes(realmId)) return [];
+    const spots = gummySpotsFor(realmId);
+    const out = [];
+    for (let i = 0; i < spots.length; i++) {
+      let g = this.gummies.find((x) => x.alive && x.realmId === realmId && x.spot === i);
+      if (!g) {
+        if (this._realmSurfaceCount(realmId) + this.gummies.filter((x) => x.alive && x.realmId === realmId).length >= REALM_SURFACE_CAP) break;
+        g = this.spawnGummyBear(realmId, spots[i].gx, spots[i].gy, i);
+      }
+      out.push(g);
+    }
+    this._gummiesEnsured.add(realmId);
+    return out;
+  }
+  _gummyStepAway(g, player) {
+    const pcx = cellOfBlock(player.bx), pcy = cellOfBlock(player.bz);
+    const dx = g.gx - pcx, dy = g.gy - pcy;
+    const axes = (dx === 0 && dy === 0) ? [[1, 0], [0, 1]]
+      : Math.abs(dx) >= Math.abs(dy)
+      ? [[Math.sign(dx), 0], [0, Math.sign(dy)]]
+      : [[0, Math.sign(dy)], [Math.sign(dx), 0]];
+    for (const [mx, my] of axes) {
+      if (!mx && !my) continue;
+      const nx = g.gx + mx, ny = g.gy + my;
+      if (this._monsterPassable(g, nx, ny)) { g.gx = nx; g.gy = ny; return true; }
+    }
+    return false;
+  }
+  // The gummy tick: wander slowly near home; when the fox comes
+  // within 2 blocks, amble away a few blocks. Nothing else \u2014 no
+  // hunt, no engagement, no fight clock.
+  _gummyTick(player) {
+    if (player) this.ensureGummies(player.realmId);
+    for (const g of this.gummies) {
+      if (!g.alive) continue;
+      if (player && player.realmId === g.realmId) {
+        const bx = g.gx * 2 + 1, bz = g.gy * 2 + 1;
+        const dist = Math.hypot(bx - player.bx, bz - player.bz);
+        if (dist <= 2) {
+          for (let s2 = 0; s2 < 2; s2++) if (!this._gummyStepAway(g, player)) break;
+          continue;
+        }
+      }
+      if ((this.tickCount + g.id) % 4 !== 0) continue; // slow wander
+      const dir = kernels.hash(`gummy|${this.tickCount}|${g.id}`) % 4;
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const nx = g.gx + dirs[dir][0], ny = g.gy + dirs[dir][1];
+      if (Math.abs(nx - g.hx) > 6 || Math.abs(ny - g.hy) > 6) continue;
+      const a = ARRIVAL[g.realmId] || ARRIVAL.nova;
+      if (Math.max(Math.abs(nx * 2 + 1 - a.x), Math.abs(ny * 2 + 1 - a.z)) <= 5) continue; // keep clear of the Arrival pad
+      if (this._monsterPassable(g, nx, ny)) { g.gx = nx; g.gy = ny; }
+    }
   }
 
   // The growth level of one global cell (0 when nothing grows there).
@@ -54514,6 +54842,7 @@ class Subspace {
     // can finish with it, then it is gone from the roll. Neither
     // ever happens near the player: "unwatched" means the player
     // is in another realm or at least two scrolls away.
+    this._gummyTick(player); // wg9: gummy bears wander / amble away \u2014 no fight state is touched
     const speed = this.monsterSpeed();
     // EE 1034 (item 3): the fox's travel this tick, for intercepts.
     if (player) {
@@ -56344,7 +56673,7 @@ function genChunk(sub, realmId, cx, cz) {
       if (realmId === DUNGEON.realm && inDungeon(x, z)) continue;
       const r = realmById(realmId);
       const roll = kernels.hash(`${r.seed}|tree|${x},${z}`) % 1000 / 1000;
-      const grove = vnoise(`${r.seed}|grove`, x, z, 22);
+      const grove = vnoise(`${r.seed}|grove`, x, z, groveCell(realmId)); // wg8: cell keyed to c3 (§3.2)
       if (roll >= treeP * (0.25 + grove * 1.75)) continue;
       const h = heightAt(realmId, x, z);
       // No trees on steep ground.
@@ -56355,9 +56684,10 @@ function genChunk(sub, realmId, cx, cz) {
         put(x - x0, h + ph + 1, z - z0, BLOCK.BRICK);
         continue;
       }
+      const crystalline = isCrystallineTree(realmId, x, z); // wg9: 1-in-6 by the tree hash, canopy realms only
       const trunk = tstyle.trunk + (kernels.hash(`${r.seed}|th|${x},${z}`) % 3);
       for (let i = 1; i <= trunk; i++) {
-        put(x - x0, h + i, z - z0, BLOCK.WOOD);
+        put(x - x0, h + i, z - z0, crystalline ? BLOCK.CRYSTAL : BLOCK.WOOD);
       }
       if (tstyle.canopy === "oak" || tstyle.canopy === "willow") {
         const wil = tstyle.canopy === "willow";
@@ -56368,7 +56698,7 @@ function genChunk(sub, realmId, cx, cz) {
               if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > (wil ? 3 : 2)) continue;
               const px = x + dx, py = h + trunk + dy, pz = z + dz;
               if (baseBlockAt(sub, realmId, px, py, pz) === BLOCK.AIR) {
-                put(px - x0, py, pz - z0, BLOCK.LEAF);
+                put(px - x0, py, pz - z0, crystalline ? BLOCK.CRYSTAL : BLOCK.LEAF);
               }
             }
       }
@@ -56397,7 +56727,7 @@ function genChunk(sub, realmId, cx, cz) {
       // cluster field, so the rocks clump along the field's ridges
       // and clearings open between them (a uniform scatter reads
       // as noise; a clustered one reads as a place).
-      if (clusterField(realmId, x, z) <= 0.42) continue;
+      if (clusterField(realmId, x, z) <= boulderClusterGate(realmId)) continue; // wg8: gate keyed to c5 (§3.2)
       const h = heightAt(realmId, x, z);
       if (data[idx(lx, h + 1, lz)] !== BLOCK.AIR) continue;
       const rock = realmId === "ashfall" ? BLOCK.SHALE : BLOCK.STONE;
@@ -56432,6 +56762,17 @@ function genChunk(sub, realmId, cx, cz) {
         put(lx, h + 4, lz, BLOCK.SANDSTONE);
       }
     }
+  }
+
+  // wg9: starstuff muffins are placed ITEMS (see MUFFIN_DEF), not
+  // blocks \u2014 genChunk's part of their placement is to keep each
+  // muffin's ground cell clear in the generated chunk, so the item
+  // form stands on open ground (layered heightAt) exactly where
+  // the placement table puts it.
+  for (const spot of muffinSpotsInChunk(realmId, cx, cz)) {
+    const h = heightAt(realmId, spot.bx, spot.bz);
+    put(spot.bx - x0, h + 1, spot.bz - z0, BLOCK.AIR);
+    put(spot.bx - x0, h + 2, spot.bz - z0, BLOCK.AIR);
   }
 
   }
@@ -61873,7 +62214,7 @@ function mpPulseJudge(selfId, selfPos, msg, lastBySource, now, house) {
 // file is hashed after stamping. The stamp stands nowhere on
 // screen — hovering the standing realm title speaks it, as hover
 // text; on touch, a tap on the title toggles it.
-const NF_SHIP_EE = "NF_SHIP_EE:1306";
+const NF_SHIP_EE = "NF_SHIP_EE:1315";
 const SHIP_EE = NF_SHIP_EE.split(":")[1];
 document.title = `Nova Fox (EE${SHIP_EE})`; // A2-MOVE (Play 1, item 3): the titlebar carries the ship EE
 
@@ -65612,6 +65953,77 @@ function syncMonsterMeshes(dt) {
   }
 }
 
+// ---------- wg9: gummy bears in the view (creatures, NOT monsters) ----------
+// Small bear-shaped beings at roughly fox-cub scale: a soft,
+// translucent, candy-coloured body (the realm's derived accent2
+// tints the candy, via wg7's paletteFor \u2014 never a chosen table),
+// round ears, stub legs. They are rendered from sub.gummies, the
+// world's own roll \u2014 never from sub.monsters \u2014 and nothing in
+// this view layer can strike, hurt, or fight them: there is no
+// code path from a gummy mesh to any combat surface.
+const gummyMeshes = new Map(); // gummy id -> THREE.Group
+function buildGummyMesh(g) {
+  const grp = new THREE.Group();
+  const candy = new THREE.Color(0xff8fb3)
+    .lerp(new THREE.Color(paletteFor(g.realmId).accent2), 0.35);
+  const mat = new THREE.MeshLambertMaterial({
+    color: candy, emissive: candy, emissiveIntensity: 0.25,
+    transparent: true, opacity: 0.88,
+  });
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x4a2436, transparent: true, opacity: 0.9 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.62, 0.6), mat);
+  body.position.y = 0.52;
+  grp.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.46, 0.48), mat);
+  head.position.set(0.42, 0.78, 0);
+  grp.add(head);
+  for (const dz of [-0.18, 0.18]) {
+    const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.1, 10), mat);
+    ear.position.set(0.36, 1.06, dz);
+    grp.add(ear);
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.09, 0.09), darkMat);
+    eye.position.set(0.69, 0.82, dz);
+    grp.add(eye);
+  }
+  for (const [dx, dz] of [[-0.26, -0.18], [0.26, -0.18], [-0.26, 0.18], [0.26, 0.18]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.24, 0.18), darkMat);
+    leg.position.set(dx, 0.12, dz);
+    grp.add(leg);
+  }
+  grp.scale.setScalar(0.85); // roughly fox-cub scale
+  return grp;
+}
+function gummyWorldPos(g) {
+  const bx = g.gx * 2 + 1, bz = g.gy * 2 + 1;
+  return { x: bx + 0.5, y: heightAt(g.realmId, bx, bz) + 1, z: bz + 0.5 };
+}
+function syncGummyMeshes(dt) {
+  const seen = new Set();
+  const now = performance.now();
+  for (const g of sub.gummies) {
+    if (!g.alive || g.realmId !== state.realm) continue;
+    seen.add(g.id);
+    let mesh = gummyMeshes.get(g.id);
+    if (!mesh) {
+      mesh = buildGummyMesh(g);
+      gummyMeshes.set(g.id, mesh);
+      scene.add(mesh);
+      const p0 = gummyWorldPos(g);
+      mesh.position.set(p0.x, p0.y, p0.z);
+    }
+    const p = gummyWorldPos(g);
+    const target3 = new THREE.Vector3(p.x, p.y + Math.sin(now / 520 + g.id) * 0.05, p.z);
+    mesh.position.lerp(target3, 1 - Math.pow(0.001, dt));
+    // Ambling bears face their home-ward drift / away from the fox
+    // when close \u2014 the amble-away step itself lives in subspace
+    // (world.js _gummyTick); the view only turns the form.
+    mesh.rotation.y = Math.atan2(state.pos.x - p.x, state.pos.z - p.z) - Math.PI / 2;
+  }
+  for (const [id, mesh] of gummyMeshes) {
+    if (!seen.has(id)) { scene.remove(mesh); gummyMeshes.delete(id); }
+  }
+}
+
 // ---------- placed things in the view: the Lance and the charms --------------
 
 const itemMeshes = new Map(); // item id -> THREE.Group
@@ -65657,6 +66069,23 @@ function buildItemMesh(it) {
     g.add(beam);
   } else if (it.kind === "sword") {
     buildSwordInto(g, glow);
+  } else if (it.kind === "muffin") {
+    // wg9: a starstuff muffin \u2014 a small baked form: a cup, a domed
+    // top, and a faint galaxy-tinted glow in the realm's DERIVED
+    // accent2 (wg7's derivedPaletteFor via paletteFor \u2014 starstuff
+    // wears the realm's own coordinate colour, design \u00a74.3).
+    const accent2 = paletteFor(it.realmId).accent2;
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.22, 0.26, 10),
+      new THREE.MeshLambertMaterial({ color: 0x9a6a38 }));
+    cup.position.y = 0.55;
+    g.add(cup);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 8), glow(accent2));
+    dome.scale.y = 0.72;
+    dome.position.y = 0.72;
+    g.add(dome);
+    const halo = new THREE.PointLight(accent2, 0.5, 5); // faint glow, never bright
+    halo.position.y = 0.9;
+    g.add(halo);
   } else {
     const colors = { swift: 0x00e5ff, ward: 0x2979ff, bright: 0xb3f1ff };
     const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.34), glow(colors[it.kind] || 0xffffff));
@@ -65839,6 +66268,10 @@ function itemUseLine(def) {
 }
 
 function applyItemEffect(def) {
+  // wg9: the design's one proposed interaction \u2014 a starstuff
+  // muffin is eaten on pickup and restores 2 HP, once (pickupItem
+  // takes it exactly once and inscribes the consumption).
+  if (def.kind === "muffin") { state.hp = Math.min(state.maxHp, state.hp + (def.heal || MUFFIN_HEAL)); }
   if (def.kind === "lance") { state.ownsLance = true; state.weapon = "lance"; }
   // The Small Sword fills an empty hand; it never takes the
   // Star Lance's place (and the Lance, once held, is kept).
@@ -67293,9 +67726,12 @@ const RIFT_TINT = {
   // pre-ROYGBIV table (ashfall blue, nova deep blue) is why scheme
   // colors never showed on the disc fallback. A unit pin holds
   // tint === accent for all eleven realms.
-  nova: 0x00d9ff, ashfall: 0xff7a00, trust: 0xff2e2e, logos: 0xffd21f,
-  willow: 0xb6ff2e, elven: 0x2eff7a, delta: 0x00ffd0, halycon: 0x3fa9ff,
-  "ni-knight": 0x6a5cff, orchid: 0xb45cff, plain: 0xe8e8e8,
+  // wg7 (F-GAME-7): re-pinned to the coordinate-derived accents
+  // (accent = K(T1) from realmCoord) \u2014 a unit pin holds
+  // tint === paletteFor(id).accent for all eleven realms.
+  nova: 0x111111, ashfall: 0xaaaa11, trust: 0x771111, logos: 0xaaaa33,
+  willow: 0xff1111, elven: 0xaa1111, delta: 0x33aa11, halycon: 0x22aa11,
+  "ni-knight": 0xaaaa22, orchid: 0x11aa11, plain: 0x331111,
 };
 const RIFT_RANGE = 30; // blocks: the leash (see the rift header)
 const RIFT_CARRY_RANGE = 6; // blocks from the ring: carried across with the fox
@@ -68938,9 +69374,17 @@ function boardData() {
 // and the Arrival stone screen both show exactly this text.
 function statusBoardText() {
   const d = boardData();
+  // wg9: the proximity line — a starstuff muffin near the fox is
+  // labelled on the status board, in the existing item idiom.
+  let near = "";
+  for (const it of sub.items) {
+    if (it.kind !== "muffin" || it.taken || it.realmId !== state.realm) continue;
+    const dist = Math.hypot(it.bx + 0.5 - state.pos.x, it.bz + 0.5 - state.pos.z);
+    if (dist <= 8) { near = " \u00b7 Near: a starstuff muffin — walk over it to eat (+2 HP)."; break; }
+  }
   return `Status — HP ${Math.max(0, state.hp)} / ${state.maxHp} \u00b7 score ${d.mine.score} pts \u00b7 ` +
     (sub.questDone ? "Quest — the Deep Stone is reached: quest done."
-                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.");
+                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near;
 }
 function renderBoard() {
   const el = document.getElementById("board");
@@ -71590,6 +72034,7 @@ function animate() {
   banterObserveTick(now);
   chunkMaintenance();
   syncMonsterMeshes(dt);
+  syncGummyMeshes(dt); // wg9: gummy bears render from their own roll
   mpStep(now, dt); // MP-1: the room, the foxes in it, the pulse
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place
@@ -72673,6 +73118,14 @@ window.NOVA_FOX3 = {
   viewState: () => ({ fog: scene && scene.fog ? scene.fog.color.getHex() : null,
     hemi: hemi ? hemi.color.getHex() : null,
     inHall: state.realm === "nova" && inDungeon(state.pos.x, state.pos.z) }),
+  natureState: () => ({ // wg9 (F-GAME-9): the three nature forms, read back live
+    gummies: sub.gummies.filter((g) => g.alive && g.realmId === state.realm)
+      .map((g) => ({ id: g.id, kind: g.kind, gx: g.gx, gy: g.gy, hasHp: "hp" in g, hasFight: "fightTicks" in g })),
+    muffins: sub.items.filter((it) => it.kind === "muffin")
+      .map((it) => ({ id: it.id, realmId: it.realmId, bx: it.bx, bz: it.bz, taken: it.taken,
+        accent2: paletteFor(it.realmId).accent2 })),
+    fightEvents: sub.fightEvents.length,
+    statusLine: statusBoardText() }),
   monstersNear: () => sub.monsters
     .filter((m) => m.alive && m.realmId === state.realm)
     .map((m) => ({ id: m.id, kind: m.kind, hp: m.hp, gx: m.gx, gy: m.gy,
@@ -72921,12 +73374,12 @@ window.NOVA_FOX3 = {
     }
     return { paleCool, nonFog, total: w * h };
   },
-  palettes: () => REALM_PALETTES,
+  palettes: () => Object.fromEntries(Object.keys(REALM_PALETTES).map((k) => [k, paletteFor(k)])), // wg7: derived palettes, not the non-color constants table
   // Leg A handles: the realms' subspace coordinates and the ring
   // geometry any pair's difference implies (no rift need stand).
   realmCoord: (id) => realmCoord(id),
   riftGeometry: (a, b) => riftRingGeometry(a, b),
-  homePalette: () => HOME_PALETTE,
+  homePalette: () => paletteFor("nova"), // wg7: HOME_PALETTE now holds only non-color constants; the home palette is the derived one
   paletteNow: () => ({
     realm: state.realm, applied: appliedPaletteRealm,
     fog: scene.fog ? scene.fog.color.getHex() : null,
