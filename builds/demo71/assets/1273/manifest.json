@@ -150,20 +150,20 @@
    "sha256": "a3dab55be12f36f61a525f1ce460a5d2a28fa1035743b249f03ed5441e076c0c"
   },
   "nova-fox.phext": {
-   "bytes": 1903146,
-   "sha256": "d3dcfe546e3dcea4843444e7680589139743d629c19ae4f306b5996d1741a027"
+   "bytes": 1906464,
+   "sha256": "13c5da14da5969bed365f1e350202636e2e1e14241282ea9c0682a0245f89d4e"
   },
   "nova-fox.phext.gz": {
-   "bytes": 428732,
-   "sha256": "e4ec809333116490880826b1bef249db5c83f735b762ac2b437ca0275925c83d"
+   "bytes": 429694,
+   "sha256": "0f4f5c1a24520d63b1098c1f512a92e9d8e8ce7e5ba116fed4582600f729bca4"
   }
  },
  "package": {
-  "phextBytes": 1903146,
-  "phextSha256": "d3dcfe546e3dcea4843444e7680589139743d629c19ae4f306b5996d1741a027",
-  "gzBytes": 428732,
-  "ratio": 0.2253,
-  "moduleSha256": "d10a27eed447243ddf7a9a79001f307338295a3525fe1e45918fbbf5aaa8908b",
+  "phextBytes": 1906464,
+  "phextSha256": "13c5da14da5969bed365f1e350202636e2e1e14241282ea9c0682a0245f89d4e",
+  "gzBytes": 429694,
+  "ratio": 0.2254,
+  "moduleSha256": "d532ed314b7d3811728dbf334a25080677ec289d7582e37e03c6564b44097f6b",
   "shell": "1.1.1/1.1.2/1.1.1",
   "modules": [
    "1.1.2/1.1.1/1.1.1",
@@ -255,8 +255,8 @@
     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
    },
    "1.1.2/1.1.10/1.1.1": {
-    "bytes": 98370,
-    "sha256": "67fbf80781875585cd2894377587f3ea1b06f362ec90a32299a0f1924adc08f6"
+    "bytes": 100583,
+    "sha256": "104b7cf3007a8c2eef762b75977f814acbda3c7c622aa393536bbb006d127bf1"
    },
    "1.1.2/1.1.11/1.1.1": {
     "bytes": 0,
@@ -359,8 +359,8 @@
     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
    },
    "1.1.2/1.1.34/1.1.1": {
-    "bytes": 374210,
-    "sha256": "52c9ce408c08c2c944c1a42a2c602f5602199cac6462fd4294dcfe271b52ead3"
+    "bytes": 375315,
+    "sha256": "13e48bf9bc17963cee38aee468ff64dc8ca08758bf93564273024e1b63c71092"
    },
    "1.1.2/1.1.4/1.1.1": {
     "bytes": 2029,

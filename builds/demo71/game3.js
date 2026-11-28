@@ -2854,21 +2854,21 @@ function buildSky() {
     });
     return new THREE.Points(gg, mm);
   };
-  skyStars = mkPoints(starField(), 1.7, () => 0xffffff);
+  skyStars = mkPoints(starField(state.realm), 1.7, () => 0xffffff);
   skyGroup.add(skyStars);
-  skyGalaxies = mkPoints(allGalaxyPoints(), 4.2, (s) => s.color);
+  skyGalaxies = mkPoints(allGalaxyPoints(140, state.realm), 4.2, (s) => s.color);
   skyGroup.add(skyGalaxies);
-  // F-GROK-13: points alone read as pinpricks / a dotted doodle, so
+  // F-GROK-13 (EE 1286 rework): points alone read as pinpricks, so
   // each galaxy also gets an extended, structured glow disc — a
   // canvas spiral (bright core, halo, and its own arms at its own
-  // spin) on a tangent plane at its centre, sized from its radius.
-  // The disc diameter is 2.4x the point disc's radius span, so a
-  // galaxy spans roughly twenty degrees of sky, unmistakably
-  // wider and softer than any single star point.
+  // spin) on a tangent plane at its PROJECTED centre, sized from
+  // its PROJECTED angular radius (physical size / subspace
+  // distance from this realm's viewpoint), so a galaxy's span in
+  // the sky is derived, unmistakably wider than any star point.
   skyGalaxyGlows = new THREE.Group();
   for (const g of SKY_GALAXIES) {
-    const c = galaxyCenter(g);
-    const d = g.radius * 2.4;
+    const c = galaxyCenter(g, state.realm);
+    const d = 2 * SKY_DOME_RADIUS * Math.tan(galaxyView(g, state.realm).angularRadiusRad);
     const glow = new THREE.Mesh(
       new THREE.PlaneGeometry(d, d),
       new THREE.MeshBasicMaterial({
@@ -2942,6 +2942,31 @@ function updateSkyForPalette(pal) {
 }
 function applyRealmSky() {
   applyRealmPalette(state.realm);
+  refreshSkyForRealm(state.realm);
+}
+// EE 1286: the sky is this realm's view of subspace — when the
+// realm changes, every star and galaxy is re-projected from the
+// new viewpoint (positions and glow scales recomputed from the
+// geography in world.js; nothing is pinned per realm).
+function refreshSkyForRealm(realmId) {
+  const setPts = (obj, pts) => {
+    if (!obj) return;
+    const a = obj.geometry.getAttribute("position");
+    pts.forEach((s, i) => a.setXYZ(i, s.x, s.y, s.z));
+    a.needsUpdate = true;
+  };
+  setPts(skyStars, starField(realmId));
+  setPts(skyGalaxies, allGalaxyPoints(140, realmId));
+  if (skyGalaxyGlows) {
+    skyGalaxyGlows.children.forEach((glow, i) => {
+      const g = SKY_GALAXIES[i];
+      const view = galaxyView(g, realmId);
+      glow.position.set(view.center.x, view.center.y, view.center.z);
+      const d = 2 * SKY_DOME_RADIUS * Math.tan(view.angularRadiusRad);
+      glow.scale.set(d / glow.geometry.parameters.width, d / glow.geometry.parameters.height, 1);
+      glow.lookAt(0, 0, 0);
+    });
+  }
 }
 
 // ---------- the Arrival status screen (feedback #14; A2-LOAD item 5) --------
@@ -10892,10 +10917,12 @@ window.NOVA_FOX3 = {
   }),
   loginUrl: () => loginUrl(),
   hasToken: () => !!gameToken(),
-  skyInfo: () => ({ stars: starField().length, galaxies: SKY_GALAXIES.length,
-    galaxyPoints: allGalaxyPoints().length, dome: !!skyDome,
+  skyInfo: () => ({ stars: starField(state.realm).length, galaxies: SKY_GALAXIES.length,
+    galaxyPoints: allGalaxyPoints(140, state.realm).length, dome: !!skyDome,
     galaxyGlows: skyGalaxyGlows ? skyGalaxyGlows.children.length : 0,
-    galaxyGlowSizes: SKY_GALAXIES.map((g) => g.radius * 2.4),
+    realm: state.realm, viewpoint: subspaceViewpoint(state.realm),
+    galaxyViews: skyGalaxiesForRealm(state.realm),
+    galaxyGlowSizes: SKY_GALAXIES.map((g) => 2 * SKY_DOME_RADIUS * Math.tan(galaxyView(g, state.realm).angularRadiusRad)),
     stops: skyStopsFor(paletteFor(state.realm)).map((s) => s.color) }),
   authPrompt: () => ({ shown: authPromptShown, dismissed: authPromptDismissed,
     decision: authPromptDecision({ hasToken: !!gameToken(),
