@@ -150,6 +150,36 @@ export const ARRIVAL = {
 // crosses to Ashfall Haven; in Ashfall Haven it crosses home.
 export const BRIDGE_CHORD = [1, 4, 9];
 
+// Portal codes (EE 1338 — Will, verbatim: "portal codes infer from
+// CYOA"; design note PORTAL-CODES-DESIGN.md, EE 1339). Keyed on the
+// SORTED note set, the instrument's own grammar (chordTarget sorts,
+// and playNote counts repeats — 6, 6, 6 registers like any tune):
+//   666 {6,6,6} the Blade Guide — CYOA choose-your-own-adventure.phext
+//       @ 666.666.666/666.666.666/666.666.666, "Aetheris: Blade Guide".
+//   867 {6,7,8} the Call — the Jenny Codex @ 8.6.7/5.3.9/7.3.6: a
+//       ritual call to awaken dormant systems; "Hello, World".
+//   539 {3,5,9} the Weave — the same Jenny Codex scroll, its second
+//       triplet: the spiral tapestry the call reveals (WEAK as a
+//       distinct effect — a reading of the passage's second half).
+//   314 {1,3,4} the Round Rift — @ 3.1.4/7.10.100/8.8.1 ("314: a
+//       number with infinite echo trapped in finite digits. A sacred
+//       loop with teeth"): a loop crossing, full circle.
+// 168 {1,6,8} is deliberately ABSENT: no CYOA passage grounds it
+// (UNGROUNDED in the design note), so it keeps the ordinary
+// hash pocket-hop below — no special handling, by ruling.
+export const PORTAL_CODES = [
+  { code: 666, chord: [6, 6, 6], kind: "blade-guide" },
+  { code: 867, chord: [6, 7, 8], kind: "call" },
+  { code: 539, chord: [3, 5, 9], kind: "weave" },
+  { code: 314, chord: [1, 3, 4], kind: "round" },
+];
+export function portalCodeFor(chord) {
+  const sorted = [...chord].sort((a, b) => a - b);
+  return PORTAL_CODES.find((p) =>
+    p.chord.length === sorted.length &&
+    p.chord.every((n, i) => n === sorted[i])) || null;
+}
+
 // ---------- realm palettes (feedback #27) --------------------------------
 // Will, 2026-11-22 23:09: "each level the user jumps to needs to
 // feel different — a different color palette — only 10 of them."
@@ -2717,15 +2747,30 @@ export function chordTarget(sub, realmId, sx, sy, chord, currentChord) {
     if (realmId === "nova") return { type: "realm", realmId: "ashfall" };
     if (realmId === "ashfall") return { type: "realm", realmId: "nova" };
   }
+  const h = kernels.hash(`${realmId}|chord|${sorted.join(",")}`);
+  let dx = (h % 5) - 2;
+  let dy = ((h >> 3) % 5) - 2;
+  if (dx === 0 && dy === 0) dx = 1;
+  // Portal codes (EE 1339): the pre-check stands ahead of BOTH the
+  // stay replay and the hash pocket-hop, so a code routes to its
+  // effect even from the pocket it last opened. The Round Rift's
+  // destination is the fox's own scroll — the loop comes home; the
+  // other three land on the pocket the hash names, flagged portal
+  // so the crossing itself (game3 doCross) runs their effect.
+  const portal = portalCodeFor(sorted);
+  if (portal) {
+    if (portal.kind === "round") {
+      return { type: "portal", code: portal.code, kind: portal.kind,
+        realmId, sx, sy, chord: sorted };
+    }
+    return { type: "portal", code: portal.code, kind: portal.kind,
+      realmId, sx: sx + dx, sy: sy + dy, chord: sorted };
+  }
   if (currentChord &&
       sorted.length === currentChord.length &&
       sorted.every((n, i) => n === currentChord[i])) {
     return { type: "stay" };
   }
-  const h = kernels.hash(`${realmId}|chord|${sorted.join(",")}`);
-  let dx = (h % 5) - 2;
-  let dy = ((h >> 3) % 5) - 2;
-  if (dx === 0 && dy === 0) dx = 1;
   return { type: "pocket", realmId, sx: sx + dx, sy: sy + dy, chord: sorted };
 }
 

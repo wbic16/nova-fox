@@ -5,6 +5,7 @@ import { gunzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import {
   Subspace, genChunk, chunkBlock, baseBlockAt, heightAt, chordTarget,
+  PORTAL_CODES, portalCodeFor,
   kernels, hashStringJS, genFoamJS, lifeStepJS,
   BLOCK, CHUNK, WORLD_H, LIFE_N, CEIL_Y, DUNGEON, BRIDGE_CHORD,
   ITEM_DEFS, computeScore, totalScore, dailyPocket, checkDaily,
@@ -286,6 +287,51 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     p1.sx === p2.sx && p1.sy === p2.sy);
   check("replaying the pocket's own tune is a stay",
     chordTarget(s, "nova", p1.sx, p1.sy, [2, 5, 11], p1.chord).type === "stay");
+}
+
+// --- portal codes: CYOA-grounded tunes (EE 1338 ruling, EE 1339 note) ---
+{
+  const s = new Subspace();
+  check("portal code table holds exactly the four grounded codes",
+    PORTAL_CODES.length === 4 &&
+    PORTAL_CODES.map((p) => p.code).join(",") === "666,867,539,314");
+  check("666 registers as the repeated set {6,6,6} (repeats count)",
+    portalCodeFor([6, 6, 6])?.code === 666);
+  check("867 resolves order-free from its sorted set {6,7,8}",
+    portalCodeFor([8, 6, 7])?.code === 867);
+  check("539 resolves from its sorted set {3,5,9}",
+    portalCodeFor([9, 3, 5])?.code === 539);
+  check("314 resolves from its sorted set {1,3,4}",
+    portalCodeFor([4, 1, 3])?.code === 314);
+  check("168 is no portal code (UNGROUNDED — no special handling)",
+    portalCodeFor([1, 6, 8]) === null);
+  const g666 = chordTarget(s, "nova", 0, 0, [6, 6, 6], null);
+  check("666 routes to the Blade Guide portal, not the pocket hash-hop",
+    g666.type === "portal" && g666.code === 666 && g666.kind === "blade-guide");
+  const g867 = chordTarget(s, "nova", 0, 0, [8, 7, 6], null);
+  check("867 routes to the Call portal, not the pocket hash-hop",
+    g867.type === "portal" && g867.code === 867 && g867.kind === "call");
+  const g539 = chordTarget(s, "nova", 0, 0, [5, 3, 9], null);
+  check("539 routes to the Weave portal, not the pocket hash-hop",
+    g539.type === "portal" && g539.code === 539 && g539.kind === "weave");
+  const g314 = chordTarget(s, "nova", 3, -2, [3, 1, 4], null);
+  check("314 routes to the Round Rift portal, not the pocket hash-hop",
+    g314.type === "portal" && g314.code === 314 && g314.kind === "round");
+  check("the Round Rift's destination is the fox's own scroll (full circle)",
+    g314.sx === 3 && g314.sy === -2 && g314.realmId === "nova");
+  check("a portal code routes even when it replays the standing pocket tune",
+    chordTarget(s, "nova", g666.sx, g666.sy, [6, 6, 6], [6, 6, 6]).type === "portal");
+  const g168 = chordTarget(s, "nova", 0, 0, [1, 6, 8], null);
+  check("168 still hash-hops to an ordinary pocket",
+    g168.type === "pocket" && g168.realmId === "nova");
+  check("bridge tune still crosses realms, untouched by the portal pre-check",
+    chordTarget(s, "nova", 0, 0, [1, 4, 9], null).type === "realm" &&
+    chordTarget(s, "nova", 0, 0, [1, 4, 9], null).realmId === "ashfall");
+  const nc = chordTarget(s, "nova", 0, 0, [2, 5, 11], null);
+  const nc2 = chordTarget(s, "nova", 0, 0, [11, 5, 2], null);
+  check("a non-code chord still hash-hops exactly as before",
+    nc.type === "pocket" && nc.sx === nc2.sx && nc.sy === nc2.sy &&
+    nc.chord.join(",") === "2,5,11");
 }
 
 // --- gravity: a subspace fact the generator obeys ----------------------
