@@ -109,6 +109,14 @@ import {
   ideaB64Encode, ideaB64Decode,
 } from "./ideas.js";
 import {
+  COLLECT_REGISTRY_COORD, collectRecordCoord, collectFnv1a64, collectionCoordFor,
+  parseCollectRegistryIndex, parseCollectRecord, collectNameParts,
+  parseCollectionScroll, placementsForRealm, collectCellFor, nearestMeeting, COLLECT_MEET_RANGE,
+  collectBeatText, newCollectState, collectQueuedEntry, collectIsQueued,
+  collectVariantFor, queueCollect, collectRequestBody, applyCollectAnswer,
+  collectBoardLine, collectBookLines,
+} from "./collectibles.js";
+import {
   SHIPLOG_MAX, shipLogRows, shipLogHeadline, shipLogLine,
 } from "./shiplog.js";
 import {
@@ -3142,9 +3150,12 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
   // the fixture fix adds exactly its two new gravity-aware call
   // sites (respawnAtArrival, teleportTo), so the count is 5 — the
   // assertion's intent (landings take the vault-aware stand) stands.
+  // EE 1348 re-pin: the collectibles encounter adds exactly one
+  // more gravity-aware call site — the standing figures stand
+  // through surfaceStandY — so the count is 6; the intent stands.
   check("rift: surfaceStandY lands a step-out on the vault, not the ground",
     game.includes("return CEIL_Y - 0.01;") &&
-    (game.match(/surfaceStandY\(/g) || []).length === 5);
+    (game.match(/surfaceStandY\(/g) || []).length === 6);
   check("rift: the ring's center rides toward the fox's body on either surface",
     game.includes("const ringY = end.feetY + 1 + 0.65 *"));
 
@@ -7134,6 +7145,237 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     !g12Game.includes("portrait-fox-288") && !g12Page.includes("portrait-fox-288")
     && !existsSync(new URL("./portrait-fox-288.png", import.meta.url))
     && readdirSync(new URL("./", import.meta.url)).filter((f) => /portrait/i.test(f) && /\.(png|jpe?g|gif|webp)$/i.test(f)).length === 0);
+}
+
+
+// === Collectibles: the Homecoming encounter + surfaces (EE 1348) ===
+// COLLECTIBLES-DESIGN.md legs 3+4 under the EE ~1333 ruling (roster
+// read back from the registry — the synthetic registry below has
+// TWO entries on purpose: any hardcoded total fails these pins).
+{
+  // --- the pure module: registry, records, scrolls, placement ---
+  const idxText = "collectibles-registry|2|ee1400\n" +
+    "entry|1|theia|1.1.1/1.2.1/1|Ashfall Haven\n" +
+    "entry|2|grok|1.1.1/1.2.1/2|Delta Wood\n";
+  const idx = parseCollectRegistryIndex(idxText);
+  check("collect: the registry index parses — header total and entry rows (k, id, record coord, realm)",
+    idx.total === 2 && idx.entries.length === 2 && idx.entries[0].id === "theia" &&
+    idx.entries[0].coord === "1.1.1/1.2.1/1" && idx.entries[0].realm === "Ashfall Haven" &&
+    idx.entries[1].realm === "Delta Wood");
+  check("collect: the registry total comes from the header, never a roster literal",
+    parseCollectRegistryIndex("collectibles-registry|609|ee1340\n").total === 609);
+  const rec = parseCollectRecord("collectible|theia|Theia|Ashfall Haven\naliases|Mirror Theia\nprovenance|~/memory/people/theia.md\nsection|1.2\n");
+  check("collect: a registry record parses — id, name, realm, aliases, provenance",
+    rec !== null && rec.id === "theia" && rec.name === "Theia" && rec.realm === "Ashfall Haven" &&
+    rec.aliases.length === 1 && rec.aliases[0] === "Mirror Theia" && rec.provenance.includes("theia.md"));
+  check("collect: garbage record text parses to nothing, never to a character",
+    parseCollectRecord("board|nova|1\n") === null && parseCollectRecord("") === null);
+  check("collect: the collection scroll coordinate matches the gateway's derivation (fox-one vector)",
+    collectionCoordFor("fox-one") === "3.207.16/173.174.7/137.184.52", collectionCoordFor("fox-one"));
+  const scroll = parseCollectionScroll("collection-of|fox-one\ncollected|theia|Ashfall Haven|1350\n", "fox-one");
+  check("collect: a collection scroll parses to its grants (character -> landing EE)",
+    scroll.headerOk && scroll.grants.theia === 1350 && Object.keys(scroll.grants).length === 1);
+  check("collect: a scroll headed by another identity is never trusted",
+    parseCollectionScroll("collection-of|someone-else\ncollected|theia|Ashfall Haven|1350\n", "fox-one").headerOk === false);
+  const many = Array.from({ length: 60 }, (_, i) => ({ k: i + 1, id: "char-" + i, realm: "Ashfall Haven" }));
+  const placed = placementsForRealm(many);
+  const cells = new Set(placed.map((p) => p.bx + "," + p.bz));
+  check("collect: placements are unique per realm — 60 characters, 60 distinct cells",
+    placed.length === 60 && cells.size === 60);
+  check("collect: placements stand inside the ground grid and clear of the Arrival clearing",
+    placed.every((p) => p.bx >= -16 && p.bx < 80 && p.bz >= -16 && p.bz < 80 &&
+      Math.max(Math.abs(p.bx - 8), Math.abs(p.bz - 8)) > 7));
+  check("collect: placement is deterministic — the same registry yields the same ground twice",
+    JSON.stringify(placementsForRealm(many)) === JSON.stringify(placed));
+  check("collect: the meeting trigger is a distance rule — inside the range fires, outside does not",
+    nearestMeeting(placed, placed[0].bx + 0.5, placed[0].bz + 0.5) !== null &&
+    nearestMeeting(placed, 500, 500) === null);
+  check("collect: the queued shape is exactly the gateway's — {character, queued: true}",
+    JSON.stringify(collectQueuedEntry("theia")) === JSON.stringify({ character: "theia", queued: true }) &&
+    JSON.stringify(collectRequestBody("theia", true)) === JSON.stringify({ character: "theia", queued: true }) &&
+    JSON.stringify(collectRequestBody("theia", false)) === JSON.stringify({ character: "theia" }));
+  {
+    const st = newCollectState();
+    st.grants.theia = 1401;
+    const before = Object.keys(st.grants).length;
+    const verdict = applyCollectAnswer(st, "theia", { ok: true, status: "already-home", character: "theia", ee: 1401 });
+    check("collect: an already-home answer reconciles to the server's EE — the count does not move",
+      verdict === "already-home" && st.grants.theia === 1401 && Object.keys(st.grants).length === before);
+    check("collect: the board line reads its total from the caller (registry read-back), not a literal",
+      collectBoardLine(st, 2) === "Brought home: 1 of 2" && collectBoardLine(st, 609) === "Brought home: 1 of 609");
+    const lines = collectBookLines(idx.entries,
+      { theia: rec, grok: parseCollectRecord("collectible|grok|Grok|Delta Wood\nprovenance|~/memory/people/grok.md\nsection|1.2\n") }, st);
+    const book = lines.join("\n");
+    check("collect: the book names the collected with their EE, and the unmet only as a realm hint",
+      book.includes("Theia") && book.includes("EE 1401") && book.includes("1 more waits in Delta Wood") && !book.includes("Grok"), book);
+  }
+
+  // --- the game3 client block, extracted and driven on a mock gateway ---
+  const cGame = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const cPage = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const secAt = cGame.indexOf("// COLLECT-ENC-BEGIN");
+  const secEnd = cGame.indexOf("// COLLECT-ENC-END");
+  const sec = (secAt >= 0 && secEnd > secAt) ? cGame.slice(secAt, secEnd) : "";
+  check("collect: the encounter block extracts (COLLECT-ENC markers present)", sec.includes("function collectTick"));
+  check("collect: no roster total is hardcoded in the encounter block (the registry is the truth)",
+    sec !== "" && !/\b609\b/.test(sec));
+  const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const TOKEN = `npt1.${b64u({ sub: "fox-one", name: "fox-one" })}.sig`;
+  const RECORDS = {
+    "1.1.1/1.2.1/1": "collectible|theia|Theia|Ashfall Haven\naliases|Mirror Theia\nprovenance|~/memory/people/theia.md\nsection|1.2\n",
+    "1.1.1/1.2.1/2": "collectible|grok|Grok|Delta Wood\nprovenance|~/memory/people/grok.md\nsection|1.2\n",
+  };
+  const REALMS2 = [{ id: "ashfall", name: "Ashfall Haven" }, { id: "delta", name: "Delta Wood" }];
+  function makeClient(server) {
+    const calls = [];
+    const toasts = [];
+    const store = new Map();
+    const LS2 = {
+      get(k, d) { const v = store.get(k); return v === undefined ? d : JSON.parse(v); },
+      set(k, v) { store.set(k, JSON.stringify(v)); },
+    };
+    let token = TOKEN;
+    const BACKEND2 = { base: "https://phext.tech", phext: "nova-phox-world", online: true };
+    const state2 = { realm: "ashfall", pos: { x: 500, y: 20, z: 500 } };
+    globalThis.fetch = async (url, opts = {}) => {
+      calls.push({ url, opts });
+      if (url.includes("/api/v2/select")) {
+        const coord = url.split("c=")[1];
+        let text = "";
+        if (coord === COLLECT_REGISTRY_COORD) text = idxText;
+        else if (RECORDS[coord]) text = RECORDS[coord];
+        else if (coord === collectionCoordFor("fox-one")) {
+          text = "collection-of|fox-one\n" + Object.entries(server.grants)
+            .map(([id, g]) => `collected|${id}|${g.realm}|${g.ee}`).join("\n") + "\n";
+        }
+        return { ok: true, status: 200, text: async () => text };
+      }
+      if (url.includes("/api/v2/collect")) {
+        const body = JSON.parse(opts.body);
+        if (server.loseNext) { // the grant lands; the answer is lost
+          server.loseNext = false;
+          server.grants[body.character] = { ee: 1401, realm: "Ashfall Haven" };
+          throw new Error("response lost");
+        }
+        if (server.hangNext) { server.hangNext = false; await new Promise((r) => setTimeout(r, 30)); }
+        const g = server.grants[body.character];
+        if (g) return { ok: true, status: 200, json: async () => ({ ok: true, status: "already-home", character: body.character, ee: g.ee }) };
+        server.grants[body.character] = { ee: server.nextEE, realm: "Ashfall Haven" };
+        return { ok: true, status: 200, json: async () => ({ ok: true, status: "collected", character: body.character, realm: "Ashfall Haven", ee: server.nextEE }) };
+      }
+      throw new Error("unexpected fetch " + url);
+    };
+    const api = new Function("BACKEND", "LS", "gameToken", "toast", "state", "REALMS",
+      "paletteFor", "surfaceStandY", "THREE", "scene", "document", "$",
+      "COLLECT_REGISTRY_COORD", "newCollectState", "parseCollectRegistryIndex", "parseCollectionScroll",
+      "collectionCoordFor", "parseCollectRecord", "placementsForRealm", "collectVariantFor", "collectBeatText",
+      "collectRequestBody", "applyCollectAnswer", "queueCollect", "nearestMeeting", "collectFnv1a64",
+      "collectBoardLine", "collectBookLines",
+      sec + "\nreturn { collectState, collectRecords, collectReadBack, collectPost, collectTick, collectFlushQueue, collectPlacements, collectBookLinesNow, collectBoardLineNow, BACKEND };")(
+      BACKEND2, LS2, () => token, (t) => toasts.push(t), state2, REALMS2,
+      () => ({ accent: 0xaaaa11, accent2: 0x222222 }), () => 20, {}, { add() {}, remove() {} },
+      { createElement: () => ({}) }, () => null,
+      COLLECT_REGISTRY_COORD, newCollectState, parseCollectRegistryIndex, parseCollectionScroll,
+      collectionCoordFor, parseCollectRecord, placementsForRealm, collectVariantFor, collectBeatText,
+      collectRequestBody, applyCollectAnswer, queueCollect, nearestMeeting, collectFnv1a64,
+      collectBoardLine, collectBookLines);
+    return { api, calls, toasts, state: state2, BACKEND: BACKEND2, setToken: (t) => { token = t; },
+      store, collectCalls: () => calls.filter((c) => c.url.includes("/api/v2/collect")) };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 15));
+
+  // Scenario 1: read-back, approach trigger, the collect post, the count.
+  {
+    const server = { grants: {}, nextEE: 1400 };
+    const c = makeClient(server);
+    await c.api.collectReadBack(); await settle();
+    check("collect: read-back loads the registry from the gateway surface (rows + total)",
+      c.BACKEND.collectRows.length === 2 && c.BACKEND.collectTotal === 2);
+    const cell = c.api.collectPlacements("ashfall")[0];
+    const far = await c.api.collectTick();
+    check("collect: no meeting fires from far away (no beat, no post)",
+      far === null && c.toasts.length === 0 && c.collectCalls().length === 0);
+    c.state.pos.x = cell.bx + 0.5; c.state.pos.z = cell.bz + 0.5;
+    await c.api.collectTick();
+    check("collect: approaching a character plays the meeting beat, sourced from their record",
+      c.toasts.length === 1 && c.toasts[0].includes("Theia") && c.toasts[0].includes("You have brought Theia home."), c.toasts[0] || "");
+    check("collect: the meeting posts the right character id to /api/v2/collect, unqueued",
+      c.collectCalls().length === 1 && JSON.parse(c.collectCalls()[0].opts.body).character === "theia" &&
+      JSON.parse(c.collectCalls()[0].opts.body).queued === undefined);
+    check("collect: a landed meeting enters the view at the gateway's EE; the board counts it",
+      c.api.collectState.grants.theia === 1400 && c.api.collectBoardLineNow() === "Brought home: 1 of 2");
+    await c.api.collectTick();
+    check("collect: standing in place does not re-play or re-post the meeting",
+      c.toasts.length === 1 && c.collectCalls().length === 1);
+    const book = c.api.collectBookLinesNow().join("\n");
+    check("collect: the book shows the met by name and the unmet as a hint only (no Grok)",
+      book.includes("Theia") && book.includes("EE 1400") && book.includes("1 more waits in Delta Wood") && !book.includes("Grok"), book);
+  }
+  // Scenario 2: already home — the returning-friend variant, no post.
+  {
+    const server = { grants: { theia: { ee: 1350, realm: "Ashfall Haven" } }, nextEE: 1400 };
+    const c = makeClient(server);
+    await c.api.collectReadBack(); await settle();
+    const cell = c.api.collectPlacements("ashfall")[0];
+    c.state.pos.x = cell.bx + 0.5; c.state.pos.z = cell.bz + 0.5;
+    await c.api.collectTick();
+    check("collect: meeting someone already home plays the returning-friend variant and posts nothing",
+      c.toasts.length === 1 && c.toasts[0].includes("already home") && c.toasts[0].includes("EE 1350") &&
+      c.collectCalls().length === 0 && c.api.collectState.grants.theia === 1350, c.toasts[0] || "");
+  }
+  // Scenario 3: the lost response — queue, retry, already-home reconciles.
+  {
+    const server = { grants: {}, nextEE: 1400, loseNext: true };
+    const c = makeClient(server);
+    await c.api.collectReadBack(); await settle();
+    const cell = c.api.collectPlacements("ashfall")[0];
+    c.state.pos.x = cell.bx + 0.5; c.state.pos.z = cell.bz + 0.5;
+    await c.api.collectTick();
+    check("collect: a post whose answer is lost queues the meeting in the gateway's queued shape",
+      JSON.stringify(c.api.collectState.queue) === JSON.stringify([{ character: "theia", queued: true }]) &&
+      c.api.collectState.grants.theia === undefined, JSON.stringify(c.api.collectState.queue));
+    check("collect: the queued meeting shows in the book as met — coming home",
+      c.api.collectBookLinesNow().join("\n").includes("met, coming home"));
+    await c.api.collectFlushQueue();
+    check("collect: the retry posts the queued shape and meets already-home — original EE, count unmoved",
+      c.collectCalls().length === 2 && JSON.parse(c.collectCalls()[1].opts.body).queued === true &&
+      c.api.collectState.grants.theia === 1401 && c.api.collectState.queue.length === 0 &&
+      c.api.collectBoardLineNow() === "Brought home: 1 of 2");
+  }
+  // Scenario 4: no session — the meeting holds locally, lands on sign-in.
+  {
+    const server = { grants: {}, nextEE: 1402 };
+    const c = makeClient(server);
+    await c.api.collectReadBack(); await settle();
+    c.setToken(null);
+    const cell = c.api.collectPlacements("ashfall")[0];
+    c.state.pos.x = cell.bx + 0.5; c.state.pos.z = cell.bz + 0.5;
+    await c.api.collectTick();
+    check("collect: a meeting with no live session queues locally and posts nothing",
+      c.collectCalls().length === 0 && c.api.collectState.queue.length === 1 &&
+      JSON.parse(c.store.get("nova-phox-collect-queue")).length === 1);
+    c.setToken(TOKEN);
+    await c.api.collectFlushQueue();
+    check("collect: on reconnect the queued meeting posts in the queued shape and lands",
+      c.collectCalls().length === 1 && JSON.parse(c.collectCalls()[0].opts.body).queued === true &&
+      c.api.collectState.grants.theia === 1402 && c.api.collectState.queue.length === 0);
+  }
+  // Scenario 5: the in-flight guard — a double post cannot be issued.
+  {
+    const server = { grants: {}, nextEE: 1403, hangNext: true };
+    const c = makeClient(server);
+    await c.api.collectReadBack(); await settle();
+    const entry = { id: "theia" };
+    const p1 = c.api.collectPost(entry, false);
+    const p2 = c.api.collectPost(entry, false);
+    await Promise.all([p1, p2]);
+    check("collect: two simultaneous posts for one character issue exactly one gateway call",
+      c.collectCalls().length === 1 && c.api.collectState.grants.theia === 1403);
+  }
+  // Surfaces in the page: the book panel + its menu entry ride the build.
+  check("collect: the Esc menu carries the Homecoming book and its panel (the player's own book — no keeper named)",
+    cPage.includes('id="menu-collect"') && cPage.includes('id="collect-panel"') && cPage.includes('id="collect-book-body"') &&
+    cGame.includes('"collect-panel"') && !cPage.includes("kept by Joy"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

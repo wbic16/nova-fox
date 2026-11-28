@@ -506,6 +506,8 @@
   #menu-confirm { display: none; margin-top: 12px; border-top: 1px solid rgba(60, 84, 128, 0.4); padding-top: 10px; }
   #menu-confirm-text { color: #ffb84d; font-size: 13.5px; line-height: 1.5; }
   #menu-note, #bindings-note { color: #7e93bd; font-size: 12.5px; margin-top: 10px; min-height: 16px; line-height: 1.5; }
+  #collect-book-body { color: #d6e4ff; font-size: 14px; line-height: 1.55; margin-top: 10px; }
+  #collect-panel { left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 11; width: 56vw; height: 72vh; display: none; overflow-y: auto; }
   .setrow {
     display: flex; justify-content: space-between; align-items: center; gap: 12px;
     padding: 7px 4px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
@@ -1119,6 +1121,7 @@
     <button class="menuitem" id="menu-keys">Key bindings</button>
     <button class="menuitem" id="menu-video">Video settings</button>
     <button class="menuitem" id="menu-audio">Audio settings</button>
+    <button class="menuitem" id="menu-collect">The Homecoming book <span class="st" id="menu-collect-state"></span></button>
     <button class="menuitem" id="menu-feedback">Send feedback / playtest notes</button>
     <button class="menuitem" id="menu-quit">Quit</button>
   </div>
@@ -1165,6 +1168,15 @@
   <div class="setrow"><span>Sound</span><button class="ghost" id="aud-mute">on</button></div>
   <div class="btnrow">
     <button class="ghost" id="audio-back">back (Esc)</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="collect-panel">
+  <h2>The Homecoming book</h2>
+  <div class="sub">Your own book — who has come home, and where more wait. Names are written here only once you have met them; the rest stand as hints, by realm.</div>
+  <div id="collect-book-body"></div>
+  <div class="btnrow">
+    <button class="ghost" id="collect-back">back (Esc)</button>
   </div>
 </div>
 
@@ -62385,6 +62397,289 @@ function roadmapSplit(rows) {
   return { upcoming, shipped };
 }
 
+// ===== collectibles: the Homecoming chart logic (source: collectibles.js) =====
+// ---------- collectibles (EE 1348): the Homecoming chart logic ------------
+// The Homecoming (COLLECTIBLES-DESIGN.md, as amended by Will's
+// EE 1316 and EE ~1333 rulings): every character declared in the
+// registry stands in their realm, is met exactly once, and the
+// meeting lands server-side through the gateway's check-and-set
+// (POST /api/v2/collect). The registry in nova-phox-world is the
+// truth — index scroll at 1.1.1/1.1.6/1.1.1, one record scroll per
+// character at 1.1.1/1.2.1/<k> — and the per-user collection scroll
+// is the truth about who has come home. The client holds a cached
+// view only (design section 3).
+//
+// This module is pure logic: no DOM, no storage, no clock, no
+// network — exactly like economy.js / forms.js / ideas.js. The
+// game glue (game3.js) owns persistence, the network, the meshes,
+// and the panels; tests drive this file directly.
+
+// ---------- coordinates ---------------------------------------------------
+const COLLECT_REGISTRY_COORD = "1.1.1/1.1.6/1.1.1"; // registry INDEX
+function collectRecordCoord(k) { return `1.1.1/1.2.1/${k}`; }
+
+// ---------- the house hash --------------------------------------------------
+// FNV-1a 64-bit over the UTF-8 bytes — the same hash the gateway
+// uses (gateway.py fnv1a64_bytes), computed with BigInt so the
+// 64-bit wrap is exact.
+const _collectEnc = new TextEncoder();
+function collectFnv1a64(text) {
+  let h = 0xcbf29ce484222325n;
+  for (const b of _collectEnc.encode(String(text))) {
+    h ^= BigInt(b);
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h;
+}
+
+// The per-user collection scroll coordinate, derived exactly as
+// the gateway derives it (gateway.py collection_coord): the hash
+// as 8 big-endian bytes, each byte + 1, under a leading volume 3.
+function collectionCoordFor(sub) {
+  const h = collectFnv1a64(sub || "");
+  const parts = [3];
+  for (let i = 7; i >= 0; i--) parts.push(Number((h >> BigInt(i * 8)) & 0xffn) + 1);
+  return `${parts[0]}.${parts[1]}.${parts[2]}/${parts[3]}.${parts[4]}.${parts[5]}/${parts[6]}.${parts[7]}.${parts[8]}`;
+}
+
+// ---------- registry parsing --------------------------------------------------
+// INDEX scroll shape (import_collectibles_registry_v2.py):
+//   line 1:  collectibles-registry|<total>|ee<EE>
+//   entries: entry|<k>|<character id>|<record coordinate>|<realm name>
+function parseCollectRegistryIndex(text) {
+  const out = { total: 0, entries: [] };
+  for (const ln of String(text || "").split("\n")) {
+    const p = ln.split("|");
+    if (p[0] === "collectibles-registry" && p.length >= 2) {
+      const n = Number(p[1]);
+      if (Number.isFinite(n)) out.total = n;
+    } else if (p[0] === "entry" && p.length >= 5 && p[2]) {
+      out.entries.push({ k: Number(p[1]), id: p[2], coord: p[3], realm: p[4] });
+    }
+  }
+  if (!out.total) out.total = out.entries.length;
+  return out;
+}
+
+// Record scroll shape (record_body in the registry import):
+//   collectible|<id>|<name>|<realm name>
+//   aliases|<a>|<b>            (optional)
+//   home-coordinate|<coord>    (optional)
+//   provenance|<source pointer>
+//   section|<derivation tag>
+function parseCollectRecord(text) {
+  let rec = null;
+  for (const ln of String(text || "").split("\n")) {
+    const p = ln.split("|");
+    if (p[0] === "collectible" && p.length >= 4 && p[1]) {
+      rec = { id: p[1], name: p[2], realm: p[3], aliases: [], provenance: "", home: null, section: "" };
+    } else if (rec && p[0] === "aliases") {
+      rec.aliases = p.slice(1).filter((a) => a !== "");
+    } else if (rec && p[0] === "provenance") {
+      rec.provenance = p.slice(1).join("|");
+    } else if (rec && p[0] === "home-coordinate") {
+      rec.home = p[1] || null;
+    } else if (rec && p[0] === "section") {
+      rec.section = p[1] || "";
+    }
+  }
+  return rec;
+}
+
+// The name a record carries, split into display name and epithet:
+// roster names ride as "Name — Epithet" (design section 1). Both
+// halves come from the record; nothing is invented here.
+function collectNameParts(name) {
+  const s = String(name || "");
+  const i = s.indexOf(" — ");
+  if (i < 0) return { name: s, epithet: "" };
+  return { name: s.slice(0, i), epithet: s.slice(i + 3) };
+}
+
+// ---------- the collection scroll (the server's truth, read back) ------------
+// Shape (gateway.py parse_collection):
+//   line 1:  collection-of|<sub>
+//   grants:  collected|<character id>|<realm name>|<EE at landing>
+// headerOk is false when a non-empty scroll's first line is not
+// this identity's header — such a scroll is never trusted.
+function parseCollectionScroll(text, sub) {
+  const lines = String(text || "").split("\n").filter((ln) => ln !== "");
+  if (!lines.length) return { grants: {}, headerOk: true };
+  if (lines[0] !== "collection-of|" + sub) return { grants: {}, headerOk: false };
+  const grants = {};
+  for (const ln of lines.slice(1)) {
+    const p = ln.split("|");
+    if (p[0] === "collected" && p.length >= 4 && p[1]) {
+      const ee = Number(p[3]);
+      grants[p[1]] = Number.isFinite(ee) ? ee : p[3];
+    }
+  }
+  return { grants, headerOk: true };
+}
+
+// ---------- placement ---------------------------------------------------------
+// The stated deterministic rule (design section 2 + the encounter
+// leg): placements live on the muffin table's ground — block
+// columns in [-16, 80) x [-16, 80) around Arrival. A character's
+// start cell is their registry id's hash taken mod the 9216-cell
+// grid; within a realm, entries in registry order probe forward
+// by a fixed stride (613 cells) until the cell is free and clear
+// of the Arrival clearing (every realm's Arrival is (8, 8) in
+// world.js, clearing radius 7 by Chebyshev distance — the muffin
+// gate's own rule). Same registry in, same placements out, every
+// visit. The standing height is NOT decided here: the glue stands
+// each character on the realm's generated ground through the
+// game's surfaceStandY, so nobody floats or sinks.
+const COLLECT_GRID_MIN = -16;
+const COLLECT_GRID_N = 96; // 96 x 96 cells in [-16, 80)^2
+const COLLECT_STRIDE = 613;
+function collectCellFor(id) {
+  const start = Number(collectFnv1a64(id) % 9216n);
+  return { bx: COLLECT_GRID_MIN + (start % COLLECT_GRID_N), bz: COLLECT_GRID_MIN + Math.floor(start / COLLECT_GRID_N), start };
+}
+function collectClearOfArrival(bx, bz) {
+  return Math.max(Math.abs(bx - 8), Math.abs(bz - 8)) > 7;
+}
+function placementsForRealm(entries) {
+  const taken = new Set();
+  const out = [];
+  const sorted = [...entries].sort((a, b) => a.k - b.k);
+  for (const e of sorted) {
+    let { start } = collectCellFor(e.id);
+    for (let probe = 0; probe < 9216; probe++) {
+      const cell = (start + probe * COLLECT_STRIDE) % 9216;
+      const bx = COLLECT_GRID_MIN + (cell % COLLECT_GRID_N);
+      const bz = COLLECT_GRID_MIN + Math.floor(cell / COLLECT_GRID_N);
+      const key = bx + "," + bz;
+      if (taken.has(key) || !collectClearOfArrival(bx, bz)) continue;
+      taken.add(key);
+      out.push({ id: e.id, k: e.k, realm: e.realm, bx, bz });
+      break;
+    }
+  }
+  return out;
+}
+
+// ---------- the meeting -------------------------------------------------------
+const COLLECT_MEET_RANGE = 3.2; // blocks, fox to character
+// The nearest standing meeting to a position, or null. Pure: the
+// glue passes the current realm's placements and the fox's
+// position; the trigger is this distance rule and nothing else.
+function nearestMeeting(placements, x, z) {
+  let best = null, bestD = Infinity;
+  for (const p of placements || []) {
+    const d = Math.hypot(p.bx + 0.5 - x, p.bz + 0.5 - z);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best && bestD <= COLLECT_MEET_RANGE ? { placement: best, dist: bestD } : null;
+}
+
+// The meeting beat, templated ONLY from fields the record carries
+// (name, epithet, realm, aliases) plus the design's own closing
+// line (design section 3: "You have brought <name> home."). The
+// registry carries no dialogue lines — no biography is invented
+// here; that gap is flagged in the leg's MR entry.
+//   variant "first":     the meeting that lands the collection
+//   variant "returning": already home — a friend, not a removal
+//   variant "queued":    met, not yet landed — "met — coming home"
+function collectBeatText(record, variant, ee) {
+  if (!record) return "";
+  const parts = collectNameParts(record.name);
+  const who = parts.epithet ? `${parts.name}, ${parts.epithet}` : parts.name;
+  if (variant === "returning") {
+    return `${who} is already home — you brought them home at EE ${ee}. They stay in ${record.realm}, as a friend.`;
+  }
+  if (variant === "queued") {
+    return `You have met ${who}, of ${record.realm} — met, and coming home.`;
+  }
+  const aka = record.aliases && record.aliases.length
+    ? ` Also known as ${record.aliases.join(", ")}.` : "";
+  return `You have found ${who}, in ${record.realm}.${aka} You have brought ${parts.name} home.`;
+}
+
+// ---------- the client state machine -------------------------------------------
+// The client's cached view. grants mirror the server scroll as
+// read back or as answered by the gateway; queue holds unlanded
+// meetings in the gateway's accepted queued shape, exactly:
+//   {"character": <id>, "queued": true}
+function newCollectState() { return { grants: {}, queue: [] }; }
+function collectQueuedEntry(id) { return { character: id, queued: true }; }
+function collectIsQueued(state, id) {
+  return state.queue.some((q) => q && q.character === id);
+}
+function collectVariantFor(state, id) {
+  if (state.grants[id] != null) return "returning";
+  if (collectIsQueued(state, id)) return "queued";
+  return "first";
+}
+// Queue a meeting that could not land. Refused when the character
+// is already granted or already queued — a meeting queues once.
+function queueCollect(state, id) {
+  if (!id || state.grants[id] != null || collectIsQueued(state, id)) return false;
+  state.queue.push(collectQueuedEntry(id));
+  return true;
+}
+// The request body the gateway accepts: the character id, and the
+// queued flag only for a meeting that waited (design section 3).
+function collectRequestBody(id, queued) {
+  return queued ? { character: id, queued: true } : { character: id };
+}
+// Fold a gateway answer into the cached view. "collected" lands
+// the grant at the answer's EE; "already-home" RECONCILES to the
+// server's original EE — the count does not move, because the
+// grant was already the server's truth (a retry after a lost
+// response meets exactly this). Either answer clears the queue
+// entry: the meeting has landed, once.
+function applyCollectAnswer(state, id, answer) {
+  if (!answer || answer.ok !== true) return null;
+  if (answer.status !== "collected" && answer.status !== "already-home") return null;
+  state.grants[id] = answer.ee;
+  state.queue = state.queue.filter((q) => !(q && q.character === id));
+  return answer.status;
+}
+
+// ---------- the surfaces -------------------------------------------------------
+// The status board's line (design section 3). Both numbers come
+// from the caller — the grant count from the read-back view, the
+// total from the registry read-back. Nothing is hardcoded here.
+function collectBoardLine(state, total) {
+  if (!total) return "";
+  return `Brought home: ${Object.keys(state.grants).length} of ${total}`;
+}
+// The Homecoming book (design section 3): per realm, the collected
+// stand by name with the EE they arrived; the met-but-unlanded
+// stand by name as "met — coming home"; the unmet appear ONLY as
+// a realm hint — a count, never a name. Names come from the
+// records the glue has read back (recordsById); a collected
+// character whose record has not been read yet is counted in the
+// realm's hint until their record lands, never named from thin air.
+function collectBookLines(entries, recordsById, state) {
+  const byRealm = new Map();
+  for (const e of entries || []) {
+    if (!byRealm.has(e.realm)) byRealm.set(e.realm, []);
+    byRealm.get(e.realm).push(e);
+  }
+  const lines = [];
+  for (const [realm, list] of byRealm) {
+    const home = [], coming = [];
+    let waiting = 0;
+    for (const e of list) {
+      const rec = recordsById ? recordsById[e.id] : null;
+      if (state.grants[e.id] != null && rec) home.push({ name: rec.name, ee: state.grants[e.id] });
+      else if (collectIsQueued(state, e.id) && rec) coming.push({ name: rec.name });
+      else waiting++;
+    }
+    home.sort((a, b) => a.name.localeCompare(b.name));
+    coming.sort((a, b) => a.name.localeCompare(b.name));
+    lines.push(`${realm} — ${home.length + coming.length} of ${list.length} home`);
+    for (const h of home) lines.push(`  ${h.name} — came home at EE ${h.ee}`);
+    for (const c of coming) lines.push(`  ${c.name} — met, coming home`);
+    if (waiting === 1) lines.push(`  1 more waits in ${realm}`);
+    else if (waiting > 1) lines.push(`  ${waiting} more wait in ${realm}`);
+  }
+  return lines;
+}
+
 // ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====
 // ---------- the gravity dial (build 42, Grok/xAI lane) --------------------
 // Will: the dial is a microcosm of subspace. Players key Morse to
@@ -65981,6 +66276,8 @@ async function backendFlushPass() {
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.ideaRows = parseIdeas(await r.text());
     } catch (e) { /* the tellings keep their last honest state */ }
+    await collectReadBack(); // EE 1348: registry + this fox's collection scroll
+    await collectFlushQueue(); // EE 1348: queued meetings land on reconnect
     if (BACKEND.ecoLedger) {
       // Hand-downs addressed to this fox land exactly once.
       const got = applyHanddowns(eco, BACKEND.ecoLedger, playerName);
@@ -66091,6 +66388,257 @@ function reconcileGravity() {
 
 // Realm entry: attune at once from what is already known, then ask
 // the chart again — its answer, when it comes, reconciles.
+// COLLECT-ENC-BEGIN
+// ---------- collectibles: the Homecoming encounter + surfaces (EE 1348) -----
+// COLLECTIBLES-DESIGN.md sections 2+3, legs 3+4, under Will's
+// EE 1316 / EE ~1333 rulings (the roster read back from the live
+// registry — never hardcoded here). Every rostered character
+// stands in their registry realm as a meeting: placement is
+// collectibles.js's deterministic rule, the standing height is
+// surfaceStandY's (the realm's generated ground, gravity-aware),
+// and the figure's colors derive from the realm's coordinate
+// palette (paletteFor — the F-GAME-7 rule), in the gummy bears'
+// rendering idiom. Approaching plays the meeting beat (templated
+// from the character's registry record — collectBeatText) and
+// posts the collect to the gateway's check-and-set; the server
+// scroll is the truth and this state is a cached view only.
+// Collecting is a meeting, NOT a removal: the character stays.
+BACKEND.collectRegistryCoord = COLLECT_REGISTRY_COORD;
+BACKEND.collectRows = [];   // registry entries actually read back
+BACKEND.collectTotal = 0;    // the registry header's count, read back
+BACKEND.collectGrants = {};  // mirror of the cached view, for readers
+const collectState = newCollectState();
+collectState.queue = LS.get("nova-phox-collect-queue", [])
+  .filter((q) => q && typeof q.character === "string");
+const collectRecords = new Map();       // id -> registry record read back
+const collectRecordFetch = new Set();   // ids with a record fetch in flight
+const collectPosting = new Set();       // ids with a collect post in flight
+const collectBeaten = new Map();        // id -> beat variant played this session
+const collectMeshes = new Map();        // id -> THREE.Group
+let collectSyncing = false;
+let collectNearId = null; // the meeting whose range the fox currently stands in
+
+function collectMirror() { BACKEND.collectGrants = collectState.grants; }
+function collectPersistQueue() { LS.set("nova-phox-collect-queue", collectState.queue); }
+function collectRealmId(realmName) {
+  const r = REALMS.find((x) => x.name === realmName);
+  return r ? r.id : null;
+}
+function collectEntriesForRealm(realmId) {
+  return BACKEND.collectRows.filter((e) => collectRealmId(e.realm) === realmId);
+}
+function collectPlacements(realmId) { return placementsForRealm(collectEntriesForRealm(realmId)); }
+// The identity inside the game token (its payload is a signed
+// JSON body — the client reads its own sub to find its collection
+// scroll; the gateway still judges every write by the signature).
+function collectSub() {
+  try {
+    const t = gameToken();
+    if (!t) return null;
+    const p = String(t).split(".");
+    if (p.length !== 3) return null;
+    const j = JSON.parse(atob(p[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return j.sub || null;
+  } catch (e) { return null; }
+}
+async function collectFetchText(coord) {
+  const r = await fetch(`${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${coord}`,
+    { method: "GET", signal: AbortSignal.timeout(5000) });
+  if (r.status === 404) return "";
+  if (!r.ok) throw new Error("select " + r.status);
+  return await r.text();
+}
+// Read the truth back: the registry index (who stands where, and
+// how many there are) and — when signed in — this fox's collection
+// scroll (who has come home, and the EE each arrived). Local state
+// is replaced by the server's answer, never merged upward.
+async function collectReadBack() {
+  if (collectSyncing || !BACKEND.online) return;
+  collectSyncing = true;
+  try {
+    const idx = parseCollectRegistryIndex(await collectFetchText(BACKEND.collectRegistryCoord));
+    if (idx.entries.length) { BACKEND.collectRows = idx.entries; BACKEND.collectTotal = idx.total; }
+    const sub = collectSub();
+    if (sub) {
+      const parsed = parseCollectionScroll(await collectFetchText(collectionCoordFor(sub)), sub);
+      if (parsed.headerOk) { collectState.grants = parsed.grants; collectMirror(); }
+    }
+    collectEnsureRecords(state.realm);
+    collectEnsureGrantRecords();
+  } catch (e) { /* the collection keeps its last honest state */ }
+  finally { collectSyncing = false; }
+}
+function collectEnsureRecords(realmId) {
+  for (const e of collectEntriesForRealm(realmId)) {
+    if (collectRecords.has(e.id) || collectRecordFetch.has(e.id)) continue;
+    collectRecordFetch.add(e.id);
+    collectFetchText(e.coord).then((t) => {
+      const rec = parseCollectRecord(t);
+      if (rec) collectRecords.set(rec.id, rec);
+    }).catch(() => {}).then(() => collectRecordFetch.delete(e.id));
+  }
+}
+// Records for characters already home are read back wherever
+// they stand, so the book can name them (with their EE) before
+// the fox next visits their realm.
+function collectEnsureGrantRecords() {
+  for (const e of BACKEND.collectRows) {
+    if (collectState.grants[e.id] == null || collectRecords.has(e.id) || collectRecordFetch.has(e.id)) continue;
+    collectRecordFetch.add(e.id);
+    collectFetchText(e.coord).then((t) => {
+      const rec = parseCollectRecord(t);
+      if (rec) collectRecords.set(rec.id, rec);
+    }).catch(() => {}).then(() => collectRecordFetch.delete(e.id));
+  }
+}
+// Post one meeting to the gateway's check-and-set. Exactly-once
+// discipline on this side: never post while a post for the same
+// character is in flight or the grant is already in the view; a
+// post that cannot land (no session, no connection, a gateway
+// refusal short of "unknown character") queues the meeting in the
+// gateway's accepted queued shape instead of dropping it. A retry
+// that meets already-home reconciles the view to the server's
+// original EE — the count does not move (applyCollectAnswer).
+async function collectPost(entry, queued) {
+  const id = entry.id;
+  if (collectPosting.has(id) || collectState.grants[id] != null) return null;
+  collectPosting.add(id);
+  try {
+    const token = gameToken();
+    if (!token || !BACKEND.online) throw new Error("no live session");
+    const r = await fetch(`${BACKEND.base}/api/v2/collect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(collectRequestBody(id, !!queued)),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (r.status === 404) return null; // unknown character: refused; nothing queues against a refusal
+    if (!r.ok) throw new Error("collect " + r.status);
+    const ans = await r.json();
+    const st = applyCollectAnswer(collectState, id, ans);
+    if (st) {
+      collectMirror(); collectPersistQueue();
+      if (st === "already-home") {
+        const rec = collectRecords.get(id);
+        if (rec) toast(collectBeatText(rec, "returning", ans.ee), 8000);
+      }
+    }
+    return st;
+  } catch (e) {
+    if (queueCollect(collectState, id)) collectPersistQueue();
+    return "queued";
+  } finally { collectPosting.delete(id); }
+}
+// The meeting itself: the beat plays once per variant per session
+// (a first meeting, a coming-home meeting, a returning friend).
+// Only a first meeting posts; a returning friend is met, not
+// re-collected, and a queued meeting lands via the flush.
+function collectMeet(entry) {
+  const variant = collectVariantFor(collectState, entry.id);
+  if (collectBeaten.get(entry.id) === variant) return null;
+  collectBeaten.set(entry.id, variant);
+  const rec = collectRecords.get(entry.id);
+  if (rec) toast(collectBeatText(rec, variant, collectState.grants[entry.id]), 9000);
+  if (variant !== "first") return null;
+  return collectPost(entry, false);
+}
+// The approach trigger, run in the frame loop: the nearest
+// standing meeting inside COLLECT_MEET_RANGE fires. A character
+// whose record has not been read back yet is not met early — the
+// beat is sourced from the record, so the record comes first.
+function collectTick() {
+  if (!BACKEND.collectRows.length) return null;
+  collectEnsureRecords(state.realm);
+  const near = nearestMeeting(collectPlacements(state.realm), state.pos.x, state.pos.z);
+  const nearId = near ? near.placement.id : null;
+  if (nearId === collectNearId) return null; // standing inside a meeting does not re-fire it
+  collectNearId = nearId;
+  if (!near) return null;
+  const entry = collectEntriesForRealm(state.realm).find((e) => e.id === near.placement.id);
+  if (!entry || !collectRecords.has(entry.id)) return null;
+  return collectMeet(entry);
+}
+// Queued meetings post on reconnect, oldest first, each in the
+// queued shape; the landing EE is the gateway's, assigned then.
+async function collectFlushQueue() {
+  if (!gameToken() || !BACKEND.online || !collectState.queue.length) return;
+  for (const q of [...collectState.queue]) {
+    const entry = BACKEND.collectRows.find((e) => e.id === q.character) || { id: q.character };
+    await collectPost(entry, true);
+  }
+}
+// The standing figures, in the gummy bears' idiom: a small
+// block-built person whose colors derive from the realm's
+// coordinate palette (accent lerped toward accent2 by the
+// character id's hash — presentation from the realm coordinate,
+// per design section 2; no per-character art assets exist).
+function buildCollectMesh(entry) {
+  const realmId = collectRealmId(entry.realm) || state.realm;
+  const pal = paletteFor(realmId);
+  const grp = new THREE.Group();
+  const mix = Number(collectFnv1a64(entry.id) % 100n) / 100;
+  const col = new THREE.Color(pal.accent).lerp(new THREE.Color(pal.accent2), mix);
+  const mat = new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.3 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x1a2436 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.75, 0.4), mat);
+  body.position.y = 0.62; grp.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.38), mat);
+  head.position.y = 1.2; grp.add(head);
+  for (const dz of [-0.1, 0.1]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.07), dark);
+    eye.position.set(0.2, 1.24, dz); grp.add(eye);
+  }
+  return grp;
+}
+function syncCollectMeshes() {
+  const seen = new Set();
+  if (BACKEND.collectRows.length) {
+    for (const p of collectPlacements(state.realm)) {
+      seen.add(p.id);
+      let mesh = collectMeshes.get(p.id);
+      if (!mesh) {
+        const entry = collectEntriesForRealm(state.realm).find((e) => e.id === p.id);
+        if (!entry) continue;
+        mesh = buildCollectMesh(entry);
+        collectMeshes.set(p.id, mesh);
+        scene.add(mesh);
+      }
+      // On the ground: surfaceStandY is the game's own stand
+      // height over the generated terrain (gravity-aware).
+      mesh.position.set(p.bx + 0.5, surfaceStandY(state.realm, p.bx, p.bz) - 0.01, p.bz + 0.5);
+      mesh.rotation.y = Math.atan2(state.pos.x - (p.bx + 0.5), state.pos.z - (p.bz + 0.5)) - Math.PI / 2;
+    }
+  }
+  for (const [id, mesh] of collectMeshes) {
+    if (!seen.has(id)) { scene.remove(mesh); collectMeshes.delete(id); }
+  }
+}
+// The surfaces (design section 3): the board's count line and the
+// Homecoming book in the Esc menu. The book is the player's own
+// book — no keeper is named. Unmet characters appear only as
+// realm hints (collectBookLines); names arrive by meeting.
+function collectBoardLineNow() { return collectBoardLine(collectState, BACKEND.collectTotal); }
+function collectBookLinesNow() {
+  const byId = {};
+  for (const [id, rec] of collectRecords) byId[id] = rec;
+  return collectBookLines(BACKEND.collectRows, byId, collectState);
+}
+function renderCollectBook() {
+  const el = $("collect-book-body");
+  if (!el) return;
+  el.textContent = "";
+  const lines = BACKEND.collectRows.length ? collectBookLinesNow()
+    : ["The book waits for the shared chart to answer — meetings on this machine are kept. "];
+  for (const ln of lines) {
+    const d = document.createElement("div");
+    d.textContent = ln;
+    el.appendChild(d);
+  }
+  const st = $("menu-collect-state");
+  if (st) st.textContent = collectBoardLineNow();
+}
+// COLLECT-ENC-END
+
 async function enterRealmGravity(realmId) {
   state.realmSince = performance.now(); // entry restarts the warp dwell (demo18)
   reconcileGravity();
@@ -71523,7 +72071,7 @@ function statusBoardText() {
   }
   return `Status — HP ${Math.max(0, state.hp)} / ${state.maxHp} \u00b7 score ${d.mine.score} pts \u00b7 ` +
     (sub.questDone ? "Quest — the Deep Stone is reached: quest done."
-                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near;
+                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near + (collectBoardLineNow() ? ` \u00b7 ${collectBoardLineNow()}` : "");
 }
 function renderBoard() {
   const el = document.getElementById("board");
@@ -72740,7 +73288,7 @@ function toggleRealms(force) {
 // the board and the map. While a menu panel is up, the keyboard
 // works the menu instead of the fox (the keydown handler routes
 // here first) — a menu you cannot type through.
-const MENU_PANELS = ["menu", "bindings-panel", "video-panel", "audio-panel"];
+const MENU_PANELS = ["menu", "bindings-panel", "video-panel", "audio-panel", "collect-panel"];
 let panelFocus = { panel: null, index: 0 };
 let bindingCapture = null; // the action awaiting a key, or null
 let newGameArmed = false;
@@ -72769,7 +73317,7 @@ function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
     return ["menu-newgame", "menu-unstick", "menu-lan", "menu-mp", "menu-savephext", "menu-merge",
-      "menu-keys", "menu-video", "menu-audio", "menu-feedback", "menu-quit", "menu-close"].map($);
+      "menu-keys", "menu-video", "menu-audio", "menu-collect", "menu-feedback", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
     return [...$("bindings-list").querySelectorAll("button"),
@@ -72777,6 +73325,9 @@ function panelControls(id) {
   }
   if (id === "video-panel") {
     return [$("vid-scale"), $("vid-view"), $("vid-full"), $("video-back")];
+  }
+  if (id === "collect-panel") {
+    return [$("collect-back")];
   }
   if (id === "audio-panel") {
     return [$("aud-master"), $("aud-narration"), $("aud-mute"), $("audio-back")];
@@ -73389,6 +73940,8 @@ $("menu-merge").addEventListener("click", () => { mergeToHosted(); });
 $("menu-keys").addEventListener("click", () => openPanel("bindings-panel"));
 $("menu-video").addEventListener("click", () => openPanel("video-panel"));
 $("menu-audio").addEventListener("click", () => openPanel("audio-panel"));
+$("menu-collect").addEventListener("click", () => { renderCollectBook(); openPanel("collect-panel"); });
+$("collect-back").addEventListener("click", () => openPanel("menu"));
 $("menu-feedback").addEventListener("click", () => openFeedbackDoor());
 $("menu-quit").addEventListener("click", () => quitToTitle());
 
@@ -74180,6 +74733,8 @@ function animate() {
   chunkMaintenance();
   syncMonsterMeshes(dt);
   syncGummyMeshes(dt); // wg9: gummy bears render from their own roll
+  syncCollectMeshes(); // EE 1348: the cast stands in their realms
+  collectTick(); // EE 1348: approaching a character plays the meeting
   mpStep(now, dt); // MP-1: the room, the foxes in it, the pulse
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place

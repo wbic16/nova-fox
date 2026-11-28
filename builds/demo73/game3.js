@@ -2542,6 +2542,8 @@ async function backendFlushPass() {
         { method: "GET", signal: AbortSignal.timeout(5000) });
       if (r.ok) BACKEND.ideaRows = parseIdeas(await r.text());
     } catch (e) { /* the tellings keep their last honest state */ }
+    await collectReadBack(); // EE 1348: registry + this fox's collection scroll
+    await collectFlushQueue(); // EE 1348: queued meetings land on reconnect
     if (BACKEND.ecoLedger) {
       // Hand-downs addressed to this fox land exactly once.
       const got = applyHanddowns(eco, BACKEND.ecoLedger, playerName);
@@ -2652,6 +2654,257 @@ function reconcileGravity() {
 
 // Realm entry: attune at once from what is already known, then ask
 // the chart again — its answer, when it comes, reconciles.
+// COLLECT-ENC-BEGIN
+// ---------- collectibles: the Homecoming encounter + surfaces (EE 1348) -----
+// COLLECTIBLES-DESIGN.md sections 2+3, legs 3+4, under Will's
+// EE 1316 / EE ~1333 rulings (the roster read back from the live
+// registry — never hardcoded here). Every rostered character
+// stands in their registry realm as a meeting: placement is
+// collectibles.js's deterministic rule, the standing height is
+// surfaceStandY's (the realm's generated ground, gravity-aware),
+// and the figure's colors derive from the realm's coordinate
+// palette (paletteFor — the F-GAME-7 rule), in the gummy bears'
+// rendering idiom. Approaching plays the meeting beat (templated
+// from the character's registry record — collectBeatText) and
+// posts the collect to the gateway's check-and-set; the server
+// scroll is the truth and this state is a cached view only.
+// Collecting is a meeting, NOT a removal: the character stays.
+BACKEND.collectRegistryCoord = COLLECT_REGISTRY_COORD;
+BACKEND.collectRows = [];   // registry entries actually read back
+BACKEND.collectTotal = 0;    // the registry header's count, read back
+BACKEND.collectGrants = {};  // mirror of the cached view, for readers
+const collectState = newCollectState();
+collectState.queue = LS.get("nova-phox-collect-queue", [])
+  .filter((q) => q && typeof q.character === "string");
+const collectRecords = new Map();       // id -> registry record read back
+const collectRecordFetch = new Set();   // ids with a record fetch in flight
+const collectPosting = new Set();       // ids with a collect post in flight
+const collectBeaten = new Map();        // id -> beat variant played this session
+const collectMeshes = new Map();        // id -> THREE.Group
+let collectSyncing = false;
+let collectNearId = null; // the meeting whose range the fox currently stands in
+
+function collectMirror() { BACKEND.collectGrants = collectState.grants; }
+function collectPersistQueue() { LS.set("nova-phox-collect-queue", collectState.queue); }
+function collectRealmId(realmName) {
+  const r = REALMS.find((x) => x.name === realmName);
+  return r ? r.id : null;
+}
+function collectEntriesForRealm(realmId) {
+  return BACKEND.collectRows.filter((e) => collectRealmId(e.realm) === realmId);
+}
+function collectPlacements(realmId) { return placementsForRealm(collectEntriesForRealm(realmId)); }
+// The identity inside the game token (its payload is a signed
+// JSON body — the client reads its own sub to find its collection
+// scroll; the gateway still judges every write by the signature).
+function collectSub() {
+  try {
+    const t = gameToken();
+    if (!t) return null;
+    const p = String(t).split(".");
+    if (p.length !== 3) return null;
+    const j = JSON.parse(atob(p[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return j.sub || null;
+  } catch (e) { return null; }
+}
+async function collectFetchText(coord) {
+  const r = await fetch(`${BACKEND.base}/api/v2/select?p=${BACKEND.phext}&c=${coord}`,
+    { method: "GET", signal: AbortSignal.timeout(5000) });
+  if (r.status === 404) return "";
+  if (!r.ok) throw new Error("select " + r.status);
+  return await r.text();
+}
+// Read the truth back: the registry index (who stands where, and
+// how many there are) and — when signed in — this fox's collection
+// scroll (who has come home, and the EE each arrived). Local state
+// is replaced by the server's answer, never merged upward.
+async function collectReadBack() {
+  if (collectSyncing || !BACKEND.online) return;
+  collectSyncing = true;
+  try {
+    const idx = parseCollectRegistryIndex(await collectFetchText(BACKEND.collectRegistryCoord));
+    if (idx.entries.length) { BACKEND.collectRows = idx.entries; BACKEND.collectTotal = idx.total; }
+    const sub = collectSub();
+    if (sub) {
+      const parsed = parseCollectionScroll(await collectFetchText(collectionCoordFor(sub)), sub);
+      if (parsed.headerOk) { collectState.grants = parsed.grants; collectMirror(); }
+    }
+    collectEnsureRecords(state.realm);
+    collectEnsureGrantRecords();
+  } catch (e) { /* the collection keeps its last honest state */ }
+  finally { collectSyncing = false; }
+}
+function collectEnsureRecords(realmId) {
+  for (const e of collectEntriesForRealm(realmId)) {
+    if (collectRecords.has(e.id) || collectRecordFetch.has(e.id)) continue;
+    collectRecordFetch.add(e.id);
+    collectFetchText(e.coord).then((t) => {
+      const rec = parseCollectRecord(t);
+      if (rec) collectRecords.set(rec.id, rec);
+    }).catch(() => {}).then(() => collectRecordFetch.delete(e.id));
+  }
+}
+// Records for characters already home are read back wherever
+// they stand, so the book can name them (with their EE) before
+// the fox next visits their realm.
+function collectEnsureGrantRecords() {
+  for (const e of BACKEND.collectRows) {
+    if (collectState.grants[e.id] == null || collectRecords.has(e.id) || collectRecordFetch.has(e.id)) continue;
+    collectRecordFetch.add(e.id);
+    collectFetchText(e.coord).then((t) => {
+      const rec = parseCollectRecord(t);
+      if (rec) collectRecords.set(rec.id, rec);
+    }).catch(() => {}).then(() => collectRecordFetch.delete(e.id));
+  }
+}
+// Post one meeting to the gateway's check-and-set. Exactly-once
+// discipline on this side: never post while a post for the same
+// character is in flight or the grant is already in the view; a
+// post that cannot land (no session, no connection, a gateway
+// refusal short of "unknown character") queues the meeting in the
+// gateway's accepted queued shape instead of dropping it. A retry
+// that meets already-home reconciles the view to the server's
+// original EE — the count does not move (applyCollectAnswer).
+async function collectPost(entry, queued) {
+  const id = entry.id;
+  if (collectPosting.has(id) || collectState.grants[id] != null) return null;
+  collectPosting.add(id);
+  try {
+    const token = gameToken();
+    if (!token || !BACKEND.online) throw new Error("no live session");
+    const r = await fetch(`${BACKEND.base}/api/v2/collect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(collectRequestBody(id, !!queued)),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (r.status === 404) return null; // unknown character: refused; nothing queues against a refusal
+    if (!r.ok) throw new Error("collect " + r.status);
+    const ans = await r.json();
+    const st = applyCollectAnswer(collectState, id, ans);
+    if (st) {
+      collectMirror(); collectPersistQueue();
+      if (st === "already-home") {
+        const rec = collectRecords.get(id);
+        if (rec) toast(collectBeatText(rec, "returning", ans.ee), 8000);
+      }
+    }
+    return st;
+  } catch (e) {
+    if (queueCollect(collectState, id)) collectPersistQueue();
+    return "queued";
+  } finally { collectPosting.delete(id); }
+}
+// The meeting itself: the beat plays once per variant per session
+// (a first meeting, a coming-home meeting, a returning friend).
+// Only a first meeting posts; a returning friend is met, not
+// re-collected, and a queued meeting lands via the flush.
+function collectMeet(entry) {
+  const variant = collectVariantFor(collectState, entry.id);
+  if (collectBeaten.get(entry.id) === variant) return null;
+  collectBeaten.set(entry.id, variant);
+  const rec = collectRecords.get(entry.id);
+  if (rec) toast(collectBeatText(rec, variant, collectState.grants[entry.id]), 9000);
+  if (variant !== "first") return null;
+  return collectPost(entry, false);
+}
+// The approach trigger, run in the frame loop: the nearest
+// standing meeting inside COLLECT_MEET_RANGE fires. A character
+// whose record has not been read back yet is not met early — the
+// beat is sourced from the record, so the record comes first.
+function collectTick() {
+  if (!BACKEND.collectRows.length) return null;
+  collectEnsureRecords(state.realm);
+  const near = nearestMeeting(collectPlacements(state.realm), state.pos.x, state.pos.z);
+  const nearId = near ? near.placement.id : null;
+  if (nearId === collectNearId) return null; // standing inside a meeting does not re-fire it
+  collectNearId = nearId;
+  if (!near) return null;
+  const entry = collectEntriesForRealm(state.realm).find((e) => e.id === near.placement.id);
+  if (!entry || !collectRecords.has(entry.id)) return null;
+  return collectMeet(entry);
+}
+// Queued meetings post on reconnect, oldest first, each in the
+// queued shape; the landing EE is the gateway's, assigned then.
+async function collectFlushQueue() {
+  if (!gameToken() || !BACKEND.online || !collectState.queue.length) return;
+  for (const q of [...collectState.queue]) {
+    const entry = BACKEND.collectRows.find((e) => e.id === q.character) || { id: q.character };
+    await collectPost(entry, true);
+  }
+}
+// The standing figures, in the gummy bears' idiom: a small
+// block-built person whose colors derive from the realm's
+// coordinate palette (accent lerped toward accent2 by the
+// character id's hash — presentation from the realm coordinate,
+// per design section 2; no per-character art assets exist).
+function buildCollectMesh(entry) {
+  const realmId = collectRealmId(entry.realm) || state.realm;
+  const pal = paletteFor(realmId);
+  const grp = new THREE.Group();
+  const mix = Number(collectFnv1a64(entry.id) % 100n) / 100;
+  const col = new THREE.Color(pal.accent).lerp(new THREE.Color(pal.accent2), mix);
+  const mat = new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.3 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x1a2436 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.75, 0.4), mat);
+  body.position.y = 0.62; grp.add(body);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.38), mat);
+  head.position.y = 1.2; grp.add(head);
+  for (const dz of [-0.1, 0.1]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.07), dark);
+    eye.position.set(0.2, 1.24, dz); grp.add(eye);
+  }
+  return grp;
+}
+function syncCollectMeshes() {
+  const seen = new Set();
+  if (BACKEND.collectRows.length) {
+    for (const p of collectPlacements(state.realm)) {
+      seen.add(p.id);
+      let mesh = collectMeshes.get(p.id);
+      if (!mesh) {
+        const entry = collectEntriesForRealm(state.realm).find((e) => e.id === p.id);
+        if (!entry) continue;
+        mesh = buildCollectMesh(entry);
+        collectMeshes.set(p.id, mesh);
+        scene.add(mesh);
+      }
+      // On the ground: surfaceStandY is the game's own stand
+      // height over the generated terrain (gravity-aware).
+      mesh.position.set(p.bx + 0.5, surfaceStandY(state.realm, p.bx, p.bz) - 0.01, p.bz + 0.5);
+      mesh.rotation.y = Math.atan2(state.pos.x - (p.bx + 0.5), state.pos.z - (p.bz + 0.5)) - Math.PI / 2;
+    }
+  }
+  for (const [id, mesh] of collectMeshes) {
+    if (!seen.has(id)) { scene.remove(mesh); collectMeshes.delete(id); }
+  }
+}
+// The surfaces (design section 3): the board's count line and the
+// Homecoming book in the Esc menu. The book is the player's own
+// book — no keeper is named. Unmet characters appear only as
+// realm hints (collectBookLines); names arrive by meeting.
+function collectBoardLineNow() { return collectBoardLine(collectState, BACKEND.collectTotal); }
+function collectBookLinesNow() {
+  const byId = {};
+  for (const [id, rec] of collectRecords) byId[id] = rec;
+  return collectBookLines(BACKEND.collectRows, byId, collectState);
+}
+function renderCollectBook() {
+  const el = $("collect-book-body");
+  if (!el) return;
+  el.textContent = "";
+  const lines = BACKEND.collectRows.length ? collectBookLinesNow()
+    : ["The book waits for the shared chart to answer — meetings on this machine are kept. "];
+  for (const ln of lines) {
+    const d = document.createElement("div");
+    d.textContent = ln;
+    el.appendChild(d);
+  }
+  const st = $("menu-collect-state");
+  if (st) st.textContent = collectBoardLineNow();
+}
+// COLLECT-ENC-END
+
 async function enterRealmGravity(realmId) {
   state.realmSince = performance.now(); // entry restarts the warp dwell (demo18)
   reconcileGravity();
@@ -8084,7 +8337,7 @@ function statusBoardText() {
   }
   return `Status — HP ${Math.max(0, state.hp)} / ${state.maxHp} \u00b7 score ${d.mine.score} pts \u00b7 ` +
     (sub.questDone ? "Quest — the Deep Stone is reached: quest done."
-                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near;
+                   : "Quest — the Deep Stone waits in the barrow, east of Arrival.") + near + (collectBoardLineNow() ? ` \u00b7 ${collectBoardLineNow()}` : "");
 }
 function renderBoard() {
   const el = document.getElementById("board");
@@ -9301,7 +9554,7 @@ function toggleRealms(force) {
 // the board and the map. While a menu panel is up, the keyboard
 // works the menu instead of the fox (the keydown handler routes
 // here first) — a menu you cannot type through.
-const MENU_PANELS = ["menu", "bindings-panel", "video-panel", "audio-panel"];
+const MENU_PANELS = ["menu", "bindings-panel", "video-panel", "audio-panel", "collect-panel"];
 let panelFocus = { panel: null, index: 0 };
 let bindingCapture = null; // the action awaiting a key, or null
 let newGameArmed = false;
@@ -9330,7 +9583,7 @@ function panelControls(id) {
   if (id === "menu") {
     if (newGameArmed) return [$("menu-confirm-yes"), $("menu-confirm-no")];
     return ["menu-newgame", "menu-unstick", "menu-lan", "menu-mp", "menu-savephext", "menu-merge",
-      "menu-keys", "menu-video", "menu-audio", "menu-feedback", "menu-quit", "menu-close"].map($);
+      "menu-keys", "menu-video", "menu-audio", "menu-collect", "menu-feedback", "menu-quit", "menu-close"].map($);
   }
   if (id === "bindings-panel") {
     return [...$("bindings-list").querySelectorAll("button"),
@@ -9338,6 +9591,9 @@ function panelControls(id) {
   }
   if (id === "video-panel") {
     return [$("vid-scale"), $("vid-view"), $("vid-full"), $("video-back")];
+  }
+  if (id === "collect-panel") {
+    return [$("collect-back")];
   }
   if (id === "audio-panel") {
     return [$("aud-master"), $("aud-narration"), $("aud-mute"), $("audio-back")];
@@ -9950,6 +10206,8 @@ $("menu-merge").addEventListener("click", () => { mergeToHosted(); });
 $("menu-keys").addEventListener("click", () => openPanel("bindings-panel"));
 $("menu-video").addEventListener("click", () => openPanel("video-panel"));
 $("menu-audio").addEventListener("click", () => openPanel("audio-panel"));
+$("menu-collect").addEventListener("click", () => { renderCollectBook(); openPanel("collect-panel"); });
+$("collect-back").addEventListener("click", () => openPanel("menu"));
 $("menu-feedback").addEventListener("click", () => openFeedbackDoor());
 $("menu-quit").addEventListener("click", () => quitToTitle());
 
@@ -10741,6 +10999,8 @@ function animate() {
   chunkMaintenance();
   syncMonsterMeshes(dt);
   syncGummyMeshes(dt); // wg9: gummy bears render from their own roll
+  syncCollectMeshes(); // EE 1348: the cast stands in their realms
+  collectTick(); // EE 1348: approaching a character plays the meeting
   mpStep(now, dt); // MP-1: the room, the foxes in it, the pulse
   syncItemMeshes(now);
   stepJoy(now, dt); // EE 995 (item 8): Joy keeps her place

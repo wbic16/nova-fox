@@ -506,6 +506,8 @@
   #menu-confirm { display: none; margin-top: 12px; border-top: 1px solid rgba(60, 84, 128, 0.4); padding-top: 10px; }
   #menu-confirm-text { color: #ffb84d; font-size: 13.5px; line-height: 1.5; }
   #menu-note, #bindings-note { color: #7e93bd; font-size: 12.5px; margin-top: 10px; min-height: 16px; line-height: 1.5; }
+  #collect-book-body { color: #d6e4ff; font-size: 14px; line-height: 1.55; margin-top: 10px; }
+  #collect-panel { left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 11; width: 56vw; height: 72vh; display: none; overflow-y: auto; }
   .setrow {
     display: flex; justify-content: space-between; align-items: center; gap: 12px;
     padding: 7px 4px; border-bottom: 1px solid rgba(60, 84, 128, 0.4);
@@ -1119,6 +1121,7 @@
     <button class="menuitem" id="menu-keys">Key bindings</button>
     <button class="menuitem" id="menu-video">Video settings</button>
     <button class="menuitem" id="menu-audio">Audio settings</button>
+    <button class="menuitem" id="menu-collect">The Homecoming book <span class="st" id="menu-collect-state"></span></button>
     <button class="menuitem" id="menu-feedback">Send feedback / playtest notes</button>
     <button class="menuitem" id="menu-quit">Quit</button>
   </div>
@@ -1165,6 +1168,15 @@
   <div class="setrow"><span>Sound</span><button class="ghost" id="aud-mute">on</button></div>
   <div class="btnrow">
     <button class="ghost" id="audio-back">back (Esc)</button>
+  </div>
+</div>
+
+<div class="overlay hudpanel" id="collect-panel">
+  <h2>The Homecoming book</h2>
+  <div class="sub">Your own book — who has come home, and where more wait. Names are written here only once you have met them; the rest stand as hints, by realm.</div>
+  <div id="collect-book-body"></div>
+  <div class="btnrow">
+    <button class="ghost" id="collect-back">back (Esc)</button>
   </div>
 </div>
 

@@ -357,6 +357,8 @@ parts = [
     scheme,
     "// ===== player ideas: the telling door's chart lines (source: ideas.js) =====",
     re.sub(r"^export ", "", read("ideas.js"), flags=re.M),
+    "// ===== collectibles: the Homecoming chart logic (source: collectibles.js) =====",
+    re.sub(r"^export ", "", read("collectibles.js"), flags=re.M),
     "// ===== the gravity dial: Morse, magnitude, frequency (source: gdial.js) =====",
     re.sub(r"^export ", "", read("gdial.js"), flags=re.M),
     "// ===== the feedback door: to the wiki, with the stamp (source: feedback.js) =====",
