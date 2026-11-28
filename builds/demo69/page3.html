@@ -645,7 +645,7 @@
   }
   /* Optional components (2026-11-26): the default view keeps only
      what play requires. Everything secondary — the key wall, the
-     portrait, the standing realm title, the quest/score/sync
+     standing realm title, the quest/score/sync
      lines — is an optional component: tucked away until the
      extras toggle (bottom right) asks for it. Nothing is deleted;
      it all lives behind the one toggle. */
@@ -772,7 +772,12 @@
 </div>
 
 <div class="overlay hudpanel" id="topleft">
-  <canvas id="portrait" class="opt" width="72" height="72"></canvas>
+  <!-- F-GROK-12: the HUD portrait is NOT an optional component --
+       it carries no .opt class, so the extras toggle never hides
+       it and a default boot (extras off) shows it. drawPortrait()
+       in game3.js already draws it on every HUD sync; only its
+       visibility was gated. The fox art itself is unchanged. -->
+  <canvas id="portrait" width="72" height="72"></canvas>
   <div>
     <div id="hearts"></div>
     <div id="hpnum">HP 20 / 20</div>

@@ -5680,5 +5680,28 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
     && pgFix.includes('id="btn-scheme-splash"'));
 }
 
+// === F-GROK-8 + F-GROK-12 (Grok play report) ===
+{
+  const g8Game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const g8Page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const dsAt = g8Game.indexOf("function dismissSplash()");
+  const dsBlock = dsAt >= 0 ? g8Game.slice(dsAt, g8Game.indexOf("window.__splashDismiss", dsAt)) : "";
+  check("F-GROK-8: dismissing the splash dismisses the sign-in card with it",
+    dsBlock.includes("dismissAuthPrompt()"));
+  const msAt = g8Game.indexOf("function maybeShowAuthPrompt()");
+  const msBlock = msAt >= 0 ? g8Game.slice(msAt, g8Game.indexOf("function dismissAuthPrompt()", msAt)) : "";
+  check("F-GROK-8: the card is presented only while the splash is up (a late probe never pops it over the world)",
+    msBlock.includes("d.show && state.splash") && msBlock.includes('el.style.display = "block"'));
+  check("F-GROK-8: the load-time card and its controls are still in the page (sign-in stays reachable on load)",
+    g8Page.includes('id="authprompt"') && g8Page.includes('id="btn-auth-sso"')
+    && g8Page.includes('id="auth-code"') && g8Page.includes('id="btn-auth-dismiss"'));
+  const portraitTag = (g8Page.match(/<canvas id="portrait"[^>]*>/) || [""])[0];
+  check("F-GROK-12: the HUD portrait is not gated by the extras toggle (no .opt class), so a default boot shows it",
+    portraitTag !== "" && !portraitTag.includes("opt") && portraitTag.includes('width="72"'));
+  check("F-GROK-12: drawPortrait still draws the fox face and still runs on HUD sync (art and wiring untouched)",
+    g8Game.includes("function drawPortrait()") && g8Game.includes('g.fillStyle = "#2f7fe0"')
+    && g8Game.includes("drawPortrait();"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

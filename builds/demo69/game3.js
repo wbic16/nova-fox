@@ -8769,6 +8769,15 @@ function dismissSplash() {
   trailDone();
   const el = $("splash");
   if (el) el.style.display = "none";
+  // F-GROK-8: the sign-in card is a splash-state surface. On the
+  // splash it sits docked at the top-left (F-GAME-5 pin: left 14,
+  // top 14, width 430, clear of Begin); once the splash steps
+  // aside the card steps aside with it, so it never covers the
+  // objective, the hearts, or the status board's status line
+  // (B) in play. Starting the game is the card's own "play free"
+  // choice, taken by playing. The card was presented on load and
+  // stays usable for as long as the splash is up.
+  dismissAuthPrompt();
 }
 window.__splashDismiss = dismissSplash;
 
@@ -9686,7 +9695,12 @@ function maybeShowAuthPrompt() {
   });
   const el = $("authprompt");
   if (!el) return d;
-  if (d.show) {
+  // F-GROK-8: presentation is splash-state only. The probe that
+  // leads here resolves asynchronously; if the player has already
+  // stepped past the splash, the card does not pop up over the
+  // world after the fact -- it was a load-time prompt, and the
+  // moment for it has passed with the splash.
+  if (d.show && state.splash) {
     authPromptShown = true;
     el.style.display = "block";
     const note = $("auth-note");
