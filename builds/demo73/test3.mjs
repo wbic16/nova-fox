@@ -5896,6 +5896,52 @@ for (const s of ["", "nova-prime|scroll|0,0", "1,4,9", "x".repeat(300)]) {
 }
 
 
+// ---------- F12 (EE 1339): F-1/F-2 contract pins, producer leg 1 ----------
+// Will ruled "F1/F2 good" (EE 1338) on the shapes in
+// F-PRODUCER-REPORT.md (EE 1129-1136, demo59 lineage). demo73
+// carries those shapes in reconciled form (A2-NARR / A2-GRAV);
+// the judge pins and the syncToGuide pins stand above. What was
+// NOT pinned on this lineage: skipLine's own behavior, executed
+// from the real body (the player's cut — distinct from the
+// advance path A2-NARR reconciled), and the rest of the approved
+// wiring. These pins close that gap; nothing above is altered.
+{
+  const game = readFileSync(new URL("./game3.js", import.meta.url), "utf8");
+  const page = readFileSync(new URL("./page3.html", import.meta.url), "utf8");
+  const skipBody = (game.match(/\n  skipLine\(\) \{([\s\S]*?)\n  \},\n/) || [])[1] || null;
+  let skipFn = null;
+  try { skipFn = skipBody ? new Function(skipBody) : null; } catch { skipFn = null; }
+  const mockVoice = (over) => Object.assign({
+    speaking: { pause() {} }, speakingId: null, speakingEntry: null,
+    skippedIds: [], endedIds: [], breath() {},
+  }, over || {});
+  const runSkip = (mock) => {
+    if (!skipFn) return undefined;
+    try { return skipFn.call(mock); } catch { return undefined; }
+  };
+  const cut = mockVoice({ speakingId: "N-02", speakingEntry: { id: "N-02" } });
+  check("f12 F-1: skipLine cuts the speaking spine line and records it skipped, not heard",
+    runSkip(cut) === true && cut.speakingId === null && cut.speaking === null &&
+    cut.skippedIds.join(",") === "N-02" && cut.endedIds.length === 0);
+  const beat = mockVoice({ speakingId: "BEAT-arrival", speakingEntry: { id: "BEAT-arrival" } });
+  check("f12 F-1: skipLine never cuts an event beat",
+    runSkip(beat) === false && beat.speakingId === "BEAT-arrival" &&
+    beat.skippedIds.length === 0);
+  const idle = mockVoice({ speaking: null, speakingId: null });
+  check("f12 F-1: skipLine with nothing speaking is a no-op",
+    runSkip(idle) === false && idle.skippedIds.length === 0);
+  check("f12 F-1: guide click and Enter (panel up, guide not done) wire the player's skip",
+    game.includes('$("guide-lines").addEventListener("click", () => { narration.skipLine(); })') &&
+    game.includes('if (e.code !== "Enter") return;') &&
+    game.includes('panel.style.display !== "none" && !state.guideDone) narration.skipLine()'));
+  check("f12 F-1: the dismiss affordance stands lit pre-handover (#guide-dismiss.skip-on)",
+    page.includes("#guide-dismiss.skip-on") &&
+    game.includes('classList.toggle("skip-on", !step.jit && step.id !== "done")'));
+  check("f12 F-2: a correction announces itself by name and gravityState reports the window",
+    game.includes('toast("Correction — the down you just left is restored.') &&
+    game.includes("correction: !!gravityCorrection(gravityKnownRecords(), state.realm, playerName, todayStr(), Date.now())"));
+}
+
 // === A2-GRAV fixture-fix pins (F-GAME-4) ===
 // Arrival placement under inverted gravity stranded the fox in
 // The Nothing: vault traversal was clean (the fall-arrest held),
